@@ -8,6 +8,7 @@ import javax.jcr.NodeIterator;
 import javax.jcr.RepositoryException;
 import javax.jcr.observation.Event;
 import javax.jcr.observation.EventIterator;
+import org.apache.jackrabbit.core.observation.EventState;
 import org.jahia.api.Constants;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
 import org.jahia.community.modules.customgpt.service.Service;
@@ -79,7 +80,41 @@ public class IndexerJCRListener extends DefaultEventListener {
                     nodePath = path;
                 }
 
-                if (event.getPath().startsWith("/trash-")) {
+                if (event.getPath().endsWith(Constants.JCR_MIXINTYPES) && event.getType() == Event.PROPERTY_CHANGED) {
+                    if (event.getNodeTypes().contains(CustomGptConstants.MIX_SKIP_INDEX)) {
+                        final String identifier = event.getIdentifier();
+                        JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, new JCRCallback<Void>() {
+                            @Override
+                            public Void doInJCR(JCRSessionWrapper session) throws RepositoryException {
+                                try {
+                                    final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(identifier);
+                                    boolean isMainResourceType = false;
+                                    for (String type : customGptConfig.getContentIndexedMainResources()) {
+                                        isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
+                                    }
+                                    if (isMainResourceType) {
+                                        if (nodeWrapper.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
+                                            final String customGtpPageId = nodeWrapper.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
+                                            processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, customGtpPageId), null, customGptIndexOperations);
+                                        }
+                                    } // Deletion of the sub-nodes
+                                    else {
+                                        boolean isSubNodeType = false;
+                                        for (String mainResourceType : customGptConfig.getContentIndexedSubNodes()) {
+                                            isSubNodeType = isMainResourceType || nodeWrapper.isNodeType(mainResourceType);
+                                        }
+                                        if (isSubNodeType) {
+                                            processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                }
+                                return null;
+                            }
+                        });
+                    }
+
+                } else if (event.getPath().startsWith("/trash-")) {
                     final String identifier = event.getIdentifier();
                     // Deletion of the main resources
 

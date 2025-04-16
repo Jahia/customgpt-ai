@@ -680,7 +680,7 @@ public class Service implements EventHandler {
     }
 
     public boolean acceptablePathToIndex(String path, Collection<Site> indexedSites) {
-        return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_MIXINTYPES) && !path.endsWith(Constants.JCR_LASTMODIFIED));
+        return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_LASTMODIFIED));
     }
 
     private void updateIndexationTime(String path, String property, Calendar date) throws RepositoryException {
@@ -710,5 +710,12 @@ public class Service implements EventHandler {
             JCRSessionFactory.getInstance().setCurrentUser(user);
         }
         return systemSession;
+    }
+
+    public boolean skipIndexationForNode(JCRNodeWrapper node) throws RepositoryException {
+        if (node == null) {
+            return true;
+        }
+        return node.isNodeType(CustomGptConstants.MIX_SKIP_INDEX);
     }
 }

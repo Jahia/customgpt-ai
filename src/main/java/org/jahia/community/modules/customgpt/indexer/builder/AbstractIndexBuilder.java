@@ -5,6 +5,7 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.logging.Level;
 import javax.jcr.RepositoryException;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
@@ -67,7 +68,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
             }
             if (isIndexedSubNodeType(node)) {
                 final JCRNodeWrapper nodeWrapper = getMainResourceNode(node);
-                if(nodeWrapper != null){
+                if (nodeWrapper != null) {
                     indexNode(nodeWrapper, language, requests);
                 }
             }
@@ -79,9 +80,13 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
     @Override
     public JCRNodeWrapper getMainResourceNode(JCRNodeWrapper node) throws NotConfiguredException {
         for (String indexedMainResourceTypes : getIndexedMainResourceNodeTypes()) {
-            final JCRNodeWrapper parentMainResource = JCRContentUtils.getParentOfType(node, indexedMainResourceTypes);
-            if (parentMainResource != null) {
-                return parentMainResource;
+            try {
+                final JCRNodeWrapper parentMainResource = JCRContentUtils.getParentOfType(node, indexedMainResourceTypes);
+                if (parentMainResource != null && !customGptService.skipIndexationForNode(parentMainResource)) {
+                    return parentMainResource;
+                }
+            } catch (RepositoryException ex) {
+                LOGGER.warn("Impossible to check if node {} should be skipped indexation", node.getPath(), ex);
             }
         }
         return null;
@@ -109,10 +114,11 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
     }
 
     private boolean isIndexedMainResource(JCRNodeWrapper node, boolean mainResource) throws NotConfiguredException {
-        if (!mainResource) {
-            return false;
-        }
         try {
+            if (!mainResource || customGptService.skipIndexationForNode(node)) {
+                return false;
+            }
+
             for (String mrType : getIndexedMainResourceNodeTypes()) {
                 if (node.isNodeType(mrType)) {
                     return true;
@@ -211,7 +217,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
             return false;
         }
 
-        boolean result =  indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));;
+        boolean result = indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));;
         return result;
     }
 
