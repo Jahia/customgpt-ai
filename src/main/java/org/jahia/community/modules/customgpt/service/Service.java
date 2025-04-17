@@ -524,7 +524,7 @@ public class Service implements EventHandler {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
                 registerJcrListeners();
-                if (customGptConfig.getJahiaUsername().isEmpty()) {
+                if (customGptConfig.getJahiaUsername().isEmpty() || customGptConfig.getJahiaPassword().isEmpty()) {
                     jahiaClient = new OkHttpClient.Builder()
                             .build();
                 } else {
