@@ -128,13 +128,6 @@ public class Service implements EventHandler {
         this.schedulerService = schedulerService;
     }
 
-    @Reference(service = JournalEventReader.class)
-    public void setJournalEventReader(JournalEventReader journalEventReader) {
-        journalEventReaderKey = customGptConfig.getJournalEventReaderKey();
-        journalEventReaderEnabled = customGptConfig.isReplayMissedJcrEvents();
-        this.journalEventReader = journalEventReader;
-    }
-
     @Reference(service = IndexService.class)
     public void setIndexService(IndexService indexService) {
         this.indexService = indexService;

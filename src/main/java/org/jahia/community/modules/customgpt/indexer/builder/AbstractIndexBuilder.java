@@ -5,7 +5,6 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.logging.Level;
 import javax.jcr.RepositoryException;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
@@ -217,7 +216,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
             return false;
         }
 
-        boolean result = indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));;
+        boolean result = indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));
         return result;
     }
 

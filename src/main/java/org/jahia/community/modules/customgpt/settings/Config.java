@@ -1,6 +1,5 @@
 package org.jahia.community.modules.customgpt.settings;
 
-import com.github.rholder.retry.WaitStrategy;
 import com.google.gwt.thirdparty.guava.common.base.Splitter;
 import java.util.*;
 import javax.jcr.RepositoryException;
@@ -54,7 +53,6 @@ public class Config implements ManagedService {
     private static final String PROP_JAHIA_PASSWORD = CONFIG_NAMESPACE_PREFIX + ".jahia.password";
     private static final String CONTENT_INDEXED_FILE_EXTENSIONS = CONFIG_NAMESPACE_PREFIX + ".content.indexedFileExtensions";
     private static final String BULK_OPERATIONS_BATCH_SIZE = CONFIG_NAMESPACE_PREFIX + ".operations.batch.size";
-    private static final String REPLAY_MISSED_JCR_EVENTS = CONFIG_NAMESPACE_PREFIX + ".replayMissedJcrEvents";
     private static final String JOURNAL_EVENT_READER_KEY = CONFIG_NAMESPACE_PREFIX + ".journalEventReaderKey";
     private static final String REINDEX_PARENT_IF_MISSING = CONFIG_NAMESPACE_PREFIX + ".reindexParentIfMissing";
     private static final String SCHEDULE_JOB_ASAP = CONFIG_NAMESPACE_PREFIX + ".scheduleJobASAP";
@@ -62,14 +60,9 @@ public class Config implements ManagedService {
     private Set<String> contentIndexedMainResources;
     private Set<String> contentIndexedSubNodes;
     private Set<String> indexedFileExtensions;
-    private String journalEventReaderKey;
-    private WaitStrategy waitStrategy;
     private boolean configured = false;
-    private boolean reindexParentIfMissing;
-    private boolean replayMissedJcrEvents;
     private boolean scheduleJobASAP;
     private int bulkOperationsBatchSize;
-    private int maximumExtractedSize;
     private String customGptProjectId;
     private String customGptToken;
     private String jahiaUsername;
@@ -101,19 +94,10 @@ public class Config implements ManagedService {
         return new LinkedHashSet<>(indexedFileExtensions);
     }
 
-    public WaitStrategy getWaitStrategy() throws NotConfiguredException {
-        checkConfigured();
-        return waitStrategy;
-    }
-
     public int getBulkOperationsBatchSize() throws NotConfiguredException {
         checkConfigured();
         return bulkOperationsBatchSize;
 
-    }
-
-    public int getMaximumExtractedSize() {
-        return maximumExtractedSize;
     }
 
     private void checkConfigured() throws NotConfiguredException {
@@ -139,10 +123,6 @@ public class Config implements ManagedService {
                     .splitToList(indexedFiles == null ? "*" : indexedFiles));
         }
 
-        replayMissedJcrEvents = getBoolean(properties, REPLAY_MISSED_JCR_EVENTS, true);
-        journalEventReaderKey = getString(properties, JOURNAL_EVENT_READER_KEY, CustomGptConstants.CUSTOM_GPT_MODULE_NAME);
-
-        reindexParentIfMissing = getBoolean(properties, REINDEX_PARENT_IF_MISSING, true);
         scheduleJobASAP = getBoolean(properties, SCHEDULE_JOB_ASAP, false);
 
         customGptProjectId = getString(properties, PROP_GUSTOM_GPT_PROJECT_ID, "");
@@ -220,18 +200,6 @@ public class Config implements ManagedService {
                 return true;
             }
         });
-    }
-
-    public boolean isReplayMissedJcrEvents() {
-        return replayMissedJcrEvents;
-    }
-
-    public String getJournalEventReaderKey() {
-        return journalEventReaderKey;
-    }
-
-    public boolean isReindexParentIfMissing() {
-        return reindexParentIfMissing;
     }
 
     public boolean isScheduleJobASAP() {
