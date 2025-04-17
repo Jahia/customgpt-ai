@@ -524,10 +524,16 @@ public class Service implements EventHandler {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
                 registerJcrListeners();
-                final String jahiaCredential = Credentials.basic(customGptConfig.getJahiaUsername(), customGptConfig.getJahiaPassword(), StandardCharsets.UTF_8);
-                jahiaClient = new OkHttpClient.Builder()
-                        .addInterceptor(new AuthorizationInterceptor(jahiaCredential))
-                        .build();
+                if (customGptConfig.getJahiaUsername().isEmpty()) {
+                    jahiaClient = new OkHttpClient.Builder()
+                            .build();
+                } else {
+                    final String jahiaCredential = Credentials.basic(customGptConfig.getJahiaUsername(), customGptConfig.getJahiaPassword(), StandardCharsets.UTF_8);
+                    jahiaClient = new OkHttpClient.Builder()
+                            .addInterceptor(new AuthorizationInterceptor(jahiaCredential))
+                            .build();
+                }
+
                 customGptClient = new OkHttpClient.Builder()
                         .authenticator((route, response) -> {
                             if (response.request().header("Authorization") != null) {
