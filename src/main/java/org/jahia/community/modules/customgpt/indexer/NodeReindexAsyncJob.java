@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.jcr.AccessDeniedException;
 import javax.jcr.RepositoryException;
+import org.jahia.api.Constants;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlIndexingJob;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlProjectInfo;
@@ -41,7 +42,7 @@ public class NodeReindexAsyncJob {
     }
 
     private static void checkAdminPermission(String path) throws RepositoryException {
-        if (!JCRSessionFactory.getInstance().getCurrentUserSession().getNode(path).getResolveSite().hasPermission(CustomGptConstants.PERM_SITE_ADMIN)) {
+        if (!JCRSessionFactory.getInstance().getCurrentUserSession(Constants.LIVE_WORKSPACE).getNode(path).getResolveSite().hasPermission(CustomGptConstants.PERM_SITE_ADMIN)) {
             throw new AccessDeniedException(CustomGptConstants.PERM_SITE_ADMIN);
         }
     }
