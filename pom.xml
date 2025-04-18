@@ -103,8 +103,4 @@
             </plugin>
         </plugins>
     </build>
-
-    <scm>
-        <tag>1_0_0</tag>
-    </scm>
 </project>
