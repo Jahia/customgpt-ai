@@ -8,7 +8,7 @@
     </parent>
     <groupId>org.jahia.modules.community</groupId>
     <artifactId>customgpt-ai</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-SNAPSHOT</version>
     <packaging>bundle</packaging>
     <name>customGPT.ai</name>
     <description>This module allows the update of customGPT.ai</description>
@@ -32,6 +32,13 @@
         </import-package>
         <require-capability>osgi.extender;filter:="(osgi.extender=org.jahia.bundles.blueprint.extender.config)"</require-capability>
     </properties>
+    <scm>
+        <connection>scm:git:git@github.com:Jahia/customgpt-ai.git</connection>
+        <developerConnection>scm:git:git@github.com:Jahia/customgpt-ai.git</developerConnection>
+        <url>scm:git:git@github.com:Jahia/customgpt-ai.git</url>
+        <tag>HEAD</tag>
+    </scm>
+
     <dependencies>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
@@ -97,7 +104,7 @@
         </plugins>
     </build>
 
-  <scm>
-    <tag>1_0_0</tag>
-  </scm>
+    <scm>
+        <tag>1_0_0</tag>
+    </scm>
 </project>
