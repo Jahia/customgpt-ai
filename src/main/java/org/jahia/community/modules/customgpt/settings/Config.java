@@ -29,21 +29,6 @@ public class Config implements ManagedService {
         FIBONACCI, EXPONENTIAL, FIXED
     }
 
-    public enum MergeStrategy {
-        MERGE,
-        OVERRIDE;
-
-        private static MergeStrategy makeStrategy(String strategy) {
-            switch (strategy) {
-                case "OVERRIDE":
-                    return MergeStrategy.OVERRIDE;
-                case "MERGE":
-                default:
-                    return MergeStrategy.MERGE;
-            }
-        }
-    }
-
     private static final String CONFIG_NAMESPACE_PREFIX = "org.jahia.community.modules.customgpt";
     private static final String PROP_CONTENT_INDEXED_SUB_NODE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedSubNodeTypes";
     private static final String PROP_CONTENT_INDEXED_MAIN_RESOURCE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedMainResourceTypes";
@@ -53,15 +38,15 @@ public class Config implements ManagedService {
     private static final String PROP_JAHIA_PASSWORD = CONFIG_NAMESPACE_PREFIX + ".jahia.password";
     private static final String CONTENT_INDEXED_FILE_EXTENSIONS = CONFIG_NAMESPACE_PREFIX + ".content.indexedFileExtensions";
     private static final String BULK_OPERATIONS_BATCH_SIZE = CONFIG_NAMESPACE_PREFIX + ".operations.batch.size";
-    private static final String JOURNAL_EVENT_READER_KEY = CONFIG_NAMESPACE_PREFIX + ".journalEventReaderKey";
-    private static final String REINDEX_PARENT_IF_MISSING = CONFIG_NAMESPACE_PREFIX + ".reindexParentIfMissing";
     private static final String SCHEDULE_JOB_ASAP = CONFIG_NAMESPACE_PREFIX + ".scheduleJobASAP";
+    private static final String DRY_RUN = CONFIG_NAMESPACE_PREFIX + ".dryRun";
 
     private Set<String> contentIndexedMainResources;
     private Set<String> contentIndexedSubNodes;
     private Set<String> indexedFileExtensions;
     private boolean configured = false;
     private boolean scheduleJobASAP;
+    private boolean dryRun;
     private int bulkOperationsBatchSize;
     private String customGptProjectId;
     private String customGptToken;
@@ -124,6 +109,7 @@ public class Config implements ManagedService {
         }
 
         scheduleJobASAP = getBoolean(properties, SCHEDULE_JOB_ASAP, false);
+        scheduleJobASAP = getBoolean(properties, DRY_RUN, false);
 
         customGptProjectId = getString(properties, PROP_GUSTOM_GPT_PROJECT_ID, "");
         customGptToken = getString(properties, PROP_GUSTOM_GPT_TOKEN, "");
@@ -204,6 +190,10 @@ public class Config implements ManagedService {
 
     public boolean isScheduleJobASAP() {
         return scheduleJobASAP;
+    }
+
+    public boolean isDryRun() {
+        return dryRun;
     }
 
     public String getCustomGptProjectId() {

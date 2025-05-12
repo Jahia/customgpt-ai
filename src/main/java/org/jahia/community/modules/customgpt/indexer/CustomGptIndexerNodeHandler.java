@@ -128,7 +128,7 @@ final class CustomGptIndexerNodeHandler {
                 final RenderContext customRenderContext = new RenderContext(request, response, rootUser);
                 customRenderContext.setSite(siteNode);
 
-                if (session.nodeExists(nodeToIndex.getPath())) {
+                if (session.nodeExists(nodeToIndex.getPath()) && !customGptIndexer.getCustomGptConfig().isDryRun()) {
                     try {
                         JCRNodeWrapper nodeInOtherLocale = session.getNode(nodeToIndex.getPath());
                         final String url = hostName + Utils.encode(nodeInOtherLocale.getUrl(), customRenderContext);
