@@ -14,6 +14,7 @@ import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
+import okhttp3.internal.concurrent.TaskRunner;
 import org.apache.felix.utils.collections.MapToDictionary;
 import org.jahia.api.Constants;
 import org.jahia.api.settings.SettingsBean;
@@ -567,7 +568,23 @@ public class Service implements EventHandler {
                 journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey);
             }
         }
+        closeHttpClient(customGptClient);
+        closeHttpClient(jahiaClient);
+        ((TaskRunner.RealBackend)TaskRunner.INSTANCE.getBackend()).shutdown();
         initialized = false;
+    }
+
+    private void closeHttpClient(OkHttpClient httpClient) {
+        if (httpClient != null) {
+            httpClient.dispatcher().cancelAll();
+            httpClient.connectionPool().evictAll();
+            httpClient.dispatcher().executorService().shutdown(); // shutdown dispatcher's executor
+            try {
+                httpClient.dispatcher().executorService().awaitTermination(5, TimeUnit.SECONDS); // wait for termination
+            } catch (InterruptedException ex) {
+                LOGGER.error("Impossible to stop http client", ex);
+            }
+        }
     }
 
     private void shutdownAndAwaitTermination(ExecutorService pool) {
