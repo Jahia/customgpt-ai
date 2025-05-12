@@ -14,6 +14,7 @@ public class ContentIndexBuilder extends AbstractIndexBuilder {
         this.bundleContext = bundleContext;
     }
 
+    @Override
     @Reference(service = Config.class)
     public void setCustomGptConfig(Config customGptConfig) {
         super.setCustomGptConfig(customGptConfig);

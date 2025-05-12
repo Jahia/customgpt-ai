@@ -21,6 +21,7 @@ import org.jahia.services.sites.JahiaSitesService;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.osgi.framework.BundleContext;
+import org.osgi.service.component.annotations.Reference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -145,7 +146,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
     @Override
     public Set<String> getIndexedMainResourceNodeTypes() throws NotConfiguredException {
         final Set<String> mainResources = new LinkedHashSet<>();
-        mainResources.addAll(getCustomGptConfig().getContentIndexedMainResources());
+        mainResources.addAll(customGptConfig.getContentIndexedMainResources());
         return mainResources;
     }
 
@@ -205,6 +206,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
         return customGptConfig;
     }
 
+    @Reference(service = Config.class)
     public void setCustomGptConfig(Config customGptConfig) {
         this.customGptConfig = customGptConfig;
     }
@@ -219,5 +221,4 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
         boolean result = indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));
         return result;
     }
-
 }
