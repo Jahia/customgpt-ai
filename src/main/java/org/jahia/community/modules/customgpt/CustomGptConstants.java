@@ -21,6 +21,7 @@ public class CustomGptConstants {
         MAPPING,
         SETTINGS
     }
+    public static final int MAX_RETRIES = 3;
     public static final String PATH_DELIMITER = "/";
     public static final String CUSTOM_GPT_MODULE_NAME = "customgpt-ai";
     public static final String EVENT_TOPIC = "org/jahia/community/modules/" + CUSTOM_GPT_MODULE_NAME;

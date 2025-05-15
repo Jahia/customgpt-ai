@@ -142,7 +142,7 @@ final class CustomGptIndexerNodeHandler {
                         }
                         LOGGER.debug(String.format("Adding url %s", url));
                         try ( Response jahiaResponse = getJahiaPageContent(jahiaClient, url)) {
-                            if (jahiaResponse.isSuccessful()) {
+                            if (jahiaResponse != null && jahiaResponse.isSuccessful()) {
                                 LOGGER.debug(String.format("Retrieve Jahia page content is successful for %s", url));
                                 final String output = jahiaResponse.body().string();
                                 final String title;
@@ -273,13 +273,22 @@ final class CustomGptIndexerNodeHandler {
         return languages;
     }
 
-    private static Response getJahiaPageContent(OkHttpClient customGptClient, String url) throws IOException {
+    private static Response getJahiaPageContent(OkHttpClient customGptClient, String url) throws IOException, InterruptedException {
 
         final Request request = new Request.Builder()
                 .url(url)
                 .get()
                 .addHeader("content-type", "text/html;charset=UTF-8")
                 .build();
-        return customGptClient.newCall(request).execute();
+        boolean success = false;
+        int attempts = 0;
+        Response response = null;
+        while(!success && attempts < CustomGptConstants.MAX_RETRIES){
+            response = customGptClient.newCall(request).execute();
+            success = response.isSuccessful();
+            attempts++;
+            Thread.sleep(500L);
+        }
+        return response;
     }
 }
