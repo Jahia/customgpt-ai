@@ -8,7 +8,7 @@
     </parent>
     <groupId>org.jahia.modules.community</groupId>
     <artifactId>customgpt-ai</artifactId>
-    <version>1.0.2-SNAPSHOT</version>
+    <version>1.0.2</version>
     <packaging>bundle</packaging>
     <name>customGPT.ai</name>
     <description>This module allows the update of customGPT.ai</description>
@@ -36,7 +36,7 @@
         <connection>scm:git:git@github.com:Jahia/customgpt-ai.git</connection>
         <developerConnection>scm:git:git@github.com:Jahia/customgpt-ai.git</developerConnection>
         <url>scm:git:git@github.com:Jahia/customgpt-ai.git</url>
-        <tag>HEAD</tag>
+        <tag>1_0_2</tag>
     </scm>
 
     <dependencies>
