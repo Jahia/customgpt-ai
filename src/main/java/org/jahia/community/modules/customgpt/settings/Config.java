@@ -36,6 +36,9 @@ public class Config implements ManagedService {
     private static final String PROP_GUSTOM_GPT_TOKEN = CONFIG_NAMESPACE_PREFIX + ".token";
     private static final String PROP_JAHIA_USERNAME = CONFIG_NAMESPACE_PREFIX + ".jahia.username";
     private static final String PROP_JAHIA_PASSWORD = CONFIG_NAMESPACE_PREFIX + ".jahia.password";
+    private static final String PROP_JAHIA_SERVER_COOKIE_NAME = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.name";
+    private static final String PROP_JAHIA_SERVER_COOKIE_VALUE = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.value";
+    private static final String PROP_JAHIA_SERVER_COOKIE_DOMAIN = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.domain";
     private static final String CONTENT_INDEXED_FILE_EXTENSIONS = CONFIG_NAMESPACE_PREFIX + ".content.indexedFileExtensions";
     private static final String BULK_OPERATIONS_BATCH_SIZE = CONFIG_NAMESPACE_PREFIX + ".operations.batch.size";
     private static final String SCHEDULE_JOB_ASAP = CONFIG_NAMESPACE_PREFIX + ".scheduleJobASAP";
@@ -52,6 +55,9 @@ public class Config implements ManagedService {
     private String customGptToken;
     private String jahiaUsername;
     private String jahiaPassword;
+    private String jahiaServerCookieName;
+    private String jahiaServerCookieValue;
+    private String jahiaServerCookieDomain;
 
     @Override
     public void updated(Dictionary<String, ?> properties) throws ConfigurationException {
@@ -115,6 +121,9 @@ public class Config implements ManagedService {
         customGptToken = getString(properties, PROP_GUSTOM_GPT_TOKEN, "");
         jahiaUsername = getString(properties, PROP_JAHIA_USERNAME, "");
         jahiaPassword = getString(properties, PROP_JAHIA_PASSWORD, "");
+        jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
+        jahiaServerCookieValue = getString(properties, PROP_JAHIA_SERVER_COOKIE_VALUE, "");
+        jahiaServerCookieDomain = getString(properties, PROP_JAHIA_SERVER_COOKIE_DOMAIN, "");
     }
 
     private Set<String> splitNodeTypeByComma(String commaSeparated) {
@@ -210,5 +219,16 @@ public class Config implements ManagedService {
 
     public String getJahiaPassword() {
         return jahiaPassword;
+    }
+
+    public String getJahiaServerCookieName() {
+        return jahiaServerCookieName;
+    }
+
+    public String getJahiaServerCookieValue() {
+        return jahiaServerCookieValue;
+    }
+    public String getJahiaServerCookieDomain() {
+        return jahiaServerCookieDomain;
     }
 }

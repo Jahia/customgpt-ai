@@ -12,7 +12,10 @@ import java.util.regex.Pattern;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
+import okhttp3.Cookie;
+import okhttp3.CookieJar;
 import okhttp3.Credentials;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.internal.concurrent.TaskRunner;
 import org.apache.felix.utils.collections.MapToDictionary;
@@ -59,7 +62,7 @@ import org.slf4j.LoggerFactory;
 
 @Component(service = {Service.class}, immediate = true)
 public class Service implements EventHandler {
-
+    
     private static final Logger LOGGER = LoggerFactory.getLogger(Service.class);
     private static final Pattern SITE_MATCHER = Pattern.compile("\\/sites\\/.+");
     private static final String ADDED_TO_THE_REGISTRY = "Task {}{} is added to the registry";
@@ -90,11 +93,11 @@ public class Service implements EventHandler {
     private int retryOnConflict;
     private OkHttpClient customGptClient;
     private OkHttpClient jahiaClient;
-
+    
     private enum Alias {
         READ, WRITE
     }
-
+    
     @Activate
     public void activate(BundleContext bundleContext) {
         this.bundleContext = bundleContext;
@@ -103,75 +106,75 @@ public class Service implements EventHandler {
         bundleContext.registerService(EventHandler.class.getName(), this, topics);
         start();
     }
-
+    
     @Deactivate
     public void deactivate() {
         stop();
     }
-
+    
     @Reference(service = Config.class)
     public void setCustomGptConfig(Config customGptConfig) {
         this.customGptConfig = customGptConfig;
     }
-
+    
     @Reference(service = SettingsBean.class)
     public void setSettingsBean(SettingsBean settingsBean) {
         this.settingsBean = settingsBean;
     }
-
+    
     @Reference(service = JahiaTemplateManagerService.class)
     public void setTemplateManager(JahiaTemplateManagerService service) {
         this.jahiaTemplateManagerService = service;
     }
-
+    
     @Reference(service = SchedulerService.class)
     public void setSchedulerService(SchedulerService schedulerService) {
         this.schedulerService = schedulerService;
     }
-
+    
     @Reference(service = IndexService.class)
     public void setIndexService(IndexService indexService) {
         this.indexService = indexService;
         ((FileIndexBuilder) this.indexService.getIndexBuilder(CustomGptConstants.IndexType.FILE)).setCustomGptService(this);
         ((ContentIndexBuilder) this.indexService.getIndexBuilder(CustomGptConstants.IndexType.CONTENT)).setCustomGptService(this);
     }
-
+    
     private Indexer createIndexer() throws RepositoryException {
         final Indexer customGptIndexer = new Indexer(this, customGptConfig);
         return customGptIndexer;
     }
-
+    
     public Set<String> getNodePathsToIndex(JCRNodeWrapper node) throws RepositoryException, NotConfiguredException {
         return indexService.getNodePathsToIndex(node);
     }
-
+    
     public void addIndexRequests(
             JCRNodeWrapper node, String language, Set<CustomGptRequest> requests) throws RepositoryException, NotConfiguredException {
         indexService.addIndexRequests(node, language, requests);
     }
-
+    
     public JCRNodeWrapper getParentDisplayableNode(JCRNodeWrapper nestedNode, String index) throws NotConfiguredException {
         return indexService.getParentDisplayableNode(nestedNode, index);
     }
-
+    
     public Set<String> getIndexedMainResourceNodeTypes() throws NotConfiguredException {
         return indexService.getIndexedMainResourceNodeTypes();
     }
-
+    
     public Set<String> getIndexedSubNodeTypes() throws NotConfiguredException {
         return indexService.getIndexedSubNodeTypes();
     }
-
+    
     public JobDetail reIndexUsingJob(String siteKey) {
         return reIndexUsingJob(siteKey, false);
     }
-
+    
     public JobDetail reIndexUsingJob(String siteKey, boolean force) {
         final JobDetail reindexJobDetail = BackgroundJob.createJahiaJob(RECREATE_LOG, ReindexJob.class);
         final JobDataMap jobMap = new JobDataMap();
         jobMap.put(CustomGptConstants.PROP_SITE_KEY, siteKey);
         reindexJobDetail.setJobDataMap(jobMap);
-
+        
         try {
             JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
                 final JCRNodeWrapper jcrNodeWrapper = session.getNode(CustomGptConstants.PATH_SITES + siteKey);
@@ -186,11 +189,11 @@ public class Service implements EventHandler {
         }
         return reindexJobDetail;
     }
-
+    
     private void updateIndexationProperties(JCRNodeWrapper jcrNodeWrapper, Calendar scheduled, boolean force) throws RepositoryException {
         final boolean hasIndexationStart = jcrNodeWrapper.hasProperty(PROP_INDEXATION_START);
         final boolean hasIndexationEnd = jcrNodeWrapper.hasProperty(PROP_INDEXATION_END);
-
+        
         if (!hasIndexationStart && !hasIndexationEnd) {
             jcrNodeWrapper.setProperty(Service.PROP_INDEXATION_SCHEDULED, scheduled);
         } else {
@@ -201,7 +204,7 @@ public class Service implements EventHandler {
             }
             final Calendar indexationScheduledLastRun = jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_SCHEDULED).getDate();
             if (force || !hasIndexationStart || (indexationScheduledLastRun.before(indexationStartLastRun) && scheduled.after(indexationStartLastRun))) {
-
+                
                 final Calendar indexationEndLastRun = hasIndexationEnd
                         ? jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_END).getDate() : null;
                 if (force) {
@@ -218,7 +221,7 @@ public class Service implements EventHandler {
             }
         }
     }
-
+    
     private SimpleTrigger getSimpleTrigger(JobDetail reindexJobDetail) {
         final Calendar calendar = Calendar.getInstance();
         calendar.add(Calendar.MINUTE, 1);
@@ -233,18 +236,18 @@ public class Service implements EventHandler {
         trigger.setPriority(3);
         return trigger;
     }
-
+    
     public void reIndexUsingJob() throws SchedulerException, RepositoryException {
         for (String site : getIndexedSites().keySet()) {
             reIndexUsingJob(site);
         }
     }
-
+    
     private Set<String> getSitePathsToIndex() {
         final Collection<Site> siteNodes = getIndexedSites().values();
         final Set<String> sitePathsToBeIndexed = new HashSet<>();
         if (!siteNodes.isEmpty()) {
-
+            
             for (Site site : siteNodes) {
                 if (site.getIndexationScheduled() != null
                         && ((site.getIndexationEnd() == null && site.getIndexationStart() == null)
@@ -257,7 +260,7 @@ public class Service implements EventHandler {
         }
         return sitePathsToBeIndexed;
     }
-
+    
     public void produceAsynchronousFullIndexation(IndexOperations operations) {
         restartExecutorFullIndexation();
         CompletableFuture.runAsync(() -> {
@@ -271,32 +274,32 @@ public class Service implements EventHandler {
             }
         }, executorFullIndexation);
     }
-
+    
     private static void restartExecutor() {
         if (executor.isShutdown() || executor.isTerminated()) {
             LOGGER.warn("Executor is shutdown or terminated, starting a new one");
             executor = Executors.newSingleThreadExecutor();
         }
     }
-
+    
     private static void restartExecutorFullIndexation() {
         if (executorFullIndexation.isShutdown() || executorFullIndexation.isTerminated()) {
             LOGGER.warn("ExecutorFullIndexation is shutdown or terminated, starting a new one");
             executorFullIndexation = Executors.newSingleThreadExecutor();
         }
     }
-
+    
     private static void restartExecutorNThreads() {
         if (executorNThreads.isShutdown() || executorNThreads.isTerminated()) {
             LOGGER.warn("Executor with {} threads is shutdown or terminated, starting a new one", N_THREADS);
             executorNThreads = Executors.newFixedThreadPool(N_THREADS);
         }
     }
-
+    
     private static ExecutorService executor = Executors.newSingleThreadExecutor();
     private static ExecutorService executorFullIndexation = Executors.newSingleThreadExecutor();
     private static ExecutorService executorNThreads = Executors.newFixedThreadPool(N_THREADS);
-
+    
     public void produceAsynchronousOperations(IndexOperations... operations) throws NotConfiguredException {
         restartExecutor();
         final CompletableFuture<Void>[] completableFuture = new CompletableFuture[operations.length];
@@ -306,7 +309,7 @@ public class Service implements EventHandler {
         }
         CompletableFuture.allOf(completableFuture);
     }
-
+    
     public void produceSiteAsynchronousIndexations(String sitePath, IndexOperations... operations) throws NotConfiguredException {
         CompletableFuture<Void>[] completableFuture = new CompletableFuture[operations.length];
         int i = 0;
@@ -327,7 +330,7 @@ public class Service implements EventHandler {
             }
         });
     }
-
+    
     private Supplier<Void> getPerformIndexationSupplier(IndexOperations operations) {
         return () -> {
             try {
@@ -341,7 +344,7 @@ public class Service implements EventHandler {
             return null;
         };
     }
-
+    
     private void performIndexation(IndexOperations operations)
             throws RepositoryException, NotConfiguredException, InterruptedException, IOException {
         if (operations == null || operations.isEmpty()) {
@@ -349,10 +352,10 @@ public class Service implements EventHandler {
             LOGGER.error("Operations is empty, exiting performIndexation");
             return;
         }
-
+        
         indexAllOperations(operations);
     }
-
+    
     private void indexAllOperations(IndexOperations operations)
             throws RepositoryException, NotConfiguredException, InterruptedException, IOException {
         Indexer customGptIndexer = null;
@@ -362,14 +365,14 @@ public class Service implements EventHandler {
                 // Check that the path for the operation require indexation to avoid unwanted indexation
                 customGptIndexer = indexOperation(operations, customGptIndexer, indexOperation, indexedSites);
             }
-
+            
             if (customGptIndexer != null) {
                 customGptIndexer.queueRequests(customGptClient, jahiaClient);
             }
         } catch (NotConfiguredException e) {
             LOGGER.error(INDEXATION_FAILED_DUE_TO_CONFIGURATION_ISSUES, e.getMessage(), e);
         }
-
+        
     }
 
     // Complexity 11 instead of needed 10
@@ -423,7 +426,7 @@ public class Service implements EventHandler {
         }
         return customGptIndexer;
     }
-
+    
     private void postIndexOperationHandler(IndexOperations operations) throws NotConfiguredException {
         final Map<String, Site> indexedSites = getIndexedSites();
         for (IndexOperations.CustomGptIndexOperation indexOperation : operations.getOperations()) {
@@ -440,13 +443,13 @@ public class Service implements EventHandler {
                         }
                         return null;
                     });
-
+                    
                     return site;
                 });
             }
         }
     }
-
+    
     private void preIndexOperationHandler(IndexOperations operations) throws NotConfiguredException {
         final Map<String, Site> indexedSites = getIndexedSites();
         for (IndexOperations.CustomGptIndexOperation indexOperation : operations.getOperations()) {
@@ -464,77 +467,100 @@ public class Service implements EventHandler {
                         }
                         return null;
                     });
-
+                    
                     return site;
                 });
             }
         }
     }
-
+    
     private void indexNode(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation indexOperation) throws NotConfiguredException {
         customGptIndexer.addNodePathToIndex(indexOperation.getNodePath());
     }
-
+    
     private Indexer initIndexer(Indexer customGptIndexer) throws RepositoryException {
         if (customGptIndexer == null) {
             customGptIndexer = createIndexer();
         }
         return customGptIndexer;
     }
-
+    
     public int getPendingIndexationOperations() {
         return 0;
     }
-
+    
     private void handleJCREventListener(IndexerJCRListener listener, boolean register) {
         if (listener != null) {
             jahiaTemplateManagerService.getTemplatePackageRegistry().handleJCREventListener(listener, register);
         }
     }
-
+    
     private synchronized void registerJcrListeners() {
         unregisterJcrListeners();
-
+        
         LOGGER.info("Registering JCR listeners");
-
+        
         jcrListenerLive = new IndexerJCRListener(true, this, customGptConfig);
-
+        
         if (journalEventReaderEnabled) {
             journalEventReader.replayMissedEvents(jcrListenerLive, journalEventReaderKey);
             journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey);
         }
-
+        
         handleJCREventListener(jcrListenerLive, true);
     }
-
+    
     private synchronized void unregisterJcrListeners() {
         if (jcrListenerLive != null) {
             LOGGER.info("Unregistering JCR listener for live workspace");
-
+            
             handleJCREventListener(jcrListenerLive, false);
             jcrListenerLive = null;
         }
     }
-
+    
     public void setJahiaTemplateManagerService(JahiaTemplateManagerService jahiaTemplateManagerService) {
         this.jahiaTemplateManagerService = jahiaTemplateManagerService;
     }
-
+    
     private void init() {
         if (!initialized) {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
                 registerJcrListeners();
+                final CookieJar cookieJar = new CookieJar() {
+                    @Override
+                    public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
+                    }
+                    
+                    @Override
+                    public List<Cookie> loadForRequest(HttpUrl arg0) {
+                        if (customGptConfig.getJahiaServerCookieName() != null && !customGptConfig.getJahiaServerCookieName().isEmpty()
+                                && customGptConfig.getJahiaServerCookieValue() != null && !customGptConfig.getJahiaServerCookieValue().isEmpty()) {
+                            final Cookie cookie = new Cookie.Builder()
+                                    .httpOnly()
+                                    .secure()
+                                    .name(customGptConfig.getJahiaServerCookieName())
+                                    .value(customGptConfig.getJahiaServerCookieValue())
+                                    .domain(customGptConfig.getJahiaServerCookieDomain())
+                                    .build();
+                            return Arrays.asList(cookie);
+                        } else {
+                            return Collections.EMPTY_LIST;
+                        }
+                    }
+                };
                 if (customGptConfig.getJahiaUsername() == null || customGptConfig.getJahiaPassword() == null || customGptConfig.getJahiaUsername().isEmpty() || customGptConfig.getJahiaPassword().isEmpty()) {
                     jahiaClient = new OkHttpClient.Builder()
+                            .cookieJar(cookieJar)
                             .build();
                 } else {
                     final String jahiaCredential = Credentials.basic(customGptConfig.getJahiaUsername(), customGptConfig.getJahiaPassword(), StandardCharsets.UTF_8);
                     jahiaClient = new OkHttpClient.Builder()
+                            .cookieJar(cookieJar)
                             .addInterceptor(new AuthorizationInterceptor(jahiaCredential))
                             .build();
                 }
-
                 customGptClient = new OkHttpClient.Builder()
                         .authenticator((route, response) -> {
                             if (response.request().header("Authorization") != null) {
@@ -551,12 +577,12 @@ public class Service implements EventHandler {
             LOGGER.info("...service started");
         }
     }
-
+    
     public void start() {
         registerEventHandler();
         init();
     }
-
+    
     public void stop() {
         shutdownAndAwaitTermination(executorFullIndexation);
         shutdownAndAwaitTermination(executor);
@@ -570,10 +596,10 @@ public class Service implements EventHandler {
         }
         closeHttpClient(customGptClient);
         closeHttpClient(jahiaClient);
-        ((TaskRunner.RealBackend)TaskRunner.INSTANCE.getBackend()).shutdown();
+        ((TaskRunner.RealBackend) TaskRunner.INSTANCE.getBackend()).shutdown();
         initialized = false;
     }
-
+    
     private void closeHttpClient(OkHttpClient httpClient) {
         if (httpClient != null) {
             httpClient.dispatcher().cancelAll();
@@ -586,7 +612,7 @@ public class Service implements EventHandler {
             }
         }
     }
-
+    
     private void shutdownAndAwaitTermination(ExecutorService pool) {
         pool.shutdown();
         try {
@@ -605,34 +631,34 @@ public class Service implements EventHandler {
             Thread.currentThread().interrupt();
         }
     }
-
+    
     public void setJournalEventReaderKey(String journalEventReaderKey) {
         this.journalEventReaderKey = journalEventReaderKey;
     }
-
+    
     public void setJournalEventReaderEnabled(boolean journalEventReaderEnabled) {
         this.journalEventReaderEnabled = journalEventReaderEnabled;
     }
-
+    
     public int getRetryOnConflict() {
         return retryOnConflict;
     }
-
+    
     public void setRetryOnConflict(int retryOnConflict) {
         this.retryOnConflict = retryOnConflict;
     }
-
+    
     @Override
     public void handleEvent(Event event) {
         final String type = (String) event.getProperty("type");
         LOGGER.info("Received event from topic {} of type {}", event.getTopic(), type);
-
+        
         if ((CustomGptConstants.EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE.equals(type) || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED.equals(type))
                 && customGptConfig.isConfigured()) {
             init();
         }
     }
-
+    
     private void registerEventHandler() {
         final Map<String, Object> props = new HashMap<>();
         props.put(org.osgi.framework.Constants.SERVICE_PID, getClass().getName() + ".EventHandler");
@@ -640,17 +666,17 @@ public class Service implements EventHandler {
                 "CustomGpt service event handler");
         props.put(org.osgi.framework.Constants.SERVICE_VENDOR, "Jahia Solutions Group SA");
         props.put(EventConstants.EVENT_TOPIC, CustomGptConstants.EVENT_TOPIC);
-
+        
         eventHandlerServiceRegistration = bundleContext.registerService(EventHandler.class, this, new MapToDictionary(props));
     }
-
+    
     private void unregisterEventHandler() {
         if (eventHandlerServiceRegistration != null) {
             LOGGER.info("Unregistering Event Handler");
             eventHandlerServiceRegistration.unregister();
         }
     }
-
+    
     public Map<String, Site> getIndexedSites() {
         try {
             return JCRTemplate.getInstance().doExecuteWithSystemSession(this::getIndexedSites);
@@ -659,7 +685,7 @@ public class Service implements EventHandler {
             return Collections.emptyMap();
         }
     }
-
+    
     public Map<String, Site> getIndexedSites(JCRSessionWrapper session) {
         try {
             final Map<String, Site> sites = new LinkedHashMap<>();
@@ -672,11 +698,11 @@ public class Service implements EventHandler {
                 if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_START)) {
                     site.setIndexationStart(jcrNodeWrapper.getProperty(PROP_INDEXATION_START).getDate());
                 }
-
+                
                 if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_END)) {
                     site.setIndexationEnd(jcrNodeWrapper.getProperty(PROP_INDEXATION_END).getDate());
                 }
-
+                
                 if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_SCHEDULED)) {
                     site.setIndexationScheduled(jcrNodeWrapper.getProperty(PROP_INDEXATION_SCHEDULED).getDate());
                 }
@@ -694,11 +720,11 @@ public class Service implements EventHandler {
             return Collections.emptyMap();
         }
     }
-
+    
     public boolean acceptablePathToIndex(String path, Collection<Site> indexedSites) {
         return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_LASTMODIFIED));
     }
-
+    
     private void updateIndexationTime(String path, String property, Calendar date) throws RepositoryException {
         JCRTemplate.getInstance().doExecuteWithSystemSession(new JCRCallback<Object>() {
             @Override
@@ -711,7 +737,7 @@ public class Service implements EventHandler {
             }
         });
     }
-
+    
     private Map<String, Object> constructTaskDetailsEvent(String taskTarget, String taskService) {
         final Map<String, Object> taskDetailsMap = new HashMap<>();
         taskDetailsMap.put("name", taskService + ": " + taskTarget);
@@ -719,7 +745,7 @@ public class Service implements EventHandler {
         taskDetailsMap.put("started", new GregorianCalendar());
         return taskDetailsMap;
     }
-
+    
     public JCRSessionWrapper getSystemSession(JahiaUser user, String workspace, Locale locale) throws RepositoryException {
         final JCRSessionWrapper systemSession = JCRTemplate.getInstance().getSessionFactory().getCurrentSystemSession(workspace, locale, null);
         if (JCRSessionFactory.getInstance().getCurrentUser() == null) {
@@ -727,7 +753,7 @@ public class Service implements EventHandler {
         }
         return systemSession;
     }
-
+    
     public boolean skipIndexationForNode(JCRNodeWrapper node) throws RepositoryException {
         if (node == null) {
             return true;
