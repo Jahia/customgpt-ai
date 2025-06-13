@@ -1,7 +1,13 @@
 package org.jahia.community.modules.customgpt;
 
+/**
+ * Container for constants used by the CustomGPT module.
+ */
 public class CustomGptConstants {
 
+    /**
+     * Types of indexing supported by the module.
+     */
     public enum IndexType {
         FILE("file"),
         CONTENT("content");
@@ -12,11 +18,19 @@ public class CustomGptConstants {
             this.type = type;
         }
 
+        /**
+         * Returns the type as it should be sent to the API.
+         *
+         * @return string representation of the index type
+         */
         public String getType() {
             return type;
         }
     }
 
+    /**
+     * Available configuration sections.
+     */
     public enum CustomGptConfigurationType {
         MAPPING,
         SETTINGS

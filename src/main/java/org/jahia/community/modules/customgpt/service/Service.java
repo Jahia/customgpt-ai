@@ -61,6 +61,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Component(service = {Service.class}, immediate = true)
+/**
+ * Main OSGi service responsible for interacting with the customGPT.ai API. It
+ * listens to JCR events and schedules indexing or deletion operations.
+ */
 public class Service implements EventHandler {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(Service.class);

@@ -31,6 +31,9 @@ import org.jahia.services.seo.urlrewrite.UrlRewriteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Utility methods used across the CustomGPT module.
+ */
 public final class Utils {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Utils.class);

@@ -16,6 +16,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Component(service = IndexService.class)
+/**
+ * Entry point used by other services to build indexing requests. It delegates
+ * the work to dedicated {@link IndexBuilder} implementations depending on the
+ * type of content.
+ */
 public class IndexService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IndexService.class);
