@@ -36,7 +36,7 @@ public class CustomGptConstants {
     public static final String PROP_CUSTOM_GPT_PAGE_ID = "customGptPageId";
     public static final String PROP_SITE_KEY = "siteKey";
     public static final String PERM_SITE_ADMIN = "site-admin";
-
+    public static final String DEFAULT_CUSTOM_GPT_API_BASE_URL = "https://app.customgpt.ai/api/v1";
 
     private CustomGptConstants() {
         throw new IllegalStateException("Utility class");

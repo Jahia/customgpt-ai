@@ -43,6 +43,7 @@ public class Config implements ManagedService {
     private static final String BULK_OPERATIONS_BATCH_SIZE = CONFIG_NAMESPACE_PREFIX + ".operations.batch.size";
     private static final String SCHEDULE_JOB_ASAP = CONFIG_NAMESPACE_PREFIX + ".scheduleJobASAP";
     private static final String DRY_RUN = CONFIG_NAMESPACE_PREFIX + ".dryRun";
+    private static final String PROP_CUSTOM_GPT_API_BASE_URL = CONFIG_NAMESPACE_PREFIX + ".apiBaseUrl";
 
     private Set<String> contentIndexedMainResources;
     private Set<String> contentIndexedSubNodes;
@@ -58,6 +59,7 @@ public class Config implements ManagedService {
     private String jahiaServerCookieName;
     private String jahiaServerCookieValue;
     private String jahiaServerCookieDomain;
+    private String customGptApiBaseUrl;
 
     @Override
     public void updated(Dictionary<String, ?> properties) throws ConfigurationException {
@@ -116,6 +118,7 @@ public class Config implements ManagedService {
 
         scheduleJobASAP = getBoolean(properties, SCHEDULE_JOB_ASAP, false);
         dryRun = getBoolean(properties, DRY_RUN, false);
+        customGptApiBaseUrl = getString(properties, PROP_CUSTOM_GPT_API_BASE_URL, CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
 
         customGptProjectId = getString(properties, PROP_GUSTOM_GPT_PROJECT_ID, "");
         customGptToken = getString(properties, PROP_GUSTOM_GPT_TOKEN, "");
@@ -230,5 +233,9 @@ public class Config implements ManagedService {
     }
     public String getJahiaServerCookieDomain() {
         return jahiaServerCookieDomain;
+    }
+
+    public String getCustomGptApiBaseUrl() {
+        return customGptApiBaseUrl;
     }
 }

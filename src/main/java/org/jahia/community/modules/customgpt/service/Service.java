@@ -1,7 +1,6 @@
 package org.jahia.community.modules.customgpt.service;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -14,7 +13,6 @@ import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
 import okhttp3.Cookie;
 import okhttp3.CookieJar;
-import okhttp3.Credentials;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.internal.concurrent.TaskRunner;
@@ -34,7 +32,6 @@ import org.jahia.community.modules.customgpt.indexer.listener.IndexerJCRListener
 import org.jahia.community.modules.customgpt.service.models.Site;
 import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
-import org.jahia.community.modules.customgpt.util.AuthorizationInterceptor;
 import org.jahia.community.modules.customgpt.util.RateLimitInterceptor;
 import org.jahia.osgi.FrameworkService;
 import org.jahia.services.content.*;
@@ -550,17 +547,9 @@ public class Service implements EventHandler {
                         }
                     }
                 };
-                if (customGptConfig.getJahiaUsername() == null || customGptConfig.getJahiaPassword() == null || customGptConfig.getJahiaUsername().isEmpty() || customGptConfig.getJahiaPassword().isEmpty()) {
-                    jahiaClient = new OkHttpClient.Builder()
-                            .cookieJar(cookieJar)
-                            .build();
-                } else {
-                    final String jahiaCredential = Credentials.basic(customGptConfig.getJahiaUsername(), customGptConfig.getJahiaPassword(), StandardCharsets.UTF_8);
-                    jahiaClient = new OkHttpClient.Builder()
-                            .cookieJar(cookieJar)
-                            .addInterceptor(new AuthorizationInterceptor(jahiaCredential))
-                            .build();
-                }
+                jahiaClient = new OkHttpClient.Builder()
+                        .cookieJar(cookieJar)
+                        .build();
                 customGptClient = new OkHttpClient.Builder()
                         .authenticator((route, response) -> {
                             if (response.request().header("Authorization") != null) {

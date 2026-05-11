@@ -16,6 +16,7 @@ import javax.jcr.Property;
 import javax.jcr.RepositoryException;
 import javax.jcr.lock.LockException;
 import javax.jcr.version.VersionException;
+import okhttp3.Credentials;
 import okhttp3.FormBody;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -30,6 +31,7 @@ import org.jahia.community.modules.customgpt.CustomGptRequest;
 import org.jahia.community.modules.customgpt.DeleteRequest;
 import org.jahia.community.modules.customgpt.IndexRequest;
 import org.jahia.community.modules.customgpt.service.Service;
+import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.community.modules.customgpt.util.HttpServletRequestMock;
 import org.jahia.community.modules.customgpt.util.HttpServletResponseMock;
@@ -43,6 +45,7 @@ import org.jahia.services.render.RenderContext;
 import org.jahia.services.sites.SitesSettings;
 import org.jahia.services.usermanager.JahiaUser;
 import org.jahia.services.usermanager.JahiaUserManagerService;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,10 +97,12 @@ final class CustomGptIndexerNodeHandler {
     }
 
     private static void delete(OkHttpClient customGptClient, String pageId, Indexer customGptIndexer) throws RepositoryException, IOException {
-        deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId);
+        String apiBaseUrl = getApiBaseUrl(customGptIndexer);
+        deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, apiBaseUrl);
     }
 
     private static void index(OkHttpClient customGptClient, OkHttpClient jahiaClient, IndexRequest createCustomGptRequest, Indexer customGptIndexer) throws RepositoryException {
+        final String apiBaseUrl = getApiBaseUrl(customGptIndexer);
         final JCRNodeWrapper nodeToIndex = createCustomGptRequest.getNode();
         final JCRSiteNode siteNode = nodeToIndex.getResolveSite();
         final String language = createCustomGptRequest.getLanguage();
@@ -137,11 +142,11 @@ final class CustomGptIndexerNodeHandler {
                             final Property property = nodeInOtherLocale.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID);
                             final String pageId = property.getString();
                             LOGGER.info(String.format("Removing page with the id %s for the url %s, language %s", pageId, url, language));
-                            deletePage(nodeInOtherLocale, property, customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId);
+                            deletePage(nodeInOtherLocale, property, customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, apiBaseUrl);
                             nodeInOtherLocale = session.getNode(nodeToIndex.getPath());
                         }
                         LOGGER.debug(String.format("Adding url %s", url));
-                        try ( Response jahiaResponse = getJahiaPageContent(jahiaClient, url)) {
+                        try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
                             if (jahiaResponse != null && jahiaResponse.isSuccessful()) {
                                 LOGGER.debug(String.format("Retrieve Jahia page content is successful for %s", url));
                                 final String output = jahiaResponse.body().string();
@@ -158,20 +163,20 @@ final class CustomGptIndexerNodeHandler {
                                 }
                                 nodeInOtherLocale.saveSession();
                                 LOGGER.debug(String.format("Adding page in customGPT for %s", url));
-                                try ( Response addDocResponse = addPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), title, output)) {
+                                try (Response addDocResponse = addPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), title, output, apiBaseUrl)) {
                                     if (addDocResponse.isSuccessful()) {
                                         LOGGER.debug("Adding page in customGPT is successful, retrieving response body");
                                         final String jsonResponse = addDocResponse.body().string();
                                         LOGGER.debug("Converting JSON resposne to JSON object");
                                         final JSONObject document = new JSONObject(jsonResponse);
                                         LOGGER.debug("Retrieving CustomGpt page id");
-                                        final String pageId = String.valueOf(document.getJSONObject("data").getJSONArray("pages").getJSONObject(0).getLong("id"));
+                                        final String pageId = extractPageId(document);
                                         LOGGER.debug(String.format("Adding page id %s to Jahia node %s", pageId, nodeInOtherLocale.getPath()));
                                         nodeInOtherLocale.setProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID, pageId);
                                         LOGGER.debug("Saving Jahia node");
                                         nodeInOtherLocale.saveSession();
                                         LOGGER.debug("Updating page metadata in customGPT");
-                                        try ( Response metaResponse = updatePageMedata(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, title, url)) {
+                                        try (Response metaResponse = updatePageMedata(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, title, url, apiBaseUrl)) {
                                             if (metaResponse.isSuccessful()) {
                                                 LOGGER.debug("Updating page metadata in customGPT is successful");
                                             } else {
@@ -195,26 +200,26 @@ final class CustomGptIndexerNodeHandler {
         });
     }
 
-    private static void deletePage(JCRNodeWrapper nodeInOtherLocale, Property property, OkHttpClient customGptClient, String customGptProject, String pageId) throws IOException, LockException, VersionException, ItemExistsException, AccessDeniedException, RepositoryException {
-        if (deleteCustomGptPage(customGptClient, customGptProject, pageId)) {
+    private static void deletePage(JCRNodeWrapper nodeInOtherLocale, Property property, OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException, LockException, VersionException, ItemExistsException, AccessDeniedException, RepositoryException {
+        if (deleteCustomGptPage(customGptClient, customGptProject, pageId, apiBaseUrl)) {
             property.remove();
             nodeInOtherLocale.saveSession();
         }
     }
 
-    private static boolean deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId) throws IOException {
+    private static boolean deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException {
         LOGGER.info(String.format("Removing page with the id %s", pageId));
         final Request delPageRequest = new Request.Builder()
-                .url(String.format("https://app.customgpt.ai/api/v1/projects/%s/pages/%s", customGptProject, pageId))
+                .url(String.format("%s/projects/%s/pages/%s", apiBaseUrl, customGptProject, pageId))
                 .delete()
                 .addHeader("accept", "application/json")
                 .build();
-        try ( Response delPageResponse = customGptClient.newCall(delPageRequest).execute()) {
+        try (Response delPageResponse = customGptClient.newCall(delPageRequest).execute()) {
             return delPageResponse.isSuccessful();
         }
     }
 
-    private static Response addPage(OkHttpClient customGptClient, String customGptProject, String title, String output) throws IOException {
+    private static Response addPage(OkHttpClient customGptClient, String customGptProject, String title, String output, String apiBaseUrl) throws IOException {
         // Build multipart body
         final MediaType mediaType = MediaType.parse("text/html");
         final RequestBody addDocBody = new MultipartBody.Builder()
@@ -226,7 +231,7 @@ final class CustomGptIndexerNodeHandler {
                         RequestBody.create(output.getBytes(StandardCharsets.UTF_8), mediaType))
                 .build();
         final Request request = new Request.Builder()
-                .url(String.format("https://app.customgpt.ai/api/v1/projects/%s/sources", customGptProject))
+                .url(String.format("%s/projects/%s/sources", apiBaseUrl, customGptProject))
                 .post(addDocBody)
                 .addHeader("accept", "application/json")
                 .addHeader("content-type", "multipart/form-data")
@@ -234,14 +239,14 @@ final class CustomGptIndexerNodeHandler {
         return customGptClient.newCall(request).execute();
     }
 
-    private static Response updatePageMedata(OkHttpClient customGptClient, String customGptProject, String pageId, String title, String url) throws IOException {
+    private static Response updatePageMedata(OkHttpClient customGptClient, String customGptProject, String pageId, String title, String url, String apiBaseUrl) throws IOException {
         final RequestBody metadataBody = new FormBody.Builder()
                 .add("title", title)
                 .add("url", url)
                 .build();
 
         final Request request = new Request.Builder()
-                .url(String.format("https://app.customgpt.ai/api/v1/projects/%s/pages/%s/metadata", customGptProject, pageId))
+                .url(String.format("%s/projects/%s/pages/%s/metadata", apiBaseUrl, customGptProject, pageId))
                 .put(metadataBody)
                 .addHeader("accept", "application/json")
                 .addHeader("content-type", "application/json")
@@ -273,22 +278,54 @@ final class CustomGptIndexerNodeHandler {
         return languages;
     }
 
-    private static Response getJahiaPageContent(OkHttpClient customGptClient, String url) throws IOException, InterruptedException {
-
-        final Request request = new Request.Builder()
+    private static Response getJahiaPageContent(OkHttpClient jahiaClient, String url, Config config) throws IOException, InterruptedException {
+        Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
                 .get()
-                .addHeader("content-type", "text/html;charset=UTF-8")
-                .build();
+                .addHeader("content-type", "text/html;charset=UTF-8");
+
+        if (StringUtils.isNotEmpty(config.getJahiaUsername()) && StringUtils.isNotEmpty(config.getJahiaPassword())) {
+            String credential = Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8);
+            requestBuilder.addHeader("Authorization", credential);
+        }
+
+        final Request request = requestBuilder.build();
         boolean success = false;
         int attempts = 0;
         Response response = null;
         while(!success && attempts < CustomGptConstants.MAX_RETRIES){
-            response = customGptClient.newCall(request).execute();
+            response = jahiaClient.newCall(request).execute();
             success = response.isSuccessful();
             attempts++;
             Thread.sleep(500L);
         }
         return response;
+    }
+
+    private static String getApiBaseUrl(Indexer customGptIndexer) {
+        String baseUrl = customGptIndexer.getCustomGptConfig().getCustomGptApiBaseUrl();
+        if (StringUtils.isEmpty(baseUrl)) {
+            baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
+        }
+        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+    }
+
+    private static String extractPageId(JSONObject document) {
+        if (!document.has("data")) {
+            throw new IllegalArgumentException("Missing 'data' field in CustomGPT response: " + document);
+        }
+        JSONObject data = document.getJSONObject("data");
+        if (!data.has("pages")) {
+            throw new IllegalArgumentException("Missing 'pages' field in CustomGPT response data: " + data);
+        }
+        JSONArray pages = data.getJSONArray("pages");
+        if (pages.length() == 0) {
+            throw new IllegalArgumentException("Empty 'pages' array in CustomGPT response");
+        }
+        JSONObject firstPage = pages.getJSONObject(0);
+        if (!firstPage.has("id")) {
+            throw new IllegalArgumentException("Missing 'id' field in CustomGPT response page: " + firstPage);
+        }
+        return String.valueOf(firstPage.getLong("id"));
     }
 }
