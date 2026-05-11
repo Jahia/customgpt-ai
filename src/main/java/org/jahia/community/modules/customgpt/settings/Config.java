@@ -1,6 +1,5 @@
 package org.jahia.community.modules.customgpt.settings;
 
-import com.google.gwt.thirdparty.guava.common.base.Splitter;
 import java.util.*;
 import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NoSuchNodeTypeException;
@@ -110,10 +109,14 @@ public class Config implements ManagedService {
         if (StringUtils.isEmpty(StringUtils.trim(indexedFiles))) {
             indexedFileExtensions = Collections.emptySet();
         } else {
-            indexedFileExtensions = new LinkedHashSet<>(Splitter.on(",")
-                    .omitEmptyStrings()
-                    .trimResults()
-                    .splitToList(indexedFiles == null ? "*" : indexedFiles));
+            indexedFileExtensions = new LinkedHashSet<>();
+            String[] parts = (indexedFiles == null ? "*" : indexedFiles).split(",");
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    indexedFileExtensions.add(trimmed);
+                }
+            }
         }
 
         scheduleJobASAP = getBoolean(properties, SCHEDULE_JOB_ASAP, false);
@@ -134,12 +137,16 @@ public class Config implements ManagedService {
         if (StringUtils.isEmpty(commaSeparated)) {
             return nodetypes;
         }
-        for (String nodeType : Splitter.on(",").omitEmptyStrings().trimResults().splitToList(commaSeparated)) {
+        for (String nodeType : commaSeparated.split(",")) {
+            String trimmed = nodeType.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
             try {
-                NodeTypeRegistry.getInstance().getNodeType(nodeType);
-                nodetypes.add(nodeType);
+                NodeTypeRegistry.getInstance().getNodeType(trimmed);
+                nodetypes.add(trimmed);
             } catch (RepositoryException e) {
-                LOGGER.warn("unable to register nodetype [{}] from config file. {}", nodeType, e.getMessage());
+                LOGGER.warn("unable to register nodetype [{}] from config file. {}", trimmed, e.getMessage());
             }
         }
 

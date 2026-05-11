@@ -1,6 +1,6 @@
 package org.jahia.community.modules.customgpt;
 
-import com.google.gwt.thirdparty.guava.common.base.Objects;
+import java.util.Objects;
 import org.jahia.services.content.JCRNodeWrapper;
 
 public abstract class AbstractCustomGptRequest<R extends AbstractCustomGptRequest<R>> implements CustomGptRequest<R> {
@@ -23,7 +23,7 @@ public abstract class AbstractCustomGptRequest<R extends AbstractCustomGptReques
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(node.getPath(), language);
+        return Objects.hash(node.getPath(), language);
     }
 
     @Override
@@ -35,7 +35,7 @@ public abstract class AbstractCustomGptRequest<R extends AbstractCustomGptReques
             return false;
         }
         final AbstractCustomGptRequest otherObj = (AbstractCustomGptRequest) obj;
-        return Objects.equal(node.getPath(), otherObj.node.getPath()) && Objects.equal(language, otherObj.language);
+        return Objects.equals(node.getPath(), otherObj.node.getPath()) && Objects.equals(language, otherObj.language);
     }
 
     @Override

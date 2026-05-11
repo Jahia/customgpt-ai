@@ -141,14 +141,14 @@ final class CustomGptIndexerNodeHandler {
                         if (nodeInOtherLocale.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
                             final Property property = nodeInOtherLocale.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID);
                             final String pageId = property.getString();
-                            LOGGER.info(String.format("Removing page with the id %s for the url %s, language %s", pageId, url, language));
+                            LOGGER.info("Removing page with the id {} for the url {}, language {}", pageId, url, language);
                             deletePage(nodeInOtherLocale, property, customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, apiBaseUrl);
                             nodeInOtherLocale = session.getNode(nodeToIndex.getPath());
                         }
-                        LOGGER.debug(String.format("Adding url %s", url));
+                        LOGGER.debug("Adding url {}", url);
                         try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
                             if (jahiaResponse != null && jahiaResponse.isSuccessful()) {
-                                LOGGER.debug(String.format("Retrieve Jahia page content is successful for %s", url));
+                                LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
                                 final String output = jahiaResponse.body().string();
                                 final String title;
                                 if (nodeInOtherLocale.hasProperty(Constants.JCR_TITLE)) {
@@ -162,7 +162,7 @@ final class CustomGptIndexerNodeHandler {
                                     nodeInOtherLocale.addMixin(CustomGptConstants.MIX_CUSTOM_GPT_INDEXED);
                                 }
                                 nodeInOtherLocale.saveSession();
-                                LOGGER.debug(String.format("Adding page in customGPT for %s", url));
+                                LOGGER.debug("Adding page in customGPT for {}", url);
                                 try (Response addDocResponse = addPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), title, output, apiBaseUrl)) {
                                     if (addDocResponse.isSuccessful()) {
                                         LOGGER.debug("Adding page in customGPT is successful, retrieving response body");
@@ -171,7 +171,7 @@ final class CustomGptIndexerNodeHandler {
                                         final JSONObject document = new JSONObject(jsonResponse);
                                         LOGGER.debug("Retrieving CustomGpt page id");
                                         final String pageId = extractPageId(document);
-                                        LOGGER.debug(String.format("Adding page id %s to Jahia node %s", pageId, nodeInOtherLocale.getPath()));
+                                        LOGGER.debug("Adding page id {} to Jahia node {}", pageId, nodeInOtherLocale.getPath());
                                         nodeInOtherLocale.setProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID, pageId);
                                         LOGGER.debug("Saving Jahia node");
                                         nodeInOtherLocale.saveSession();
@@ -184,11 +184,11 @@ final class CustomGptIndexerNodeHandler {
                                             }
                                         }
                                     } else {
-                                        throw new IOException(String.format("Impossible to add the page for the URL %s, following response received, %s", url, addDocResponse));
+                                        throw new IOException("Impossible to add the page for the URL " + url + ", following response received, " + addDocResponse);
                                     }
                                 }
                             } else {
-                                LOGGER.warn(String.format("Impossible to retrieve content from %s", url));
+                                LOGGER.warn("Impossible to retrieve content from {}", url);
                             }
                         }
                     } catch (Exception ex) {
@@ -208,7 +208,7 @@ final class CustomGptIndexerNodeHandler {
     }
 
     private static boolean deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException {
-        LOGGER.info(String.format("Removing page with the id %s", pageId));
+        LOGGER.info("Removing page with the id {}", pageId);
         final Request delPageRequest = new Request.Builder()
                 .url(String.format("%s/projects/%s/pages/%s", apiBaseUrl, customGptProject, pageId))
                 .delete()

@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -15,7 +16,6 @@ import okhttp3.Cookie;
 import okhttp3.CookieJar;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
-import okhttp3.internal.concurrent.TaskRunner;
 import org.apache.felix.utils.collections.MapToDictionary;
 import org.jahia.api.Constants;
 import org.jahia.api.settings.SettingsBean;
@@ -272,30 +272,30 @@ public class Service implements EventHandler {
         }, executorFullIndexation);
     }
     
-    private static void restartExecutor() {
+    private void restartExecutor() {
         if (executor.isShutdown() || executor.isTerminated()) {
             LOGGER.warn("Executor is shutdown or terminated, starting a new one");
-            executor = Executors.newSingleThreadExecutor();
+            executor = Executors.newFixedThreadPool(1);
         }
     }
     
-    private static void restartExecutorFullIndexation() {
+    private void restartExecutorFullIndexation() {
         if (executorFullIndexation.isShutdown() || executorFullIndexation.isTerminated()) {
             LOGGER.warn("ExecutorFullIndexation is shutdown or terminated, starting a new one");
-            executorFullIndexation = Executors.newSingleThreadExecutor();
+            executorFullIndexation = Executors.newFixedThreadPool(1);
         }
     }
     
-    private static void restartExecutorNThreads() {
+    private void restartExecutorNThreads() {
         if (executorNThreads.isShutdown() || executorNThreads.isTerminated()) {
             LOGGER.warn("Executor with {} threads is shutdown or terminated, starting a new one", N_THREADS);
             executorNThreads = Executors.newFixedThreadPool(N_THREADS);
         }
     }
     
-    private static ExecutorService executor = Executors.newSingleThreadExecutor();
-    private static ExecutorService executorFullIndexation = Executors.newSingleThreadExecutor();
-    private static ExecutorService executorNThreads = Executors.newFixedThreadPool(N_THREADS);
+    private ExecutorService executor = Executors.newFixedThreadPool(1);
+    private ExecutorService executorFullIndexation = Executors.newFixedThreadPool(1);
+    private ExecutorService executorNThreads = Executors.newFixedThreadPool(N_THREADS);
     
     public void produceAsynchronousOperations(IndexOperations... operations) throws NotConfiguredException {
         restartExecutor();
@@ -483,6 +483,14 @@ public class Service implements EventHandler {
     }
     
     public int getPendingIndexationOperations() {
+        return getPendingCount(executor) + getPendingCount(executorFullIndexation) + getPendingCount(executorNThreads);
+    }
+    
+    private int getPendingCount(ExecutorService exec) {
+        if (exec instanceof ThreadPoolExecutor) {
+            ThreadPoolExecutor tpe = (ThreadPoolExecutor) exec;
+            return tpe.getQueue().size() + tpe.getActiveCount();
+        }
         return 0;
     }
     
@@ -543,7 +551,7 @@ public class Service implements EventHandler {
                                     .build();
                             return Arrays.asList(cookie);
                         } else {
-                            return Collections.EMPTY_LIST;
+                            return Collections.emptyList();
                         }
                     }
                 };
@@ -556,7 +564,7 @@ public class Service implements EventHandler {
                                 return null;
                             }
                             return response.request().newBuilder()
-                                    .addHeader("Authorization", String.format("Bearer %s", customGptConfig.getCustomGptToken()))
+                                    .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
                                     .build();
                         })
                         .addInterceptor(new RateLimitInterceptor())
@@ -585,7 +593,6 @@ public class Service implements EventHandler {
         }
         closeHttpClient(customGptClient);
         closeHttpClient(jahiaClient);
-        ((TaskRunner.RealBackend) TaskRunner.INSTANCE.getBackend()).shutdown();
         initialized = false;
     }
     
@@ -680,7 +687,7 @@ public class Service implements EventHandler {
             final Map<String, Site> sites = new LinkedHashMap<>();
             final QueryManagerWrapper queryManager = session.getWorkspace().getQueryManager();
             final QueryWrapper query = queryManager.createQuery(
-                    String.format("SELECT * FROM [%s] AS site WHERE ISCHILDNODE(site, '%s') ORDER BY localname()", CustomGptConstants.MIX_INDEXABLE_SITE, CustomGptConstants.PATH_SITES),
+                    "SELECT * FROM [" + CustomGptConstants.MIX_INDEXABLE_SITE + "] AS site WHERE ISCHILDNODE(site, '" + CustomGptConstants.PATH_SITES + "') ORDER BY localname()",
                     Query.JCR_SQL2);
             for (JCRNodeWrapper jcrNodeWrapper : query.execute().getNodes()) {
                 final Site site = new Site(jcrNodeWrapper.getName(), jcrNodeWrapper.getPath());

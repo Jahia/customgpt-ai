@@ -105,6 +105,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                                         }
                                     }
                                 } catch (Exception e) {
+                                    LOGGER.warn("Error processing JCR event for skip-index mixin on node {}", identifier, e);
                                 }
                                 return null;
                             }
@@ -140,6 +141,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                                     }
                                 }
                             } catch (Exception e) {
+                                LOGGER.warn("Error processing trash JCR event for node {}", identifier, e);
                             }
                             return null;
                         }

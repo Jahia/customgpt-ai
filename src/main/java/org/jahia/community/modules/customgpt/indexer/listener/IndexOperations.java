@@ -1,7 +1,7 @@
 package org.jahia.community.modules.customgpt.indexer.listener;
 
-import com.google.gwt.thirdparty.guava.common.base.Objects;
 import java.io.Serializable;
+import java.util.Objects;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import org.apache.commons.lang.StringUtils;
@@ -64,7 +64,7 @@ public class IndexOperations implements Serializable {
                 return false;
             }
             final CustomGptIndexOperation otherOp = (CustomGptIndexOperation) obj;
-            return Objects.equal(type, otherOp.type) && Objects.equal(nodePath, otherOp.nodePath) && Objects.equal(customGptPageId, otherOp.customGptPageId);
+            return Objects.equals(type, otherOp.type) && Objects.equals(nodePath, otherOp.nodePath) && Objects.equals(customGptPageId, otherOp.customGptPageId);
         }
 
         public String getNodePath() {
@@ -109,7 +109,7 @@ public class IndexOperations implements Serializable {
 
         @Override
         public int hashCode() {
-            return Objects.hashCode(type, nodePath, sourcePath, siteKey, customGptPageId);
+            return Objects.hash(type, nodePath, sourcePath, siteKey, customGptPageId);
         }
 
         @Override
