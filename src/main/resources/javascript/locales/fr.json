@@ -1,0 +1,31 @@
+{
+  "label": {
+    "menu_entry": "CustomGPT.ai",
+    "settingsTitle": "Paramètres CustomGPT.ai",
+    "settingsDescription": "Configurez les paramètres d'intégration CustomGPT.ai ci-dessous.",
+    "contentIndexedMainResourceTypes": "Types de ressources principales indexées",
+    "contentIndexedMainResourceTypesPlaceholder": "jnt:page,jmix:mainResource",
+    "contentIndexedSubNodeTypes": "Types de sous-nœuds indexés",
+    "contentIndexedSubNodeTypesPlaceholder": "jmix:droppableContent",
+    "contentIndexedFileExtensions": "Extensions de fichiers indexées",
+    "contentIndexedFileExtensionsPlaceholder": "pdf,docx",
+    "commaSeparatedHint": "Liste séparée par des virgules",
+    "operationsBatchSize": "Taille du lot",
+    "projectId": "ID du projet",
+    "token": "Jeton API",
+    "apiBaseUrl": "URL de base de l'API",
+    "apiBaseUrlPlaceholder": "https://app.customgpt.ai/api/v1/",
+    "jahiaUsername": "Nom d'utilisateur Jahia",
+    "jahiaPassword": "Mot de passe Jahia",
+    "jahiaServerCookieName": "Nom du cookie serveur",
+    "jahiaServerCookieValue": "Valeur du cookie serveur",
+    "jahiaServerCookieDomain": "Domaine du cookie serveur",
+    "dryRun": "Simulation (Dry Run)",
+    "dryRunHint": "Activer pour simuler l'indexation sans envoyer de données à CustomGPT",
+    "scheduleJobASAP": "Planifier immédiatement",
+    "scheduleJobASAPHint": "Planifier les tâches d'indexation immédiatement lors du déclenchement",
+    "save": "Enregistrer",
+    "saveSuccess": "Paramètres enregistrés avec succès.",
+    "saveError": "Échec de l'enregistrement des paramètres."
+  }
+}
