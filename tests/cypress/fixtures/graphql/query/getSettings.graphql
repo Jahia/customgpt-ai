@@ -1,0 +1,22 @@
+query {
+    admin {
+        customGpt {
+            settings {
+                contentIndexedMainResourceTypes
+                contentIndexedSubNodeTypes
+                contentIndexedFileExtensions
+                operationsBatchSize
+                projectId
+                token
+                jahiaUsername
+                jahiaPassword
+                jahiaServerCookieName
+                jahiaServerCookieValue
+                jahiaServerCookieDomain
+                dryRun
+                scheduleJobASAP
+                apiBaseUrl
+            }
+        }
+    }
+}

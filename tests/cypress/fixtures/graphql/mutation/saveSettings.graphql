@@ -1,0 +1,37 @@
+mutation saveSettings(
+    $contentIndexedMainResourceTypes: String,
+    $contentIndexedSubNodeTypes: String,
+    $contentIndexedFileExtensions: String,
+    $operationsBatchSize: Int,
+    $projectId: String,
+    $token: String,
+    $jahiaUsername: String,
+    $jahiaPassword: String,
+    $jahiaServerCookieName: String,
+    $jahiaServerCookieValue: String,
+    $jahiaServerCookieDomain: String,
+    $dryRun: Boolean,
+    $scheduleJobASAP: Boolean,
+    $apiBaseUrl: String
+) {
+    admin {
+        customGpt {
+            saveSettings(
+                contentIndexedMainResourceTypes: $contentIndexedMainResourceTypes
+                contentIndexedSubNodeTypes: $contentIndexedSubNodeTypes
+                contentIndexedFileExtensions: $contentIndexedFileExtensions
+                operationsBatchSize: $operationsBatchSize
+                projectId: $projectId
+                token: $token
+                jahiaUsername: $jahiaUsername
+                jahiaPassword: $jahiaPassword
+                jahiaServerCookieName: $jahiaServerCookieName
+                jahiaServerCookieValue: $jahiaServerCookieValue
+                jahiaServerCookieDomain: $jahiaServerCookieDomain
+                dryRun: $dryRun
+                scheduleJobASAP: $scheduleJobASAP
+                apiBaseUrl: $apiBaseUrl
+            )
+        }
+    }
+}

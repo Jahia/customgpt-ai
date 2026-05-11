@@ -1,0 +1,11 @@
+- karafCommand: "log:log 'START - customgpt-ai provisioning'"
+
+- karafCommand: "log:log 'START - Install customgpt-ai dependencies'"
+- installBundle:
+      - 'mvn:org.jahia.modules/graphql-dxm-provider/LATEST'
+      - 'mvn:org.jahia.modules/serverSettings/LATEST'
+  autoStart: true
+  uninstallPreviousVersion: false
+- karafCommand: "log:log 'END - Install customgpt-ai dependencies'"
+
+- karafCommand: "log:log 'END - customgpt-ai provisioning'"
