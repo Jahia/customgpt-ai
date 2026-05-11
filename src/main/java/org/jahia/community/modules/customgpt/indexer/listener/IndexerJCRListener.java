@@ -98,7 +98,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                                     else {
                                         boolean isSubNodeType = false;
                                         for (String mainResourceType : customGptConfig.getContentIndexedSubNodes()) {
-                                            isSubNodeType = isMainResourceType || nodeWrapper.isNodeType(mainResourceType);
+                                            isSubNodeType = isSubNodeType || nodeWrapper.isNodeType(mainResourceType);
                                         }
                                         if (isSubNodeType) {
                                             processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
@@ -133,7 +133,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                                 else {
                                     boolean isSubNodeType = false;
                                     for (String mainResourceType : customGptConfig.getContentIndexedSubNodes()) {
-                                        isSubNodeType = isMainResourceType || nodeWrapper.isNodeType(mainResourceType);
+                                        isSubNodeType = isSubNodeType || nodeWrapper.isNodeType(mainResourceType);
                                     }
                                     if (isSubNodeType) {
                                         processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
@@ -162,7 +162,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                                 } else {
                                     boolean isSubNodeType = false;
                                     for (String subNodeType : customGptConfig.getContentIndexedSubNodes()) {
-                                        isSubNodeType = isMainResourceType || nodeWrapper.isNodeType(subNodeType);
+                                        isSubNodeType = isSubNodeType || nodeWrapper.isNodeType(subNodeType);
                                     }
                                     if (isSubNodeType) {
                                         for (String mainResourceType : mainResourceTypes) {

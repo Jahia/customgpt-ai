@@ -115,7 +115,7 @@ public class Config implements ManagedService {
         }
 
         scheduleJobASAP = getBoolean(properties, SCHEDULE_JOB_ASAP, false);
-        scheduleJobASAP = getBoolean(properties, DRY_RUN, false);
+        dryRun = getBoolean(properties, DRY_RUN, false);
 
         customGptProjectId = getString(properties, PROP_GUSTOM_GPT_PROJECT_ID, "");
         customGptToken = getString(properties, PROP_GUSTOM_GPT_TOKEN, "");
