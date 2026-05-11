@@ -14,14 +14,20 @@ import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRTemplate;
+import org.osgi.service.cm.Configuration;
+import org.osgi.service.cm.ConfigurationAdmin;
 import org.quartz.JobDataMap;
 import org.quartz.JobDetail;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @GraphQLName("CustomGptAdminMutations")
 @GraphQLDescription("Generic object with admin mutation results")
 public class GqlCustomGptAdminMutationResult {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(GqlCustomGptAdminMutationResult.class);
     private static final String ADMIN = "admin";
+    private static final String CONFIG_PID = "org.jahia.community.modules.customgpt";
 
     @GraphQLName("Status")
     @GraphQLDescription("Status of the site added successfully to customGPT or already added")
@@ -131,6 +137,73 @@ public class GqlCustomGptAdminMutationResult {
             });
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
+        }
+    }
+
+    @GraphQLField
+    @GraphQLName("saveSettings")
+    @GraphQLDescription("Saves the CustomGPT configuration settings")
+    public Boolean saveSettings(
+            @GraphQLName("contentIndexedMainResourceTypes") @GraphQLDescription("Comma-separated list of main resource node types to index") String contentIndexedMainResourceTypes,
+            @GraphQLName("contentIndexedSubNodeTypes") @GraphQLDescription("Comma-separated list of sub-node types to index") String contentIndexedSubNodeTypes,
+            @GraphQLName("contentIndexedFileExtensions") @GraphQLDescription("Comma-separated list of file extensions to index") String contentIndexedFileExtensions,
+            @GraphQLName("operationsBatchSize") @GraphQLDescription("Batch size for bulk operations") Integer operationsBatchSize,
+            @GraphQLName("projectId") @GraphQLDescription("CustomGPT project ID") String projectId,
+            @GraphQLName("token") @GraphQLDescription("CustomGPT API token") String token,
+            @GraphQLName("jahiaUsername") @GraphQLDescription("Jahia username for content retrieval") String jahiaUsername,
+            @GraphQLName("jahiaPassword") @GraphQLDescription("Jahia password for content retrieval") String jahiaPassword,
+            @GraphQLName("jahiaServerCookieName") @GraphQLDescription("Jahia server cookie name") String jahiaServerCookieName,
+            @GraphQLName("jahiaServerCookieValue") @GraphQLDescription("Jahia server cookie value") String jahiaServerCookieValue,
+            @GraphQLName("jahiaServerCookieDomain") @GraphQLDescription("Jahia server cookie domain") String jahiaServerCookieDomain,
+            @GraphQLName("dryRun") @GraphQLDescription("Dry run mode") Boolean dryRun,
+            @GraphQLName("scheduleJobASAP") @GraphQLDescription("Schedule indexing jobs immediately") Boolean scheduleJobASAP,
+            @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl) {
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+        } catch (RepositoryException e) {
+            throw new DataFetchingException(e);
+        }
+        try {
+            final ConfigurationAdmin configAdmin = BundleUtils.getOsgiService(ConfigurationAdmin.class, null);
+            if (configAdmin == null) {
+                return Boolean.FALSE;
+            }
+            final Configuration config = configAdmin.getConfiguration(CONFIG_PID, null);
+            java.util.Dictionary<String, Object> props = config.getProperties();
+            if (props == null) {
+                props = new java.util.Hashtable<>();
+            }
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.content.indexedMainResourceTypes", contentIndexedMainResourceTypes);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.content.indexedSubNodeTypes", contentIndexedSubNodeTypes);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.content.indexedFileExtensions", contentIndexedFileExtensions);
+            if (operationsBatchSize != null) {
+                props.put("org.jahia.community.modules.customgpt.operations.batch.size", operationsBatchSize);
+            }
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.projectId", projectId);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.token", token);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.username", jahiaUsername);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.password", jahiaPassword);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.name", jahiaServerCookieName);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.domain", jahiaServerCookieDomain);
+            if (dryRun != null) {
+                props.put("org.jahia.community.modules.customgpt.dryRun", dryRun);
+            }
+            if (scheduleJobASAP != null) {
+                props.put("org.jahia.community.modules.customgpt.scheduleJobASAP", scheduleJobASAP);
+            }
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.apiBaseUrl", apiBaseUrl);
+            config.update(props);
+            return Boolean.TRUE;
+        } catch (Exception e) {
+            LOGGER.error("Failed to save CustomGPT settings", e);
+            return Boolean.FALSE;
+        }
+    }
+
+    private void putIfNotNull(java.util.Dictionary<String, Object> props, String key, String value) {
+        if (value != null) {
+            props.put(key, value);
         }
     }
 

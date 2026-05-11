@@ -9,3 +9,8 @@ target
 /pom.xml.tag
 /release.properties
 /pom.xml.next
+node_modules
+.yarn/cache
+.yarn/install-state.gz
+.pnp.cjs
+.pnp.loader.mjs
