@@ -6,7 +6,7 @@ import graphql.annotations.annotationTypes.GraphQLName;
 import graphql.annotations.annotationTypes.GraphQLTypeExtension;
 import org.jahia.community.modules.customgpt.graphql.extensions.query.AdminQueries;
 
-@GraphQLTypeExtension(GqlAdminQuery.class)
+@GraphQLTypeExtension(org.jahia.modules.graphql.provider.dxm.admin.GqlAdminQuery.class)
 public final class GqlAdminQuery {
 
     private GqlAdminQuery() {
