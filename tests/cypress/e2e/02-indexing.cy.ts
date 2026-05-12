@@ -2,6 +2,14 @@ import {DocumentNode} from 'graphql';
 
 describe('CustomGPT.ai Indexing', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const addSitemapMixin: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSitemapMixin.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const setNodeProperty: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/setNodeProperty.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const triggerSitemapJob: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/triggerSitemapJob.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const getSchedulerJobs: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getSchedulerJobs.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const addSite: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSite.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
@@ -30,6 +38,44 @@ describe('CustomGPT.ai Indexing', function () {
 
         cy.login();
 
+        // ── Sitemap setup ──────────────────────────────────────────────────────
+        const sitePath = `/sites/${siteKey()}`;
+
+        cy.apollo({
+            mutation: addSitemapMixin,
+            variables: {pathOrId: sitePath, mixins: ['jseomix:sitemap']}
+        });
+
+        cy.apollo({
+            mutation: setNodeProperty,
+            variables: {pathOrId: sitePath, propertyName: 'sitemapIndexURL', propertyValue: 'http://jahia:8080'}
+        });
+
+        cy.apollo({
+            mutation: setNodeProperty,
+            variables: {pathOrId: sitePath, propertyName: 'sitemapCacheDuration', propertyValue: '4'}
+        });
+
+        cy.apollo({
+            mutation: triggerSitemapJob,
+            variables: {siteKey: siteKey()}
+        });
+
+        cy.waitUntil(
+            () =>
+                cy.apollo({query: getSchedulerJobs}).then(result => {
+                    const jobs = result.data.admin.jahia.scheduler.jobs as Array<{
+                        group: string;
+                        jobStatus: string;
+                    }>;
+                    return !jobs
+                        .filter(j => j.group === 'SitemapCreationJob')
+                        .some(j => j.jobStatus === 'EXECUTING');
+                }),
+            {timeout: 60000, interval: 1000, errorMsg: 'Timed out waiting for sitemap generation to complete'}
+        );
+
+        // ── CustomGPT setup ────────────────────────────────────────────────────
         cy.apollo({
             mutation: saveSettings,
             variables: {
@@ -68,10 +114,10 @@ describe('CustomGPT.ai Indexing', function () {
     });
 
     after(() => {
-        cy.apollo({
-            mutation: saveSettings,
-            variables: {dryRun: true, scheduleJobASAP: false}
-        });
+        // cy.apollo({
+        //     mutation: saveSettings,
+        //     variables: {dryRun: true, scheduleJobASAP: false}
+        // });
     });
 
     // ─── Site indexing ───────────────────────────────────────────────────────────

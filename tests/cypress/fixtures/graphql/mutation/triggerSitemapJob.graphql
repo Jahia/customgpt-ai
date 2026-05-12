@@ -1,0 +1,7 @@
+mutation triggerSitemapJob($siteKey: String!) {
+    admin {
+        sitemap {
+            triggerSitemapJob(siteKey: $siteKey)
+        }
+    }
+}

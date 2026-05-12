@@ -1,0 +1,9 @@
+mutation setNodeProperty($pathOrId: String!, $propertyName: String!, $propertyValue: String!) {
+    jcr {
+        mutateNode(pathOrId: $pathOrId) {
+            mutateProperty(name: $propertyName) {
+                setValue(value: $propertyValue)
+            }
+        }
+    }
+}

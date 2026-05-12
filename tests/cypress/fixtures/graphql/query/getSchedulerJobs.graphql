@@ -1,0 +1,14 @@
+query getSchedulerJobs {
+    admin {
+        jahia {
+            scheduler {
+                jobs {
+                    siteKey
+                    group
+                    jobStatus
+                    jobState
+                }
+            }
+        }
+    }
+}
