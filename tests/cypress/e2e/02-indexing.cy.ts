@@ -1,0 +1,188 @@
+import {DocumentNode} from 'graphql';
+
+describe('CustomGPT.ai Indexing', function () {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const addSite: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSite.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const startIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startIndex.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const startNodeIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startNodeIndex.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const createPage: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createPage.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const deletePage: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/deletePage.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const listSites: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/listSites.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const getNodeStatus: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeStatus.graphql');
+
+    const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
+    const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
+    const testPageName = 'cypress-indexing-test';
+    const testPagePath = () => `/sites/${siteKey()}/home/${testPageName}`;
+
+    before(function () {
+        if (!Cypress.env('CUSTOMGPT_PROJECT_ID') || !Cypress.env('CUSTOMGPT_TOKEN')) {
+            this.skip();
+        }
+
+        cy.login();
+
+        cy.apollo({
+            mutation: saveSettings,
+            variables: {
+                projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
+                token: Cypress.env('CUSTOMGPT_TOKEN'),
+                jahiaUsername: 'root',
+                jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
+                dryRun: false,
+                scheduleJobASAP: true,
+                operationsBatchSize: 500
+            }
+        });
+
+        cy.apollo({
+            mutation: addSite,
+            variables: {siteKey: siteKey()}
+        });
+
+        cy.apollo({
+            mutation: startIndex,
+            variables: {siteKeys: [siteKey()], force: true}
+        });
+
+        cy.waitUntil(
+            () =>
+                cy.apollo({query: listSites}).then(result => {
+                    const sites = result.data.admin.customGpt.listSites.sites as Array<{
+                        siteKey: string;
+                        indexationStatus: string;
+                    }>;
+                    const site = sites.find(s => s.siteKey === siteKey());
+                    return site?.indexationStatus === 'COMPLETED';
+                }),
+            {timeout: 300000, interval: 10000, errorMsg: 'Timed out waiting for site indexation to complete'}
+        );
+    });
+
+    after(() => {
+        cy.apollo({
+            mutation: saveSettings,
+            variables: {dryRun: true, scheduleJobASAP: false}
+        });
+    });
+
+    // ─── Site indexing ───────────────────────────────────────────────────────────
+
+    describe('Site indexing', () => {
+        it('shows the site as COMPLETED in listSites', () => {
+            cy.apollo({query: listSites})
+                .its('data.admin.customGpt.listSites.sites')
+                .should(sites => {
+                    const site = (sites as Array<{siteKey: string; indexationStatus: string}>).find(
+                        s => s.siteKey === siteKey()
+                    );
+                    expect(site).to.exist;
+                    expect(site.indexationStatus).to.eq('COMPLETED');
+                });
+        });
+
+        it('sets customGptPageId on the home page', () => {
+            cy.apollo({
+                query: getNodeStatus,
+                variables: {path: `/sites/${siteKey()}/home`}
+            })
+                .its('data.jcr.nodeByPath')
+                .should(node => {
+                    const mixinNames = (node.mixins as Array<{name: string}>).map(m => m.name);
+                    expect(mixinNames).to.include('jmix:customGptIndexed');
+
+                    const pageIdProp = (node.properties as Array<{name: string; value: string}>).find(
+                        p => p.name === 'customGptPageId'
+                    );
+                    expect(pageIdProp).to.exist;
+                    expect(pageIdProp.value).to.be.a('string').and.not.be.empty;
+                });
+        });
+    });
+
+    // ─── New page lifecycle ──────────────────────────────────────────────────────
+
+    describe('New page lifecycle', () => {
+        before(() => {
+            cy.apollo({
+                mutation: createPage,
+                variables: {parentPath: `/sites/${siteKey()}/home`, name: testPageName}
+            });
+
+            cy.apollo({
+                mutation: startNodeIndex,
+                variables: {nodePaths: [testPagePath()]}
+            });
+
+            cy.waitUntil(
+                () =>
+                    cy
+                        .apollo({query: getNodeStatus, variables: {path: testPagePath()}})
+                        .then(result => {
+                            const props = result.data.jcr.nodeByPath?.properties as
+                                | Array<{name: string; value: string}>
+                                | undefined;
+                            const pageIdProp = props?.find(p => p.name === 'customGptPageId');
+                            return Boolean(pageIdProp?.value);
+                        }),
+                {timeout: 60000, interval: 5000, errorMsg: 'Timed out waiting for new page to be indexed in CustomGPT'}
+            );
+        });
+
+        it('new page has customGptPageId set after indexing', () => {
+            cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
+                .its('data.jcr.nodeByPath')
+                .should(node => {
+                    const mixinNames = (node.mixins as Array<{name: string}>).map(m => m.name);
+                    expect(mixinNames).to.include('jmix:customGptIndexed');
+
+                    const pageIdProp = (node.properties as Array<{name: string; value: string}>).find(
+                        p => p.name === 'customGptPageId'
+                    );
+                    expect(pageIdProp).to.exist;
+                    expect(pageIdProp.value).to.be.a('string').and.not.be.empty;
+                });
+        });
+
+        it('page is removed from CustomGPT when deleted from JCR', () => {
+            cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
+                .its('data.jcr.nodeByPath.properties')
+                .then(props => {
+                    const pageIdProp = (props as Array<{name: string; value: string}>).find(
+                        p => p.name === 'customGptPageId'
+                    );
+                    return pageIdProp!.value;
+                })
+                .as('customGptPageId');
+
+            cy.apollo({mutation: deletePage, variables: {path: testPagePath()}});
+
+            cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
+                .its('data.jcr.nodeByPath')
+                .should('be.null');
+
+            cy.get('@customGptPageId').then(pageId => {
+                cy.waitUntil(
+                    () =>
+                        cy
+                            .request({
+                                method: 'GET',
+                                url: `${apiBaseUrl()}/projects/${Cypress.env('CUSTOMGPT_PROJECT_ID')}/pages/${pageId}`,
+                                headers: {Authorization: `Bearer ${Cypress.env('CUSTOMGPT_TOKEN')}`},
+                                failOnStatusCode: false
+                            })
+                            .then(response => response.status === 404),
+                    {timeout: 60000, interval: 5000, errorMsg: 'Page was not removed from CustomGPT after JCR deletion'}
+                );
+            });
+        });
+    });
+});

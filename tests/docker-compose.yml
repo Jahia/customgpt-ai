@@ -28,6 +28,8 @@ services:
             - NEXUS_PASSWORD=${NEXUS_PASSWORD}
             - CUSTOMGPT_PROJECT_ID=${CUSTOMGPT_PROJECT_ID}
             - CUSTOMGPT_TOKEN=${CUSTOMGPT_TOKEN}
+            - CUSTOMGPT_API_BASE_URL=${CUSTOMGPT_API_BASE_URL}
+            - JAHIA_SITE_KEY=${JAHIA_SITE_KEY}
         networks:
             - stack
 networks:

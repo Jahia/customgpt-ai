@@ -1,0 +1,12 @@
+mutation startNodeIndex($nodePaths: [String]!, $inclDescendants: Boolean) {
+    admin {
+        customGpt {
+            startNodeIndex(nodePaths: $nodePaths, inclDescendants: $inclDescendants) {
+                jobs {
+                    id
+                    status
+                }
+            }
+        }
+    }
+}

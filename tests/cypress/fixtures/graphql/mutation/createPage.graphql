@@ -1,0 +1,8 @@
+mutation createPage($parentPath: String!, $name: String!) {
+    jcr {
+        addNode(parentPathOrId: $parentPath, primaryNodeType: "jnt:page", name: $name) {
+            path
+            uuid
+        }
+    }
+}

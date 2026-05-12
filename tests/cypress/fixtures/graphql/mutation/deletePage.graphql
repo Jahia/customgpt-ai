@@ -1,0 +1,7 @@
+mutation deletePage($path: String!) {
+    jcr {
+        mutateNode(pathOrId: $path) {
+            delete
+        }
+    }
+}

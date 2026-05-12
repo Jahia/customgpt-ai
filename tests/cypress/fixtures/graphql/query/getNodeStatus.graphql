@@ -1,0 +1,13 @@
+query getNodeStatus($path: String!) {
+    jcr {
+        nodeByPath(path: $path) {
+            mixins {
+                name
+            }
+            properties(names: ["customGptPageId"]) {
+                name
+                value
+            }
+        }
+    }
+}

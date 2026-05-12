@@ -1,0 +1,7 @@
+mutation addSite($siteKey: String!) {
+    admin {
+        customGpt {
+            addSite(siteKey: $siteKey)
+        }
+    }
+}

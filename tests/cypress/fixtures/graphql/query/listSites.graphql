@@ -1,0 +1,16 @@
+query {
+    admin {
+        customGpt {
+            listSites {
+                totalCount
+                sites {
+                    siteKey
+                    indexationStatus
+                    indexationStart
+                    indexationEnd
+                    indexationScheduled
+                }
+            }
+        }
+    }
+}

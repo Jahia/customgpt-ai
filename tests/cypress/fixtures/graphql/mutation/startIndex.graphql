@@ -1,0 +1,15 @@
+mutation startIndex($siteKeys: [String], $force: Boolean) {
+    admin {
+        customGpt {
+            startIndex(siteKeys: $siteKeys, force: $force) {
+                jobs {
+                    id
+                    status
+                    project {
+                        siteKey
+                    }
+                }
+            }
+        }
+    }
+}
