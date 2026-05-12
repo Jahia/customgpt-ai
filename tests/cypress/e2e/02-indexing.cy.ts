@@ -2,6 +2,8 @@ import {DocumentNode} from 'graphql';
 
 describe('CustomGPT.ai Indexing', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const setNodePropertyValues: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/setNodePropertyValues.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const addSitemapMixin: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSitemapMixin.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const setNodeProperty: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/setNodeProperty.graphql');
@@ -38,8 +40,15 @@ describe('CustomGPT.ai Indexing', function () {
 
         cy.login();
 
-        // ── Sitemap setup ──────────────────────────────────────────────────────
+        // ── Site configuration ─────────────────────────────────────────────────
         const sitePath = `/sites/${siteKey()}`;
+
+        cy.apollo({
+            mutation: setNodePropertyValues,
+            variables: {pathOrId: sitePath, propertyName: 'j:languages', propertyValues: ['en']}
+        });
+
+        // ── Sitemap setup ──────────────────────────────────────────────────────
 
         cy.apollo({
             mutation: addSitemapMixin,
@@ -79,6 +88,7 @@ describe('CustomGPT.ai Indexing', function () {
         cy.apollo({
             mutation: saveSettings,
             variables: {
+                contentIndexedMainResourceTypes:'jnt:page,jmix:mainResource',
                 projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
                 token: Cypress.env('CUSTOMGPT_TOKEN'),
                 jahiaUsername: 'root',

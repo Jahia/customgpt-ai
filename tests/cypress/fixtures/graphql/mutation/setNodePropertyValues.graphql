@@ -1,0 +1,9 @@
+mutation setNodePropertyValues($pathOrId: String!, $propertyName: String!, $propertyValues: [String]!) {
+    jcr(workspace: EDIT) {
+        mutateNode(pathOrId: $pathOrId) {
+            mutateProperty(name: $propertyName) {
+                setValues(values: $propertyValues)
+            }
+        }
+    }
+}
