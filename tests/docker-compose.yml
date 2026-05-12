@@ -26,6 +26,8 @@ services:
             - JAHIA_URL=http://jahia:8080
             - NEXUS_USERNAME=${NEXUS_USERNAME}
             - NEXUS_PASSWORD=${NEXUS_PASSWORD}
+            - CUSTOMGPT_PROJECT_ID=${CUSTOMGPT_PROJECT_ID}
+            - CUSTOMGPT_TOKEN=${CUSTOMGPT_TOKEN}
         networks:
             - stack
 networks:
