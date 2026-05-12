@@ -99,11 +99,8 @@ describe('CustomGPT.ai Indexing', function () {
                     const mixinNames = (node.mixins as Array<{name: string}>).map(m => m.name);
                     expect(mixinNames).to.include('jmix:customGptIndexed');
 
-                    const pageIdProp = (node.properties as Array<{name: string; value: string}>).find(
-                        p => p.name === 'customGptPageId'
-                    );
-                    expect(pageIdProp).to.exist;
-                    expect(pageIdProp.value).to.be.a('string').and.not.be.empty;
+                    expect(node.property).to.exist;
+                    expect(node.property.value).to.be.a('string').and.not.be.empty;
                 });
         });
     });
@@ -126,13 +123,7 @@ describe('CustomGPT.ai Indexing', function () {
                 () =>
                     cy
                         .apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-                        .then(result => {
-                            const props = result.data.jcr.nodeByPath?.properties as
-                                | Array<{name: string; value: string}>
-                                | undefined;
-                            const pageIdProp = props?.find(p => p.name === 'customGptPageId');
-                            return Boolean(pageIdProp?.value);
-                        }),
+                        .then(result => Boolean(result.data.jcr.nodeByPath?.property?.value)),
                 {timeout: 60000, interval: 5000, errorMsg: 'Timed out waiting for new page to be indexed in CustomGPT'}
             );
         });
@@ -143,24 +134,14 @@ describe('CustomGPT.ai Indexing', function () {
                 .should(node => {
                     const mixinNames = (node.mixins as Array<{name: string}>).map(m => m.name);
                     expect(mixinNames).to.include('jmix:customGptIndexed');
-
-                    const pageIdProp = (node.properties as Array<{name: string; value: string}>).find(
-                        p => p.name === 'customGptPageId'
-                    );
-                    expect(pageIdProp).to.exist;
-                    expect(pageIdProp.value).to.be.a('string').and.not.be.empty;
+                    expect(node.property).to.exist;
+                    expect(node.property.value).to.be.a('string').and.not.be.empty;
                 });
         });
 
         it('page is removed from CustomGPT when deleted from JCR', () => {
             cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-                .its('data.jcr.nodeByPath.properties')
-                .then(props => {
-                    const pageIdProp = (props as Array<{name: string; value: string}>).find(
-                        p => p.name === 'customGptPageId'
-                    );
-                    return pageIdProp!.value;
-                })
+                .its('data.jcr.nodeByPath.property.value')
                 .as('customGptPageId');
 
             cy.apollo({mutation: deletePage, variables: {path: testPagePath()}});

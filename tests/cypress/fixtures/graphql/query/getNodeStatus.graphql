@@ -4,8 +4,7 @@ query getNodeStatus($path: String!) {
             mixins {
                 name
             }
-            properties(names: ["customGptPageId"]) {
-                name
+            property(name: "customGptPageId") {
                 value
             }
         }
