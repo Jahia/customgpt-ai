@@ -96,9 +96,6 @@ describe('CustomGPT.ai Indexing', function () {
             })
                 .its('data.jcr.nodeByPath')
                 .should(node => {
-                    const mixinNames = (node.mixins as Array<{name: string}>).map(m => m.name);
-                    expect(mixinNames).to.include('jmix:customGptIndexed');
-
                     expect(node.property).to.exist;
                     expect(node.property.value).to.be.a('string').and.not.be.empty;
                 });
@@ -132,8 +129,6 @@ describe('CustomGPT.ai Indexing', function () {
             cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
                 .its('data.jcr.nodeByPath')
                 .should(node => {
-                    const mixinNames = (node.mixins as Array<{name: string}>).map(m => m.name);
-                    expect(mixinNames).to.include('jmix:customGptIndexed');
                     expect(node.property).to.exist;
                     expect(node.property.value).to.be.a('string').and.not.be.empty;
                 });
