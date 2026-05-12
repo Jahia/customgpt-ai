@@ -1,6 +1,6 @@
 FROM cypress/base:22.15.1
 
-RUN apt-get update && apt-get install -y jq curl
+RUN apt-get update && apt-get install -y jq curl less vim
 
 RUN adduser --disabled-password jahians
 

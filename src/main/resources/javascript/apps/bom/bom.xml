@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<bom xmlns="http://cyclonedx.org/schema/bom/1.4" version="1" serialNumber="urn:uuid:d23f4b46-705d-4423-beee-7a144388f8a7">
+<bom xmlns="http://cyclonedx.org/schema/bom/1.4" version="1" serialNumber="urn:uuid:05714b62-3d41-48d2-b985-6bbee989c2f8">
   <metadata>
-    <timestamp>2026-05-11T20:48:31.567Z</timestamp>
+    <timestamp>2026-05-11T20:55:12.205Z</timestamp>
     <tools>
       <tool>
         <name>webpack</name>

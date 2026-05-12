@@ -63,8 +63,8 @@ describe('CustomGPT.ai Settings', () => {
             cy.apollo({
                 mutation: saveSettings,
                 variables: {
-                    projectId: 'test-project-123',
-                    token: 'test-token-456',
+                    projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
+                    token: Cypress.env('CUSTOMGPT_TOKEN'),
                     apiBaseUrl: 'https://api.customgpt.ai/test',
                     dryRun: true,
                     scheduleJobASAP: false,
@@ -83,10 +83,10 @@ describe('CustomGPT.ai Settings', () => {
                     contentIndexedSubNodeTypes: 'jmix:droppableContent',
                     contentIndexedFileExtensions: 'pdf,docx',
                     operationsBatchSize: 100,
-                    projectId: 'roundtrip-project',
-                    token: 'roundtrip-token',
-                    jahiaUsername: 'roundtrip-user',
-                    jahiaPassword: 'roundtrip-pass',
+                    projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
+                    token: Cypress.env('CUSTOMGPT_TOKEN'),
+                    jahiaUsername: 'root',
+                    jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
                     jahiaServerCookieName: 'roundtrip-cookie',
                     jahiaServerCookieValue: 'roundtrip-value',
                     jahiaServerCookieDomain: 'roundtrip.local',
@@ -102,10 +102,10 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.contentIndexedSubNodeTypes).to.eq('jmix:droppableContent');
                     expect(s.contentIndexedFileExtensions).to.eq('pdf,docx');
                     expect(s.operationsBatchSize).to.eq(100);
-                    expect(s.projectId).to.eq('roundtrip-project');
-                    expect(s.token).to.eq('roundtrip-token');
-                    expect(s.jahiaUsername).to.eq('roundtrip-user');
-                    expect(s.jahiaPassword).to.eq('roundtrip-pass');
+                    expect(s.projectId).to.eq(Cypress.env('CUSTOMGPT_PROJECT_ID'));
+                    expect(s.token).to.eq(Cypress.env('CUSTOMGPT_TOKEN'));
+                    expect(s.jahiaUsername).to.eq('root');
+                    expect(s.jahiaPassword).to.eq(Cypress.env('SUPER_USER_PASSWORD'));
                     expect(s.jahiaServerCookieName).to.eq('roundtrip-cookie');
                     expect(s.jahiaServerCookieValue).to.eq('roundtrip-value');
                     expect(s.jahiaServerCookieDomain).to.eq('roundtrip.local');
@@ -115,7 +115,7 @@ describe('CustomGPT.ai Settings', () => {
                 });
         });
 
-        it('clears fields by saving null values', () => {
+        it('clears fields by saving empty values', () => {
             cy.apollo({
                 mutation: saveSettings,
                 variables: {
@@ -127,17 +127,17 @@ describe('CustomGPT.ai Settings', () => {
             cy.apollo({
                 mutation: saveSettings,
                 variables: {
-                    contentIndexedMainResourceTypes: null,
-                    projectId: null,
-                    token: null
+                    contentIndexedMainResourceTypes: '',
+                    projectId: '',
+                    token: ''
                 }
             });
             cy.apollo({query: getSettings})
                 .its('data.admin.customGpt.settings')
                 .should(s => {
-                    expect(s.contentIndexedMainResourceTypes).to.be.null;
-                    expect(s.projectId).to.be.null;
-                    expect(s.token).to.be.null;
+                    expect(s.contentIndexedMainResourceTypes).to.be.empty;
+                    expect(s.projectId).to.be.empty;
+                    expect(s.token).to.be.empty;
                 });
         });
     });

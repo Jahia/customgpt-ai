@@ -4,6 +4,7 @@
 - installBundle:
       - 'mvn:org.jahia.modules/graphql-dxm-provider/LATEST'
       - 'mvn:org.jahia.modules/serverSettings/LATEST'
+      - 'mvn:org.jahia.modules/sitemap/LATEST'
   autoStart: true
   uninstallPreviousVersion: false
 - karafCommand: "log:log 'END - Install customgpt-ai dependencies'"
