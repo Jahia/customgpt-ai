@@ -1,5 +1,5 @@
 mutation addSitemapMixin($pathOrId: String!, $mixins: [String!]!) {
-    jcr {
+    jcr(workspace: EDIT) {
         mutateNode(pathOrId: $pathOrId) {
             addMixins(mixins: $mixins)
         }

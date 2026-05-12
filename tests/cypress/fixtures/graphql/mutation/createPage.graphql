@@ -1,7 +1,6 @@
 mutation createPage($parentPath: String!, $name: String!) {
-    jcr {
+    jcr(workspace: EDIT) {
         addNode(parentPathOrId: $parentPath, primaryNodeType: "jnt:page", name: $name) {
-            path
             uuid
         }
     }

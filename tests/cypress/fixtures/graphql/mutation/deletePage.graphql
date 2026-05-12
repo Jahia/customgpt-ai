@@ -1,7 +1,5 @@
 mutation deletePage($path: String!) {
-    jcr {
-        mutateNode(pathOrId: $path) {
-            delete
-        }
+    jcr(workspace: EDIT) {
+        deleteNode(pathOrId: $path)
     }
 }
