@@ -13,6 +13,10 @@ export default defineConfig({
     viewportHeight: 768,
     watchForFileChanges: false,
     e2e: {
+        env: {
+            CUSTOMGPT_PROJECT_ID: process.env.CUSTOMGPT_PROJECT_ID,
+            CUSTOMGPT_TOKEN: process.env.CUSTOMGPT_TOKEN
+        },
         setupNodeEvents(on, config) {
             // Delete videos for tests that did not fail
             on(
