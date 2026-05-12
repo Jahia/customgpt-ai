@@ -2,6 +2,8 @@ import {DocumentNode} from 'graphql';
 
 describe('CustomGPT.ai Indexing', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const publishNode: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/publishNode.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const setNodePropertyValues: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/setNodePropertyValues.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const addSitemapMixin: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSitemapMixin.graphql');
@@ -39,6 +41,31 @@ describe('CustomGPT.ai Indexing', function () {
         }
 
         cy.login();
+
+        // ── Pre-indexing cleanup ───────────────────────────────────────────────
+        const pagesToRemove = [
+            '/sites/digitall/home/about',
+            '/sites/digitall/home/corporate-responsibility',
+            '/sites/digitall/home/our-companies',
+            '/sites/digitall/home/newsroom',
+            '/sites/digitall/home/investors',
+            '/sites/digitall/home/landing',
+            '/sites/digitall/home/demo-roles-and-users'
+        ];
+
+        pagesToRemove.forEach(path => {
+            cy.apollo({mutation: deletePage, variables: {path}});
+        });
+
+        cy.apollo({
+            mutation: publishNode,
+            variables: {
+                pathOrId: '/sites/digitall/home',
+                languages: ['en'],
+                publishSubNodes: true,
+                includeSubTree: false
+            }
+        });
 
         // ── Site configuration ─────────────────────────────────────────────────
         const sitePath = `/sites/${siteKey()}`;
