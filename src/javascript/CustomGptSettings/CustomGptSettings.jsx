@@ -3,7 +3,7 @@ import {useMutation, useQuery} from '@apollo/client';
 import {useTranslation} from 'react-i18next';
 import {Button, Loader, Typography} from '@jahia/moonstone';
 import styles from './CustomGptSettings.scss';
-import {GET_SETTINGS, SAVE_SETTINGS} from './CustomGptSettings.gql';
+import {GET_SETTINGS, PURGE_ALL_PAGES, SAVE_SETTINGS} from './CustomGptSettings.gql';
 
 export const CustomGptSettingsAdmin = () => {
     const {t} = useTranslation('customgpt-ai');
@@ -52,6 +52,8 @@ export const CustomGptSettingsAdmin = () => {
     });
 
     const [saveSettings, {loading: saving}] = useMutation(SAVE_SETTINGS);
+    const [purgeAllPages, {loading: purging}] = useMutation(PURGE_ALL_PAGES);
+    const [purgeStatus, setPurgeStatus] = useState(null);
 
     const handleChange = field => e => {
         setSaveStatus(null);
@@ -63,6 +65,22 @@ export const CustomGptSettingsAdmin = () => {
         setSaveStatus(null);
         const value = e.target.value === '' ? '' : parseInt(e.target.value, 10);
         setFormState(prev => ({...prev, [field]: value}));
+    };
+
+    const handlePurge = async () => {
+        if (!window.confirm(t('label.purgeConfirm'))) {
+            return;
+        }
+
+        setPurgeStatus(null);
+        try {
+            const result = await purgeAllPages();
+            const count = result.data?.admin?.customGpt?.purgeAllPages;
+            setPurgeStatus({type: 'success', count});
+        } catch (err) {
+            console.error('Failed to purge pages:', err);
+            setPurgeStatus({type: 'error'});
+        }
     };
 
     const handleSave = async () => {
@@ -320,6 +338,26 @@ export const CustomGptSettingsAdmin = () => {
                     variant="primary"
                     isDisabled={saving}
                     onClick={handleSave}
+                />
+            </div>
+
+            <div className={styles.cgpt_dangerZone}>
+                <h3>{t('label.dangerZoneTitle')}</h3>
+                {purgeStatus?.type === 'success' && (
+                    <div className={`${styles.cgpt_alert} ${styles['cgpt_alert--success']}`}>
+                        {t('label.purgeSuccess', {count: purgeStatus.count})}
+                    </div>
+                )}
+                {purgeStatus?.type === 'error' && (
+                    <div className={`${styles.cgpt_alert} ${styles['cgpt_alert--error']}`}>
+                        {t('label.purgeError')}
+                    </div>
+                )}
+                <Button
+                    label={t('label.purgeAllPages')}
+                    variant="danger"
+                    isDisabled={purging}
+                    onClick={handlePurge}
                 />
             </div>
         </div>

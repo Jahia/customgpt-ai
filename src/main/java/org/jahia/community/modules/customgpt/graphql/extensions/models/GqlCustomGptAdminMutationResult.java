@@ -67,6 +67,11 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLDescription("Force start indexation for when job has already been started")
             @GraphQLDefaultValue(DefaultForce.class) boolean force
     ) throws Exception {
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+        } catch (RepositoryException e) {
+            throw new DataFetchingException(e);
+        }
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
         if (siteKeys != null) {
             final Collection<Site> sites = customGptService.getIndexedSites().values();
@@ -91,6 +96,11 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("inclDescendants")
             @GraphQLDescription("Re-index descendants (Optional; default=false)") Boolean inclDescendants
     ) throws Exception {
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+        } catch (RepositoryException e) {
+            throw new DataFetchingException(e);
+        }
         final GqlIndexingJob job = NodeReindexAsyncJob.triggerJob(nodePaths, inclDescendants != null && inclDescendants);
         return new GqlIndexMutationResult(Collections.singletonList(job));
     }
@@ -119,7 +129,9 @@ public class GqlCustomGptAdminMutationResult {
     @GraphQLName("addSite")
     @GraphQLDescription("Add site to the list of indexed sites")
     public String addSite(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey) {
+
         try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
             return JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
                 if ("".equals(siteKey)) {
                     throw new RepositoryException("Site '/sites/' does not exist. Provide a valid site key.");
@@ -198,6 +210,27 @@ public class GqlCustomGptAdminMutationResult {
         } catch (Exception e) {
             LOGGER.error("Failed to save CustomGPT settings", e);
             return Boolean.FALSE;
+        }
+    }
+
+    @GraphQLField
+    @GraphQLName("purgeAllPages")
+    @GraphQLDescription("Delete all pages from the CustomGPT project and return the number of pages deleted")
+    public Integer purgeAllPages() {
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+        } catch (RepositoryException e) {
+            throw new DataFetchingException(e);
+        }
+        final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
+        if (customGptService == null) {
+            throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
+        }
+        try {
+            return customGptService.purgeAllPages();
+        } catch (Exception e) {
+            LOGGER.error("Failed to purge all CustomGPT pages", e);
+            throw new DataFetchingException(e);
         }
     }
 

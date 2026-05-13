@@ -25,6 +25,16 @@ export const GET_SETTINGS = gql`
     }
 `;
 
+export const PURGE_ALL_PAGES = gql`
+    mutation CustomGptPurgeAllPages {
+        admin {
+            customGpt {
+                purgeAllPages
+            }
+        }
+    }
+`;
+
 export const SAVE_SETTINGS = gql`
     mutation CustomGptSaveSettings(
         $contentIndexedMainResourceTypes: String,

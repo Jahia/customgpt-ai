@@ -2,6 +2,8 @@ package org.jahia.community.modules.customgpt.service;
 
 import java.io.IOException;
 import java.util.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -16,6 +18,8 @@ import okhttp3.Cookie;
 import okhttp3.CookieJar;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.apache.felix.utils.collections.MapToDictionary;
 import org.jahia.api.Constants;
 import org.jahia.api.settings.SettingsBean;
@@ -764,5 +768,69 @@ public class Service implements EventHandler {
             return true;
         }
         return node.isNodeType(CustomGptConstants.MIX_SKIP_INDEX);
+    }
+
+    public int purgeAllPages() throws IOException {
+        final String projectId = customGptConfig.getCustomGptProjectId();
+        String baseUrl = customGptConfig.getCustomGptApiBaseUrl();
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
+        }
+        if (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+
+        final List<Long> pageIds = new ArrayList<>();
+        String nextUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
+
+        while (nextUrl != null) {
+            final Request listRequest = new Request.Builder()
+                    .url(nextUrl)
+                    .get()
+                    .addHeader("accept", "application/json")
+                    .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
+                    .build();
+            try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
+                if (!listResponse.isSuccessful()) {
+                    LOGGER.error("Failed to list CustomGPT pages: {}", listResponse);
+                    break;
+                }
+                final JSONObject body = new JSONObject(listResponse.body().string());
+                final JSONObject data = body.optJSONObject("data");
+                if (data == null) {
+                    break;
+                }
+                final JSONObject pages = data.optJSONObject("pages");
+                if (pages == null) {
+                    break;
+                }
+                final JSONArray items = pages.optJSONArray("data");
+                if (items != null) {
+                    for (int i = 0; i < items.length(); i++) {
+                        pageIds.add(items.getJSONObject(i).getLong("id"));
+                    }
+                }
+                nextUrl = pages.isNull("next_page_url") ? null : pages.optString("next_page_url", null);
+            }
+        }
+
+        int deleted = 0;
+        for (Long pageId : pageIds) {
+            final Request delRequest = new Request.Builder()
+                    .url(String.format("%s/projects/%s/pages/%s", baseUrl, projectId, pageId))
+                    .delete()
+                    .addHeader("accept", "application/json")
+                    .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
+                    .build();
+            try (Response delResponse = customGptClient.newCall(delRequest).execute()) {
+                if (delResponse.isSuccessful()) {
+                    deleted++;
+                } else {
+                    LOGGER.warn("Failed to delete CustomGPT page {}: {}", pageId, delResponse.code());
+                }
+            }
+        }
+        LOGGER.info("Purged {} CustomGPT page(s) from project {}", deleted, projectId);
+        return deleted;
     }
 }
