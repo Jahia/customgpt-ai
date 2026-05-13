@@ -216,7 +216,11 @@ final class CustomGptIndexerNodeHandler {
         if (session.nodeExists(mappingPath)) {
             return session.getNode(mappingPath);
         }
-        return session.getNode(nodePath).addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, CustomGptConstants.NT_CUSTOM_GPT_INDEX_ENTRY);
+        final JCRNodeWrapper parentNode = session.getNode(nodePath);
+        if (!parentNode.isNodeType(CustomGptConstants.MIX_CUSTOM_GPT_INDEXABLE)) {
+            parentNode.addMixin(CustomGptConstants.MIX_CUSTOM_GPT_INDEXABLE);
+        }
+        return parentNode.addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, CustomGptConstants.NT_CUSTOM_GPT_INDEX_ENTRY);
     }
 
     private static boolean deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException {
