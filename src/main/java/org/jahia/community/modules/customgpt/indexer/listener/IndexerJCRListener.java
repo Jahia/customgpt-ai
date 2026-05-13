@@ -96,11 +96,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                                         isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
                                     }
                                     if (isMainResourceType) {
-                                        try {
-                                            findAndQueueMappingRemoval(nodeWrapper.getPath(), customGptIndexOperations);
-                                        } catch (Exception e) {
-                                            LOGGER.warn("Cannot resolve path for node {}, skipping CustomGPT cleanup", identifier, e);
-                                        }
+                                        tryQueueMappingRemoval(nodeWrapper, identifier, customGptIndexOperations);
                                     } // Deletion of the sub-nodes
                                     else {
                                         boolean isSubNodeType = false;
@@ -257,6 +253,14 @@ public class IndexerJCRListener extends DefaultEventListener {
             });
         } catch (RepositoryException e) {
             LOGGER.warn("Error accessing CustomGPT mapping node for node path {}", nodePath, e);
+        }
+    }
+
+    private void tryQueueMappingRemoval(JCRNodeWrapper node, String identifier, IndexOperations ops) {
+        try {
+            findAndQueueMappingRemoval(node.getPath(), ops);
+        } catch (Exception e) {
+            LOGGER.warn("Cannot resolve path for node {}, skipping CustomGPT cleanup", identifier, e);
         }
     }
 

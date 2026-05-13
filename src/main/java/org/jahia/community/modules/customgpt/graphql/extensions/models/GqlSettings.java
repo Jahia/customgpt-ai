@@ -25,27 +25,65 @@ public class GqlSettings {
     private final boolean scheduleJobASAP;
     private final String apiBaseUrl;
 
-    public GqlSettings(String contentIndexedMainResourceTypes, String contentIndexedSubNodeTypes,
-            String contentIndexedFileExtensions, String fileMappedNodetypes, int operationsBatchSize,
-            String projectId, String projectName, String token, String jahiaUsername, String jahiaPassword,
-            String jahiaServerCookieName, String jahiaServerCookieValue, String jahiaServerCookieDomain,
-            boolean dryRun, boolean scheduleJobASAP, String apiBaseUrl) {
-        this.contentIndexedMainResourceTypes = contentIndexedMainResourceTypes;
-        this.contentIndexedSubNodeTypes = contentIndexedSubNodeTypes;
-        this.contentIndexedFileExtensions = contentIndexedFileExtensions;
-        this.fileMappedNodetypes = fileMappedNodetypes;
-        this.operationsBatchSize = operationsBatchSize;
-        this.projectId = projectId;
-        this.projectName = projectName;
-        this.token = token;
-        this.jahiaUsername = jahiaUsername;
-        this.jahiaPassword = jahiaPassword;
-        this.jahiaServerCookieName = jahiaServerCookieName;
-        this.jahiaServerCookieValue = jahiaServerCookieValue;
-        this.jahiaServerCookieDomain = jahiaServerCookieDomain;
-        this.dryRun = dryRun;
-        this.scheduleJobASAP = scheduleJobASAP;
-        this.apiBaseUrl = apiBaseUrl;
+    private GqlSettings(Builder b) {
+        this.contentIndexedMainResourceTypes = b.contentIndexedMainResourceTypes;
+        this.contentIndexedSubNodeTypes = b.contentIndexedSubNodeTypes;
+        this.contentIndexedFileExtensions = b.contentIndexedFileExtensions;
+        this.fileMappedNodetypes = b.fileMappedNodetypes;
+        this.operationsBatchSize = b.operationsBatchSize;
+        this.projectId = b.projectId;
+        this.projectName = b.projectName;
+        this.token = b.token;
+        this.jahiaUsername = b.jahiaUsername;
+        this.jahiaPassword = b.jahiaPassword;
+        this.jahiaServerCookieName = b.jahiaServerCookieName;
+        this.jahiaServerCookieValue = b.jahiaServerCookieValue;
+        this.jahiaServerCookieDomain = b.jahiaServerCookieDomain;
+        this.dryRun = b.dryRun;
+        this.scheduleJobASAP = b.scheduleJobASAP;
+        this.apiBaseUrl = b.apiBaseUrl;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private String contentIndexedMainResourceTypes;
+        private String contentIndexedSubNodeTypes;
+        private String contentIndexedFileExtensions;
+        private String fileMappedNodetypes;
+        private int operationsBatchSize;
+        private String projectId;
+        private String projectName;
+        private String token;
+        private String jahiaUsername;
+        private String jahiaPassword;
+        private String jahiaServerCookieName;
+        private String jahiaServerCookieValue;
+        private String jahiaServerCookieDomain;
+        private boolean dryRun;
+        private boolean scheduleJobASAP;
+        private String apiBaseUrl;
+
+        public Builder contentIndexedMainResourceTypes(String v) { this.contentIndexedMainResourceTypes = v; return this; }
+        public Builder contentIndexedSubNodeTypes(String v) { this.contentIndexedSubNodeTypes = v; return this; }
+        public Builder contentIndexedFileExtensions(String v) { this.contentIndexedFileExtensions = v; return this; }
+        public Builder fileMappedNodetypes(String v) { this.fileMappedNodetypes = v; return this; }
+        public Builder operationsBatchSize(int v) { this.operationsBatchSize = v; return this; }
+        public Builder projectId(String v) { this.projectId = v; return this; }
+        public Builder projectName(String v) { this.projectName = v; return this; }
+        public Builder token(String v) { this.token = v; return this; }
+        public Builder jahiaUsername(String v) { this.jahiaUsername = v; return this; }
+        public Builder jahiaPassword(String v) { this.jahiaPassword = v; return this; }
+        public Builder jahiaServerCookieName(String v) { this.jahiaServerCookieName = v; return this; }
+        public Builder jahiaServerCookieValue(String v) { this.jahiaServerCookieValue = v; return this; }
+        public Builder jahiaServerCookieDomain(String v) { this.jahiaServerCookieDomain = v; return this; }
+        public Builder dryRun(boolean v) { this.dryRun = v; return this; }
+        public Builder scheduleJobASAP(boolean v) { this.scheduleJobASAP = v; return this; }
+        public Builder apiBaseUrl(String v) { this.apiBaseUrl = v; return this; }
+
+        public GqlSettings build() { return new GqlSettings(this); }
     }
 
     @GraphQLField

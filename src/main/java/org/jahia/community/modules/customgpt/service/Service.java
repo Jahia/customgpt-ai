@@ -87,6 +87,11 @@ public class Service implements EventHandler {
     private static final String PROP_INDEXATION_START = "customGptIndexationStart";
     private static final String RECREATE_LOG = "Recreate Log";
     private static final int N_THREADS = 2;
+    private static final String HEADER_AUTHORIZATION = "Authorization";
+    private static final String BEARER_PREFIX = "Bearer ";
+    private static final String HEADER_ACCEPT = "accept";
+    private static final String MEDIA_TYPE_JSON = "application/json";
+    private static final String UNSET = "unset";
     private BundleContext bundleContext;
     private Config customGptConfig;
     private IndexerJCRListener jcrListenerLive;
@@ -554,6 +559,7 @@ public class Service implements EventHandler {
                 final CookieJar cookieJar = new CookieJar() {
                     @Override
                     public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
+                        // cookies are not persisted; session auth is handled by the Bearer authenticator
                     }
                     
                     @Override
@@ -578,11 +584,11 @@ public class Service implements EventHandler {
                         .build();
                 customGptClient = new OkHttpClient.Builder()
                         .authenticator((route, response) -> {
-                            if (response.request().header("Authorization") != null) {
+                            if (response.request().header(HEADER_AUTHORIZATION) != null) {
                                 return null;
                             }
                             return response.request().newBuilder()
-                                    .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
+                                    .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
                                     .build();
                         })
                         .addInterceptor(new RateLimitInterceptor())
@@ -765,9 +771,9 @@ public class Service implements EventHandler {
             }
             if (LOGGER.isDebugEnabled()) {
                 sites.forEach((s, site) -> LOGGER.debug("Site {}, has props: start {}, end {}, scheduled {}", s,
-                        site.getIndexationStart() != null ? site.getIndexationStart().toInstant() : "unset",
-                        site.getIndexationEnd() != null ? site.getIndexationEnd().toInstant() : "unset",
-                        site.getIndexationScheduled() != null ? site.getIndexationScheduled().toInstant() : "unset"));
+                        site.getIndexationStart() != null ? site.getIndexationStart().toInstant() : UNSET,
+                        site.getIndexationEnd() != null ? site.getIndexationEnd().toInstant() : UNSET,
+                        site.getIndexationScheduled() != null ? site.getIndexationScheduled().toInstant() : UNSET));
             }
             return sites;
         } catch (RepositoryException e) {
@@ -840,8 +846,8 @@ public class Service implements EventHandler {
         final Request request = new Request.Builder()
                 .url(String.format("%s/projects/%s", baseUrl, projectId))
                 .get()
-                .addHeader("accept", "application/json")
-                .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
                 .build();
         try (Response response = customGptClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
@@ -876,48 +882,7 @@ public class Service implements EventHandler {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
 
-        final List<Long> pageIds = new ArrayList<>();
-        String nextUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
-        int pageNumber = 1;
-
-        LOGGER.info("[purgeAllPages] Fetching page list from CustomGPT...");
-        while (nextUrl != null) {
-            LOGGER.info("[purgeAllPages] Fetching page {} of results from {}", pageNumber, nextUrl);
-            final Request listRequest = new Request.Builder()
-                    .url(nextUrl)
-                    .get()
-                    .addHeader("accept", "application/json")
-                    .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
-                    .build();
-            try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
-                if (!listResponse.isSuccessful()) {
-                    LOGGER.error("[purgeAllPages] Failed to list CustomGPT pages (HTTP {}), aborting fetch", listResponse.code());
-                    break;
-                }
-                final JSONObject body = new JSONObject(listResponse.body().string());
-                final JSONObject data = body.optJSONObject("data");
-                if (data == null) {
-                    LOGGER.warn("[purgeAllPages] Response has no 'data' field, stopping pagination");
-                    break;
-                }
-                final JSONObject pages = data.optJSONObject("pages");
-                if (pages == null) {
-                    LOGGER.warn("[purgeAllPages] Response has no 'pages' field, stopping pagination");
-                    break;
-                }
-                final JSONArray items = pages.optJSONArray("data");
-                if (items != null) {
-                    for (int i = 0; i < items.length(); i++) {
-                        pageIds.add(items.getJSONObject(i).getLong("id"));
-                    }
-                    LOGGER.info("[purgeAllPages] Collected {} page id(s) from result page {} ({} total so far)",
-                            items.length(), pageNumber, pageIds.size());
-                }
-                nextUrl = pages.isNull("next_page_url") ? null : pages.optString("next_page_url", null);
-                pageNumber++;
-            }
-        }
-
+        final List<Long> pageIds = fetchAllPageIds(baseUrl, projectId);
         LOGGER.info("[purgeAllPages] Found {} page(s) to delete in project {}", pageIds.size(), projectId);
 
         int batchSize;
@@ -928,11 +893,64 @@ public class Service implements EventHandler {
         }
         LOGGER.info("[purgeAllPages] Deleting in batches of {}", batchSize);
 
+        final int deletedCount = deleteAllPages(pageIds, baseUrl, projectId, batchSize);
+        LOGGER.info("[purgeAllPages] Purge complete — deleted {}/{} page(s) from project {}",
+                deletedCount, pageIds.size(), projectId);
+        return deletedCount;
+    }
+
+    private List<Long> fetchAllPageIds(String baseUrl, String projectId) throws IOException {
+        final List<Long> pageIds = new ArrayList<>();
+        String nextUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
+        int pageNumber = 1;
+        LOGGER.info("[purgeAllPages] Fetching page list from CustomGPT...");
+        while (nextUrl != null) {
+            LOGGER.info("[purgeAllPages] Fetching page {} of results from {}", pageNumber, nextUrl);
+            final Request listRequest = new Request.Builder()
+                    .url(nextUrl)
+                    .get()
+                    .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                    .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
+                    .build();
+            try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
+                nextUrl = extractNextPageUrl(listResponse, pageIds, pageNumber);
+            }
+            pageNumber++;
+        }
+        return pageIds;
+    }
+
+    private String extractNextPageUrl(Response listResponse, List<Long> pageIds, int pageNumber) throws IOException {
+        if (!listResponse.isSuccessful()) {
+            LOGGER.error("[purgeAllPages] Failed to list CustomGPT pages (HTTP {}), aborting fetch", listResponse.code());
+            return null;
+        }
+        final JSONObject body = new JSONObject(listResponse.body().string());
+        final JSONObject data = body.optJSONObject("data");
+        if (data == null) {
+            LOGGER.warn("[purgeAllPages] Response has no 'data' field, stopping pagination");
+            return null;
+        }
+        final JSONObject pages = data.optJSONObject("pages");
+        if (pages == null) {
+            LOGGER.warn("[purgeAllPages] Response has no 'pages' field, stopping pagination");
+            return null;
+        }
+        final JSONArray items = pages.optJSONArray("data");
+        if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                pageIds.add(items.getJSONObject(i).getLong("id"));
+            }
+            LOGGER.info("[purgeAllPages] Collected {} page id(s) from result page {} ({} total so far)",
+                    items.length(), pageNumber, pageIds.size());
+        }
+        return pages.isNull("next_page_url") ? null : pages.optString("next_page_url", null);
+    }
+
+    private int deleteAllPages(List<Long> pageIds, String baseUrl, String projectId, int batchSize) {
         final int total = pageIds.size();
         final AtomicInteger deleted = new AtomicInteger(0);
-        final String resolvedBaseUrl = baseUrl;
         final ExecutorService batchExecutor = Executors.newFixedThreadPool(batchSize);
-
         try {
             for (int batchStart = 0; batchStart < total; batchStart += batchSize) {
                 final int batchEnd = Math.min(batchStart + batchSize, total);
@@ -940,29 +958,11 @@ public class Service implements EventHandler {
                 final int batchNumber = batchStart / batchSize + 1;
                 LOGGER.info("[purgeAllPages] Starting batch {} — pages {}-{} of {}",
                         batchNumber, batchStart + 1, batchEnd, total);
-
                 final List<CompletableFuture<Void>> futures = new ArrayList<>();
                 for (Long pageId : batch) {
-                    futures.add(CompletableFuture.runAsync(() -> {
-                        final Request delRequest = new Request.Builder()
-                                .url(String.format("%s/projects/%s/pages/%s", resolvedBaseUrl, projectId, pageId))
-                                .delete()
-                                .addHeader("accept", "application/json")
-                                .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
-                                .build();
-                        try (Response delResponse = customGptClient.newCall(delRequest).execute()) {
-                            if (delResponse.isSuccessful()) {
-                                LOGGER.info("[purgeAllPages] Deleted page {}", pageId);
-                                deleted.incrementAndGet();
-                            } else {
-                                LOGGER.warn("[purgeAllPages] Failed to delete page {} (HTTP {})", pageId, delResponse.code());
-                            }
-                        } catch (IOException e) {
-                            LOGGER.warn("[purgeAllPages] Error deleting page {}: {}", pageId, e.getMessage());
-                        }
-                    }, batchExecutor));
+                    futures.add(CompletableFuture.runAsync(
+                            () -> deleteOnePage(pageId, baseUrl, projectId, deleted), batchExecutor));
                 }
-
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
                 LOGGER.info("[purgeAllPages] Batch {} complete — {}/{} page(s) deleted so far",
                         batchNumber, deleted.get(), total);
@@ -970,9 +970,25 @@ public class Service implements EventHandler {
         } finally {
             shutdownAndAwaitTermination(batchExecutor);
         }
-
-        LOGGER.info("[purgeAllPages] Purge complete — deleted {}/{} page(s) from project {}",
-                deleted.get(), total, projectId);
         return deleted.get();
+    }
+
+    private void deleteOnePage(Long pageId, String baseUrl, String projectId, AtomicInteger deleted) {
+        final Request delRequest = new Request.Builder()
+                .url(String.format("%s/projects/%s/pages/%s", baseUrl, projectId, pageId))
+                .delete()
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
+                .build();
+        try (Response delResponse = customGptClient.newCall(delRequest).execute()) {
+            if (delResponse.isSuccessful()) {
+                LOGGER.info("[purgeAllPages] Deleted page {}", pageId);
+                deleted.incrementAndGet();
+            } else {
+                LOGGER.warn("[purgeAllPages] Failed to delete page {} (HTTP {})", pageId, delResponse.code());
+            }
+        } catch (IOException e) {
+            LOGGER.warn("[purgeAllPages] Error deleting page {}: {}", pageId, e.getMessage());
+        }
     }
 }

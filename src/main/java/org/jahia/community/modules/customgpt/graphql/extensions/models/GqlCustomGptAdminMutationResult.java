@@ -157,6 +157,7 @@ public class GqlCustomGptAdminMutationResult {
         }
     }
 
+    @SuppressWarnings("java:S107")
     @GraphQLField
     @GraphQLName("saveSettings")
     @GraphQLDescription("Saves the CustomGPT configuration settings")

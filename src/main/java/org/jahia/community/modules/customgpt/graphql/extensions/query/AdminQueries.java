@@ -51,29 +51,34 @@ public class AdminQueries {
         }
         final Config config = BundleUtils.getOsgiService(Config.class, null);
         if (config == null || !config.isConfigured()) {
-            return new GqlSettings("", "", "", "", 500, "", null, "", "", "", "", "", "", true, false, CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
+            return GqlSettings.builder()
+                    .contentIndexedMainResourceTypes("").contentIndexedSubNodeTypes("").contentIndexedFileExtensions("")
+                    .fileMappedNodetypes("").operationsBatchSize(500).projectId("").projectName(null).token("")
+                    .jahiaUsername("").jahiaPassword("").jahiaServerCookieName("").jahiaServerCookieValue("")
+                    .jahiaServerCookieDomain("").dryRun(true).scheduleJobASAP(false)
+                    .apiBaseUrl(CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL).build();
         }
         try {
             final Service service = BundleUtils.getOsgiService(Service.class, null);
             final String projectName = service != null ? service.getProjectName() : null;
-            return new GqlSettings(
-                    String.join(",", config.getContentIndexedMainResources()),
-                    String.join(",", config.getContentIndexedSubNodes()),
-                    String.join(",", config.getIndexedFileExtensions()),
-                    "",
-                    config.getBulkOperationsBatchSize(),
-                    config.getCustomGptProjectId(),
-                    projectName,
-                    config.getCustomGptToken(),
-                    config.getJahiaUsername(),
-                    config.getJahiaPassword(),
-                    config.getJahiaServerCookieName(),
-                    config.getJahiaServerCookieValue(),
-                    config.getJahiaServerCookieDomain(),
-                    config.isDryRun(),
-                    config.isScheduleJobASAP(),
-                    config.getCustomGptApiBaseUrl()
-            );
+            return GqlSettings.builder()
+                    .contentIndexedMainResourceTypes(String.join(",", config.getContentIndexedMainResources()))
+                    .contentIndexedSubNodeTypes(String.join(",", config.getContentIndexedSubNodes()))
+                    .contentIndexedFileExtensions(String.join(",", config.getIndexedFileExtensions()))
+                    .fileMappedNodetypes("")
+                    .operationsBatchSize(config.getBulkOperationsBatchSize())
+                    .projectId(config.getCustomGptProjectId())
+                    .projectName(projectName)
+                    .token(config.getCustomGptToken())
+                    .jahiaUsername(config.getJahiaUsername())
+                    .jahiaPassword(config.getJahiaPassword())
+                    .jahiaServerCookieName(config.getJahiaServerCookieName())
+                    .jahiaServerCookieValue(config.getJahiaServerCookieValue())
+                    .jahiaServerCookieDomain(config.getJahiaServerCookieDomain())
+                    .dryRun(config.isDryRun())
+                    .scheduleJobASAP(config.isScheduleJobASAP())
+                    .apiBaseUrl(config.getCustomGptApiBaseUrl())
+                    .build();
         } catch (org.jahia.community.modules.customgpt.settings.NotConfiguredException e) {
             throw new DataFetchingException(e);
         }
