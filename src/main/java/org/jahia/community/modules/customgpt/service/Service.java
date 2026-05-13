@@ -864,9 +864,13 @@ public class Service implements EventHandler {
     }
 
     /**
-     * Deletes every page registered in the CustomGPT project.
-     * Phase 1: paginates {@code GET /projects/{id}/pages} following {@code next_page_url} to collect all page IDs.
-     * Phase 2: deletes pages in concurrent batches of size {@link Config#getBulkOperationsBatchSize()}.
+     * Deletes every page registered in the CustomGPT project in a streaming-batch fashion:
+     * repeatedly fetches the <em>first</em> result page, deletes those IDs concurrently,
+     * then re-queries until the first page comes back empty.
+     *
+     * <p>Always re-querying from the first page (rather than following {@code next_page_url})
+     * avoids offset-pagination drift: after deleting the items on page 1, the items that were
+     * on page 2 shift into page 1, so following {@code next_page_url} would skip them.
      *
      * @return the number of pages successfully deleted
      */
@@ -882,69 +886,65 @@ public class Service implements EventHandler {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
 
-        final List<Long> pageIds = fetchAllPageIds(baseUrl, projectId);
-        LOGGER.info("[purgeAllPages] Found {} page(s) to delete in project {}", pageIds.size(), projectId);
-
         int batchSize;
         try {
             batchSize = customGptConfig.getBulkOperationsBatchSize();
         } catch (Exception e) {
             batchSize = 10;
         }
-        LOGGER.info("[purgeAllPages] Deleting in batches of {}", batchSize);
 
-        final int deletedCount = deleteAllPages(pageIds, baseUrl, projectId, batchSize);
-        LOGGER.info("[purgeAllPages] Purge complete — deleted {}/{} page(s) from project {}",
-                deletedCount, pageIds.size(), projectId);
-        return deletedCount;
-    }
+        final String firstPageUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
+        int totalDeleted = 0;
+        int round = 1;
 
-    private List<Long> fetchAllPageIds(String baseUrl, String projectId) throws IOException {
-        final List<Long> pageIds = new ArrayList<>();
-        String nextUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
-        int pageNumber = 1;
-        LOGGER.info("[purgeAllPages] Fetching page list from CustomGPT...");
-        while (nextUrl != null) {
-            LOGGER.info("[purgeAllPages] Fetching page {} of results from {}", pageNumber, nextUrl);
-            final Request listRequest = new Request.Builder()
-                    .url(nextUrl)
-                    .get()
-                    .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
-                    .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
-                    .build();
-            try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
-                nextUrl = extractNextPageUrl(listResponse, pageIds, pageNumber);
+        while (true) {
+            LOGGER.info("[purgeAllPages] Round {}: fetching first result page from CustomGPT", round);
+            final List<Long> pageIds = fetchOnePage(firstPageUrl);
+            if (pageIds.isEmpty()) {
+                break;
             }
-            pageNumber++;
+            LOGGER.info("[purgeAllPages] Round {}: {} page(s) to delete (batch size {})", round, pageIds.size(), batchSize);
+            totalDeleted += deleteAllPages(pageIds, baseUrl, projectId, batchSize);
+            LOGGER.info("[purgeAllPages] Round {} complete — {} page(s) deleted so far", round, totalDeleted);
+            round++;
         }
-        return pageIds;
+
+        LOGGER.info("[purgeAllPages] Purge complete — deleted {} page(s) from project {}", totalDeleted, projectId);
+        return totalDeleted;
     }
 
-    private String extractNextPageUrl(Response listResponse, List<Long> pageIds, int pageNumber) throws IOException {
-        if (!listResponse.isSuccessful()) {
-            LOGGER.error("[purgeAllPages] Failed to list CustomGPT pages (HTTP {}), aborting fetch", listResponse.code());
-            return null;
-        }
-        final JSONObject body = new JSONObject(listResponse.body().string());
-        final JSONObject data = body.optJSONObject("data");
-        if (data == null) {
-            LOGGER.warn("[purgeAllPages] Response has no 'data' field, stopping pagination");
-            return null;
-        }
-        final JSONObject pages = data.optJSONObject("pages");
-        if (pages == null) {
-            LOGGER.warn("[purgeAllPages] Response has no 'pages' field, stopping pagination");
-            return null;
-        }
-        final JSONArray items = pages.optJSONArray("data");
-        if (items != null) {
+    private List<Long> fetchOnePage(String url) throws IOException {
+        final Request listRequest = new Request.Builder()
+                .url(url)
+                .get()
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
+                .build();
+        try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
+            if (!listResponse.isSuccessful()) {
+                LOGGER.error("[purgeAllPages] Failed to list CustomGPT pages (HTTP {}), stopping", listResponse.code());
+                return Collections.emptyList();
+            }
+            final JSONObject body = new JSONObject(listResponse.body().string());
+            final JSONObject data = body.optJSONObject("data");
+            if (data == null) {
+                return Collections.emptyList();
+            }
+            final JSONObject pages = data.optJSONObject("pages");
+            if (pages == null) {
+                return Collections.emptyList();
+            }
+            final JSONArray items = pages.optJSONArray("data");
+            if (items == null || items.length() == 0) {
+                return Collections.emptyList();
+            }
+            final List<Long> pageIds = new ArrayList<>();
             for (int i = 0; i < items.length(); i++) {
                 pageIds.add(items.getJSONObject(i).getLong("id"));
             }
-            LOGGER.info("[purgeAllPages] Collected {} page id(s) from result page {} ({} total so far)",
-                    items.length(), pageNumber, pageIds.size());
+            LOGGER.info("[purgeAllPages] Fetched {} page id(s) from first result page", pageIds.size());
+            return pageIds;
         }
-        return pages.isNull("next_page_url") ? null : pages.optString("next_page_url", null);
     }
 
     private int deleteAllPages(List<Long> pageIds, String baseUrl, String projectId, int batchSize) {
