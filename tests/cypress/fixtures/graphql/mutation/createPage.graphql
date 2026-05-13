@@ -5,7 +5,7 @@ mutation ($parentPathOrId: String!, $name: String!) {
             name: $name
             primaryNodeType: "jnt:page"
             properties: [
-                { name: "j:templateName", type: STRING, value: "default" }
+                { name: "j:templateName", type: STRING, value: "home" }
                 { name: "jcr:title", type: STRING, value: $name, language: "en" }
             ]
         ) {

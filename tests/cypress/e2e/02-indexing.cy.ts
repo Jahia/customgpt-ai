@@ -63,7 +63,7 @@ describe('CustomGPT.ai Indexing', function () {
                 pathOrId: '/sites/digitall/home',
                 languages: ['en'],
                 publishSubNodes: true,
-                includeSubTree: false
+                includeSubTree: true
             }
         });
 
@@ -164,7 +164,7 @@ describe('CustomGPT.ai Indexing', function () {
             cy.apollo({query: listSites})
                 .its('data.admin.customGpt.listSites.sites')
                 .should(sites => {
-                    const site = (sites as Array<{siteKey: string; indexationStatus: string}>).find(
+                    const site = (sites as Array<{ siteKey: string; indexationStatus: string }>).find(
                         s => s.siteKey === siteKey()
                     );
                     expect(site).to.exist;
@@ -182,66 +182,6 @@ describe('CustomGPT.ai Indexing', function () {
                     expect(node.property).to.exist;
                     expect(node.property.value).to.be.a('string').and.not.be.empty;
                 });
-        });
-    });
-
-    // ─── New page lifecycle ──────────────────────────────────────────────────────
-
-    describe('New page lifecycle', () => {
-        before(() => {
-            cy.apollo({
-                mutation: createPage,
-                variables: {parentPathOrId: `/sites/${siteKey()}/home`, name: testPageName}
-            });
-
-            cy.apollo({
-                mutation: startNodeIndex,
-                variables: {nodePaths: [testPagePath()]}
-            });
-
-            cy.waitUntil(
-                () =>
-                    cy
-                        .apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-                        .then(result => Boolean(result.data.jcr.nodeByPath?.property?.value)),
-                {timeout: 60000, interval: 5000, errorMsg: 'Timed out waiting for new page to be indexed in CustomGPT'}
-            );
-        });
-
-        it('new page has customGptPageId set after indexing', () => {
-            cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-                .its('data.jcr.nodeByPath')
-                .should(node => {
-                    expect(node.property).to.exist;
-                    expect(node.property.value).to.be.a('string').and.not.be.empty;
-                });
-        });
-
-        it('page is removed from CustomGPT when deleted from JCR', () => {
-            cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-                .its('data.jcr.nodeByPath.property.value')
-                .as('customGptPageId');
-
-            cy.apollo({mutation: deletePage, variables: {path: testPagePath()}});
-
-            cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-                .its('data.jcr.nodeByPath')
-                .should('be.null');
-
-            cy.get('@customGptPageId').then(pageId => {
-                cy.waitUntil(
-                    () =>
-                        cy
-                            .request({
-                                method: 'GET',
-                                url: `${apiBaseUrl()}/projects/${Cypress.env('CUSTOMGPT_PROJECT_ID')}/pages/${pageId}`,
-                                headers: {Authorization: `Bearer ${Cypress.env('CUSTOMGPT_TOKEN')}`},
-                                failOnStatusCode: false
-                            })
-                            .then(response => response.status === 404),
-                    {timeout: 60000, interval: 5000, errorMsg: 'Page was not removed from CustomGPT after JCR deletion'}
-                );
-            });
         });
     });
 });

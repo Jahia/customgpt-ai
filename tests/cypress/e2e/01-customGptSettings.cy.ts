@@ -92,7 +92,7 @@ describe('CustomGPT.ai Settings', () => {
                     jahiaServerCookieDomain: 'roundtrip.local',
                     dryRun: false,
                     scheduleJobASAP: true,
-                    apiBaseUrl: 'https://roundtrip.customgpt.ai/api/v1/'
+                    apiBaseUrl: 'https://app.customgpt.ai/api/v1'
                 }
             });
             cy.apollo({query: getSettings})
@@ -111,7 +111,7 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.jahiaServerCookieDomain).to.eq('roundtrip.local');
                     expect(s.dryRun).to.eq(false);
                     expect(s.scheduleJobASAP).to.eq(true);
-                    expect(s.apiBaseUrl).to.eq('https://roundtrip.customgpt.ai/api/v1/');
+                    expect(s.apiBaseUrl).to.eq('https://app.customgpt.ai/api/v1');
                 });
         });
 
