@@ -221,7 +221,8 @@ final class CustomGptIndexerNodeHandler {
             container = session.getNode(containerPath);
         } else {
             container = session.getNode(CustomGptConstants.PATH_SITES + siteKey)
-                               .addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, "jnt:contentFolder");
+                               .addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, CustomGptConstants.NT_CUSTOM_GPT_INDEX_CONTAINER);
+            session.save();
         }
         final String mappingPath = containerPath + "/" + nodeUuid;
         if (session.nodeExists(mappingPath)) {
