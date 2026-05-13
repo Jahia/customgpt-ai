@@ -649,9 +649,18 @@ public class Service implements EventHandler {
         final String type = (String) event.getProperty("type");
         LOGGER.info("Received event from topic {} of type {}", event.getTopic(), type);
         
-        if ((CustomGptConstants.EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE.equals(type) || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED.equals(type))
+        if ((CustomGptConstants.EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE.equals(type)
+                || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED.equals(type)
+                || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type))
                 && customGptConfig.isConfigured()) {
             init();
+            if (CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type)) {
+                try {
+                    reIndexUsingJob();
+                } catch (SchedulerException | RepositoryException e) {
+                    LOGGER.error("Failed to schedule re-indexation after config update", e);
+                }
+            }
         }
     }
     

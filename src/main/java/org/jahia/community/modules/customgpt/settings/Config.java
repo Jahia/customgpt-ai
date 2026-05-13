@@ -67,8 +67,11 @@ public class Config implements ManagedService {
         }
         parse(properties);
         configured = true;
+        final String eventType = scheduleJobASAP
+                ? CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX
+                : CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED;
         FrameworkService.sendEvent(CustomGptConstants.EVENT_TOPIC,
-                Collections.singletonMap("type", CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED), true);
+                Collections.singletonMap("type", eventType), true);
         LOGGER.info("CustomGpt configuration loaded");
     }
 
