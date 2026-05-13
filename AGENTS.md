@@ -227,7 +227,11 @@ The `frontend-maven-plugin` (v1.15.0) runs three executions at `generate-resourc
 2. `yarn install` — installs JS dependencies
 3. `yarn build:production` — runs webpack, outputs to `src/main/resources/javascript/apps/`
 
-**Do not commit the `node/` directory** (it is gitignored).
+The following generated artefacts are gitignored — **never commit them**:
+- `node/` — Node.js runtime downloaded at build time
+- `src/main/resources/javascript/apps/*.js` and `*.js.map` — webpack bundle outputs
+- `src/main/resources/javascript/apps/bom/` and `.well-known/` — SBOM outputs
+- `tests/artifacts/*.jar` — test artifact JARs
 
 ---
 
@@ -246,7 +250,7 @@ Tests use `cy.apollo(...)` for GraphQL calls. GraphQL fixture files are in `test
 
 1. **Never edit `src/main/resources/javascript/apps/` directly** — it is webpack output.
 2. **`.properties` files are NOT i18next** — React UI translations belong in JSON locale files only.
-3. **`GqlSettings` is a DTO** — its constructor parameters are positional; keep them in the order defined when calling `new GqlSettings(...)` in `AdminQueries.getSettings()`.
+3. **`GqlSettings` uses a Builder** — construct it with `GqlSettings.builder().<setters>.build()`. All 16 fields have a corresponding fluent setter. The GraphQL schema is unaffected (schema reflects getters, not the constructor).
 4. **OkHttp response bodies must be closed** — always use try-with-resources or explicit `close()` on `Response`.
 5. **`scheduleJobASAP` self-reset** — resetting via ConfigurationAdmin re-fires `Config.updated()` with `scheduleJobASAP=false`, which is safe because the event listener checks the value before re-indexing.
 6. **Base URL trailing slash** — always strip before appending path segments to avoid double slashes.

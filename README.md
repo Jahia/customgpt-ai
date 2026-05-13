@@ -67,9 +67,10 @@ All operations are exposed under the `admin.customGpt` namespace.
 - `admin.customGpt.listSites` — list indexed sites and their indexation status
 
 **Mutations**
+- `admin.customGpt.addSite(siteKey)` — register a site for indexing (adds `jmix:customGptIndexableSite` mixin)
 - `admin.customGpt.saveSettings(...)` — persist settings to OSGi config
-- `admin.customGpt.triggerIndex(siteKeys, force)` — trigger full-site indexing
-- `admin.customGpt.triggerNodeIndex(nodePaths)` — trigger indexing for specific nodes
+- `admin.customGpt.startIndex(siteKeys, force)` — trigger full-site indexing (all sites if `siteKeys` omitted)
+- `admin.customGpt.startNodeIndex(nodePaths, inclDescendants)` — trigger indexing for specific nodes
 - `admin.customGpt.purgeAllPages` — delete all pages in the CustomGPT project; returns the number of pages deleted
 
 ## JCR Data Model
