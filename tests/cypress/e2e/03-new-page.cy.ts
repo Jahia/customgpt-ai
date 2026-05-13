@@ -100,61 +100,60 @@ describe('CustomGPT.ai new page indexing', function () {
                 });
         });
 
-        // Deactivated because of a Jahia bug: https://github.com/Jahia/jahia-private/issues/4165
-        // it('page is removed from CustomGPT when deleted from JCR', () => {
-        //     cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-        //         .its('data.jcr.nodeByPath.property.value')
-        //         .as('customGptPageId');
-        //
-        //     cy.apollo({mutation: deletePage, variables: {path: testPagePath()}});
-        //
-        //     cy.apollo({
-        //         mutation: publishNode,
-        //         variables: {
-        //             pathOrId: testPagePath(),
-        //             languages: ['en'],
-        //             publishSubNodes: true,
-        //             includeSubTree: true
-        //         }
-        //     });
-        //
-        //     cy.apollo({
-        //         mutation: triggerSitemapJob,
-        //         variables: {siteKey: siteKey()}
-        //     });
-        //
-        //     cy.waitUntil(
-        //         () =>
-        //             cy.apollo({query: getSchedulerJobs}).then(result => {
-        //                 const jobs = result.data.admin.jahia.scheduler.jobs as Array<{
-        //                     group: string;
-        //                     jobStatus: string;
-        //                 }>;
-        //                 return !jobs
-        //                     .filter(j => j.group === 'SitemapCreationJob')
-        //                     .some(j => j.jobStatus === 'EXECUTING');
-        //             }),
-        //         {timeout: 60000, interval: 1000, errorMsg: 'Timed out waiting for sitemap generation to complete'}
-        //     );
-        //
-        //     cy.apollo({query: getNodeStatus, variables: {path: testPagePath()}})
-        //         .its('data.jcr.nodeByPath')
-        //         .should('be.null');
-        //
-        //     cy.get('@customGptPageId').then(pageId => {
-        //         cy.waitUntil(
-        //             () =>
-        //                 cy
-        //                     .request({
-        //                         method: 'GET',
-        //                         url: `${apiBaseUrl()}/projects/${Cypress.env('CUSTOMGPT_PROJECT_ID')}/pages/${pageId}`,
-        //                         headers: {Authorization: `Bearer ${Cypress.env('CUSTOMGPT_TOKEN')}`},
-        //                         failOnStatusCode: false
-        //                     })
-        //                     .then(response => response.status === 404),
-        //             {timeout: 60000, interval: 5000, errorMsg: 'Page was not removed from CustomGPT after JCR deletion'}
-        //         );
-        //     });
-        // });
+        it('page is removed from CustomGPT when deleted from JCR', () => {
+            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
+                .its('data.jcr.nodeByPath.property.value')
+                .as('customGptPageId');
+
+            cy.apollo({mutation: deletePage, variables: {path: testPagePath()}});
+
+            cy.apollo({
+                mutation: publishNode,
+                variables: {
+                    pathOrId: testPagePath(),
+                    languages: ['en'],
+                    publishSubNodes: true,
+                    includeSubTree: true
+                }
+            });
+
+            cy.apollo({
+                mutation: triggerSitemapJob,
+                variables: {siteKey: siteKey()}
+            });
+
+            cy.waitUntil(
+                () =>
+                    cy.apollo({query: getSchedulerJobs}).then(result => {
+                        const jobs = result.data.admin.jahia.scheduler.jobs as Array<{
+                            group: string;
+                            jobStatus: string;
+                        }>;
+                        return !jobs
+                            .filter(j => j.group === 'SitemapCreationJob')
+                            .some(j => j.jobStatus === 'EXECUTING');
+                    }),
+                {timeout: 60000, interval: 1000, errorMsg: 'Timed out waiting for sitemap generation to complete'}
+            );
+
+            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
+                .its('data.jcr.nodeByPath')
+                .should('be.null');
+
+            cy.get('@customGptPageId').then(pageId => {
+                cy.waitUntil(
+                    () =>
+                        cy
+                            .request({
+                                method: 'GET',
+                                url: `${apiBaseUrl()}/projects/${Cypress.env('CUSTOMGPT_PROJECT_ID')}/pages/${pageId}`,
+                                headers: {Authorization: `Bearer ${Cypress.env('CUSTOMGPT_TOKEN')}`},
+                                failOnStatusCode: false
+                            })
+                            .then(response => response.status === 404),
+                    {timeout: 60000, interval: 5000, errorMsg: 'Page was not removed from CustomGPT after JCR deletion'}
+                );
+            });
+        });
     });
 });
