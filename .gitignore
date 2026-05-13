@@ -16,3 +16,15 @@ node_modules
 .pnp.loader.mjs
 /yarn.lock
 .env
+
+# Generated frontend bundle artifacts
+src/main/resources/javascript/apps/*.js
+src/main/resources/javascript/apps/*.js.map
+src/main/resources/javascript/apps/bom/
+src/main/resources/javascript/apps/.well-known/
+
+# Node.js runtime downloaded by frontend-maven-plugin
+/node/
+
+# Test artifact JARs
+tests/artifacts/*.jar
