@@ -20,6 +20,7 @@ export const GET_SETTINGS = gql`
                     dryRun
                     scheduleJobASAP
                     apiBaseUrl
+                    rateLimitRequestsPerSecond
                 }
             }
         }
@@ -51,7 +52,8 @@ export const SAVE_SETTINGS = gql`
         $jahiaServerCookieDomain: String,
         $dryRun: Boolean,
         $scheduleJobASAP: Boolean,
-        $apiBaseUrl: String
+        $apiBaseUrl: String,
+        $rateLimitRequestsPerSecond: Int
     ) {
         admin {
             customGpt {
@@ -69,7 +71,8 @@ export const SAVE_SETTINGS = gql`
                     jahiaServerCookieDomain: $jahiaServerCookieDomain,
                     dryRun: $dryRun,
                     scheduleJobASAP: $scheduleJobASAP,
-                    apiBaseUrl: $apiBaseUrl
+                    apiBaseUrl: $apiBaseUrl,
+                    rateLimitRequestsPerSecond: $rateLimitRequestsPerSecond
                 )
             }
         }

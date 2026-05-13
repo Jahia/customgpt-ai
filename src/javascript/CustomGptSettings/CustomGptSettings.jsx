@@ -25,7 +25,8 @@ export const CustomGptSettingsAdmin = () => {
         jahiaServerCookieDomain: '',
         dryRun: true,
         scheduleJobASAP: false,
-        apiBaseUrl: ''
+        apiBaseUrl: '',
+        rateLimitRequestsPerSecond: 10
     });
 
     const {loading} = useQuery(GET_SETTINGS, {
@@ -48,7 +49,8 @@ export const CustomGptSettingsAdmin = () => {
                     jahiaServerCookieDomain: s.jahiaServerCookieDomain ?? '',
                     dryRun: s.dryRun ?? true,
                     scheduleJobASAP: s.scheduleJobASAP ?? false,
-                    apiBaseUrl: s.apiBaseUrl ?? ''
+                    apiBaseUrl: s.apiBaseUrl ?? '',
+                    rateLimitRequestsPerSecond: s.rateLimitRequestsPerSecond ?? 10
                 });
             }
         }
@@ -104,7 +106,8 @@ export const CustomGptSettingsAdmin = () => {
                     jahiaServerCookieDomain: formState.jahiaServerCookieDomain || null,
                     dryRun: formState.dryRun,
                     scheduleJobASAP: formState.scheduleJobASAP,
-                    apiBaseUrl: formState.apiBaseUrl || null
+                    apiBaseUrl: formState.apiBaseUrl || null,
+                    rateLimitRequestsPerSecond: formState.rateLimitRequestsPerSecond === '' ? null : formState.rateLimitRequestsPerSecond
                 }
             });
             setSaveStatus(result.data?.admin?.customGpt?.saveSettings ? 'success' : 'error');
@@ -189,6 +192,21 @@ export const CustomGptSettingsAdmin = () => {
                         value={formState.operationsBatchSize}
                         onChange={handleNumberChange('operationsBatchSize')}
                     />
+                </div>
+
+                <div className={styles.cgpt_fieldGroup}>
+                    <label className={styles.cgpt_label} htmlFor="cgpt-rate-limit">
+                        {t('label.rateLimitRequestsPerSecond')}
+                    </label>
+                    <input
+                        type="number"
+                        id="cgpt-rate-limit"
+                        className={styles.cgpt_input}
+                        min="1"
+                        value={formState.rateLimitRequestsPerSecond}
+                        onChange={handleNumberChange('rateLimitRequestsPerSecond')}
+                    />
+                    <span className={styles.cgpt_hint}>{t('label.rateLimitRequestsPerSecondHint')}</span>
                 </div>
 
                 <div className={styles.cgpt_fieldGroup}>
