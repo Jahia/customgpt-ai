@@ -825,6 +825,8 @@ public class Service implements EventHandler {
 
     public int purgeAllPages() throws IOException {
         final String projectId = customGptConfig.getCustomGptProjectId();
+        LOGGER.info("[purgeAllPages] Starting purge for project {}", projectId);
+
         String baseUrl = customGptConfig.getCustomGptApiBaseUrl();
         if (baseUrl == null || baseUrl.isEmpty()) {
             baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
@@ -835,8 +837,11 @@ public class Service implements EventHandler {
 
         final List<Long> pageIds = new ArrayList<>();
         String nextUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
+        int pageNumber = 1;
 
+        LOGGER.info("[purgeAllPages] Fetching page list from CustomGPT...");
         while (nextUrl != null) {
+            LOGGER.info("[purgeAllPages] Fetching page {} of results from {}", pageNumber, nextUrl);
             final Request listRequest = new Request.Builder()
                     .url(nextUrl)
                     .get()
@@ -845,16 +850,18 @@ public class Service implements EventHandler {
                     .build();
             try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
                 if (!listResponse.isSuccessful()) {
-                    LOGGER.error("Failed to list CustomGPT pages: {}", listResponse);
+                    LOGGER.error("[purgeAllPages] Failed to list CustomGPT pages (HTTP {}), aborting fetch", listResponse.code());
                     break;
                 }
                 final JSONObject body = new JSONObject(listResponse.body().string());
                 final JSONObject data = body.optJSONObject("data");
                 if (data == null) {
+                    LOGGER.warn("[purgeAllPages] Response has no 'data' field, stopping pagination");
                     break;
                 }
                 final JSONObject pages = data.optJSONObject("pages");
                 if (pages == null) {
+                    LOGGER.warn("[purgeAllPages] Response has no 'pages' field, stopping pagination");
                     break;
                 }
                 final JSONArray items = pages.optJSONArray("data");
@@ -862,13 +869,19 @@ public class Service implements EventHandler {
                     for (int i = 0; i < items.length(); i++) {
                         pageIds.add(items.getJSONObject(i).getLong("id"));
                     }
+                    LOGGER.info("[purgeAllPages] Collected {} page id(s) from result page {} ({} total so far)",
+                            items.length(), pageNumber, pageIds.size());
                 }
                 nextUrl = pages.isNull("next_page_url") ? null : pages.optString("next_page_url", null);
+                pageNumber++;
             }
         }
 
+        LOGGER.info("[purgeAllPages] Found {} page(s) to delete in project {}", pageIds.size(), projectId);
+
         int deleted = 0;
         for (Long pageId : pageIds) {
+            LOGGER.info("[purgeAllPages] Deleting page {} ({}/{})", pageId, deleted + 1, pageIds.size());
             final Request delRequest = new Request.Builder()
                     .url(String.format("%s/projects/%s/pages/%s", baseUrl, projectId, pageId))
                     .delete()
@@ -878,12 +891,15 @@ public class Service implements EventHandler {
             try (Response delResponse = customGptClient.newCall(delRequest).execute()) {
                 if (delResponse.isSuccessful()) {
                     deleted++;
+                    LOGGER.info("[purgeAllPages] Successfully deleted page {}", pageId);
                 } else {
-                    LOGGER.warn("Failed to delete CustomGPT page {}: {}", pageId, delResponse.code());
+                    LOGGER.warn("[purgeAllPages] Failed to delete page {} (HTTP {})", pageId, delResponse.code());
                 }
             }
         }
-        LOGGER.info("Purged {} CustomGPT page(s) from project {}", deleted, projectId);
+
+        LOGGER.info("[purgeAllPages] Purge complete — deleted {}/{} page(s) from project {}",
+                deleted, pageIds.size(), projectId);
         return deleted;
     }
 }
