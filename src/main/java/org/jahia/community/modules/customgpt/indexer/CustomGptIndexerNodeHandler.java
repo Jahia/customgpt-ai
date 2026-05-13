@@ -45,6 +45,15 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Internal utility that executes the actual HTTP interactions for one indexing cycle.
+ * For each node to index it follows a three-step flow:
+ * 1. Render the Jahia page HTML via {@code jahiaClient} (with Basic auth or optional cookie).
+ * 2. POST the HTML as a multipart upload to {@code POST /projects/{id}/sources} to create a CustomGPT page.
+ * 3. PATCH the returned page's metadata (title + canonical URL) via {@code PUT .../pages/{pageId}/metadata}.
+ * The CustomGPT page ID is persisted on a {@code jnt:customGptIndexEntry} child node so that subsequent
+ * updates can delete the old page before posting a new one.
+ */
 final class CustomGptIndexerNodeHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CustomGptIndexerNodeHandler.class);

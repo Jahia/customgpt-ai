@@ -15,6 +15,10 @@ import org.osgi.service.component.annotations.Reference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Routes indexing operations to the correct {@link IndexBuilder} (content or file) based on the node type,
+ * and aggregates the sets of indexed node types from all builders.
+ */
 @Component(service = IndexService.class)
 public class IndexService {
 

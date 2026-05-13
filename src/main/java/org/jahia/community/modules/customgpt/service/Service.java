@@ -63,6 +63,12 @@ import org.quartz.SimpleTrigger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Central OSGi component that orchestrates CustomGPT.ai integration.
+ * Responsibilities: managing OkHttp3 clients (with Bearer auth and rate-limit jitter),
+ * registering the JCR live-workspace listener, scheduling Quartz re-indexation jobs,
+ * and handling OSGi events from {@link CustomGptConstants#EVENT_TOPIC}.
+ */
 @Component(service = {Service.class}, immediate = true)
 public class Service implements EventHandler {
     
@@ -168,10 +174,16 @@ public class Service implements EventHandler {
         return indexService.getIndexedSubNodeTypes();
     }
     
+    /** Schedules a full re-indexation job for {@code siteKey}; equivalent to {@code reIndexUsingJob(siteKey, false)}. */
     public JobDetail reIndexUsingJob(String siteKey) {
         return reIndexUsingJob(siteKey, false);
     }
-    
+
+    /**
+     * Creates and schedules a {@link ReindexJob} for the given site.
+     * When {@code force=true} the existing start/end timestamps are cleared so a previously-running job can be re-triggered.
+     * The trigger fires immediately when {@code scheduleJobASAP=true}, or 1 minute + 3 seconds from now otherwise.
+     */
     public JobDetail reIndexUsingJob(String siteKey, boolean force) {
         final JobDetail reindexJobDetail = BackgroundJob.createJahiaJob(RECREATE_LOG, ReindexJob.class);
         final JobDataMap jobMap = new JobDataMap();
@@ -650,6 +662,12 @@ public class Service implements EventHandler {
         this.retryOnConflict = retryOnConflict;
     }
     
+    /**
+     * Receives OSGi events from {@link CustomGptConstants#EVENT_TOPIC}.
+     * On {@link CustomGptConstants#EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX} it re-initialises the HTTP clients,
+     * schedules re-indexation for all sites, then resets {@code scheduleJobASAP} to {@code false} to prevent
+     * re-triggering on the next config reload.
+     */
     @Override
     public void handleEvent(Event event) {
         final String type = (String) event.getProperty("type");
@@ -671,6 +689,11 @@ public class Service implements EventHandler {
         }
     }
 
+    /**
+     * Writes {@code scheduleJobASAP=false} back to OSGi ConfigurationAdmin.
+     * This re-fires {@link Config#updated} but with {@code false}, so it emits only
+     * {@link CustomGptConstants#EVENT_TYPE_CONFIG_UPDATED}, safely breaking the re-index cycle.
+     */
     private void resetScheduleJobASAP() {
         try {
             final ConfigurationAdmin configAdmin = org.jahia.osgi.BundleUtils.getOsgiService(ConfigurationAdmin.class, null);
@@ -752,6 +775,11 @@ public class Service implements EventHandler {
         }
     }
     
+    /**
+     * Returns {@code true} when {@code path} is a candidate for indexing: it must be under {@code /sites/} or
+     * {@code /trash-}, and must not end with the internal {@code customGptPageId} or {@code jcr:lastModified}
+     * property names (which would indicate a property-path rather than a node-path).
+     */
     public boolean acceptablePathToIndex(String path, Collection<Site> indexedSites) {
         return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_LASTMODIFIED));
     }
@@ -792,6 +820,10 @@ public class Service implements EventHandler {
         return node.isNodeType(CustomGptConstants.MIX_SKIP_INDEX);
     }
 
+    /**
+     * Calls {@code GET /projects/{projectId}} and returns the {@code project_name} field.
+     * Returns {@code null} if the project ID is empty, the client is null, or the API call fails.
+     */
     public String getProjectName() {
         final String projectId = customGptConfig.getCustomGptProjectId();
         if (projectId == null || projectId.isEmpty()) {
@@ -824,6 +856,13 @@ public class Service implements EventHandler {
         }
     }
 
+    /**
+     * Deletes every page registered in the CustomGPT project.
+     * Phase 1: paginates {@code GET /projects/{id}/pages} following {@code next_page_url} to collect all page IDs.
+     * Phase 2: deletes pages in concurrent batches of size {@link Config#getBulkOperationsBatchSize()}.
+     *
+     * @return the number of pages successfully deleted
+     */
     public int purgeAllPages() throws IOException {
         final String projectId = customGptConfig.getCustomGptProjectId();
         LOGGER.info("[purgeAllPages] Starting purge for project {}", projectId);

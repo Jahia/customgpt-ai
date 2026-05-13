@@ -6,6 +6,10 @@ import org.jahia.community.modules.customgpt.CustomGptRequest;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.services.content.JCRNodeWrapper;
 
+/**
+ * Strategy interface for building CustomGPT index requests from JCR nodes.
+ * Two implementations exist: {@link ContentIndexBuilder} for page content and {@link FileIndexBuilder} for binary files.
+ */
 public interface IndexBuilder {
 
     boolean isNodeAccepted(JCRNodeWrapper node, boolean asReference) throws RepositoryException, NotConfiguredException;

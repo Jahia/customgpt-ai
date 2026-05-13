@@ -5,6 +5,10 @@ import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * In-memory representation of a Jahia site configured for CustomGPT indexation,
+ * tracking scheduled, start, and end timestamps to derive the current {@link org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSiteListModel.IndexedSite.IndexationStatus}.
+ */
 public class Site {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Site.class);

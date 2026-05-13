@@ -10,6 +10,10 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
 
 
+/**
+ * Minimal {@link HttpServletResponse} stub used together with {@link HttpServletRequestMock} to build a
+ * {@link org.jahia.services.render.RenderContext} for programmatic page rendering during indexation.
+ */
 public class HttpServletResponseMock implements HttpServletResponse {
     private final StringWriter out;
 

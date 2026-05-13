@@ -6,6 +6,10 @@ import graphql.annotations.annotationTypes.GraphQLName;
 import graphql.annotations.annotationTypes.GraphQLTypeExtension;
 import org.jahia.community.modules.customgpt.graphql.extensions.query.AdminQueries;
 
+/**
+ * GraphQL type extension that injects the {@code customGpt} query field under {@code admin}.
+ * All read-only queries are delegated to {@link AdminQueries}.
+ */
 @GraphQLTypeExtension(org.jahia.modules.graphql.provider.dxm.admin.GqlAdminQuery.class)
 public final class GqlAdminQuery {
 

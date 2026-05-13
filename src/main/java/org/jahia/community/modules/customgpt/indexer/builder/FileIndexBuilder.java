@@ -11,6 +11,7 @@ import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 
+/** {@link IndexBuilder} for binary file nodes ({@code jnt:file}) matching the configured file extensions. */
 @Component(service = {FileIndexBuilder.class})
 public class FileIndexBuilder extends AbstractIndexBuilder {
 

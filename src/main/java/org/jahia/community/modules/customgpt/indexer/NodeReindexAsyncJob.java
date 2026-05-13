@@ -15,6 +15,10 @@ import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRSessionFactory;
 
+/**
+ * Static helper that triggers an ad-hoc asynchronous re-indexation for a list of specific JCR node paths,
+ * bypassing the Quartz scheduler used for full-site jobs.
+ */
 public class NodeReindexAsyncJob {
 
     public static GqlIndexingJob triggerJob(List<String> nodePaths, boolean inclDescendants)

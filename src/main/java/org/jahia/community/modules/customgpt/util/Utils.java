@@ -31,6 +31,9 @@ import org.jahia.services.seo.urlrewrite.UrlRewriteService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Static utility methods shared across the module: URL encoding, hostname extraction, and JCR path resolution.
+ */
 public final class Utils {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Utils.class);
@@ -58,6 +61,10 @@ public final class Utils {
         return result;
     }
 
+    /**
+     * Rewrites {@code uri} through Jahia's {@link UrlRewriteService} then applies XML entity escaping and
+     * percent-encoding so it can be safely embedded in a sitemap or HTML attribute.
+     */
     public static String encode(String uri, RenderContext renderContext) throws IOException, ServletException, InvocationTargetException, URISyntaxException {
         return StringUtils.replaceEach(Utils.encodeLink(uri, true, renderContext, false), ENTITIES, ENCODED_ENTITIES);
     }
@@ -76,6 +83,11 @@ public final class Utils {
         return "";
     }
 
+    /**
+     * Walks up the path segments of a (potentially deleted) node until it finds an ancestor that still exists in the
+     * session and matches one of the configured indexed main-resource types. Used to resolve the indexable ancestor
+     * when a node has already been removed from the repository.
+     */
     public static JCRNodeWrapper getParentOfType(JCRSessionWrapper session, Config customGptConfig, String path) throws RepositoryException, NotConfiguredException {
         final String[] pathParts = path.split(CustomGptConstants.PATH_DELIMITER);
         if (pathParts.length > 2) {

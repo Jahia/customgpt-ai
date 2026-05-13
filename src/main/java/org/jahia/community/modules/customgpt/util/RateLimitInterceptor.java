@@ -7,6 +7,10 @@ import org.jahia.community.modules.customgpt.service.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * OkHttp3 interceptor that adds random jitter (500–1000 ms) after every successful response and
+ * retries once after a 1-second sleep on HTTP 429 (Too Many Requests).
+ */
 public class RateLimitInterceptor implements Interceptor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Service.class);

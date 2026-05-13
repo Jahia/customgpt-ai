@@ -25,6 +25,10 @@ import org.osgi.service.component.annotations.Reference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Base {@link IndexBuilder} that applies common acceptance checks (site path, system-site exclusion,
+ * file extension filtering) before delegating to subclass logic.
+ */
 public abstract class AbstractIndexBuilder implements IndexBuilder {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AbstractIndexBuilder.class);

@@ -8,6 +8,10 @@ import java.util.*;
 import javax.servlet.*;
 import javax.servlet.http.*;
 
+/**
+ * Minimal {@link HttpServletRequest} stub used to construct a {@link org.jahia.services.render.RenderContext}
+ * when rendering Jahia pages programmatically during indexation (no real HTTP request is available).
+ */
 public class HttpServletRequestMock implements HttpServletRequest {
 
     private final Map<String, Object> attributes;

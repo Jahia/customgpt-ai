@@ -8,6 +8,10 @@ import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlCustom
 import org.jahia.modules.graphql.provider.dxm.admin.GqlAdminMutation;
 
 
+/**
+ * GraphQL type extension that injects the {@code customGpt} mutation field under {@code admin}.
+ * All write operations are delegated to {@link GqlCustomGptAdminMutationResult}.
+ */
 @GraphQLTypeExtension(GqlAdminMutation.class)
 public final class GqlCustomGptAdminMutation {
 

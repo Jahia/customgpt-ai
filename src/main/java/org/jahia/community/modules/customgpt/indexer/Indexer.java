@@ -29,6 +29,10 @@ import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Accumulates index/delete operations for a batch of JCR nodes and executes them via
+ * {@link CustomGptIndexerNodeHandler}.  One {@code Indexer} instance is created per async task invocation.
+ */
 public class Indexer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Indexer.class);
@@ -81,6 +85,11 @@ public class Indexer {
         addNodeToDelete(null, path);
     }
 
+    /**
+     * Queues a node for deletion.  Path deduplication is applied: if an ancestor of {@code path} is already in the
+     * removal set, the new path is silently dropped; conversely, any descendants already in the set are removed and
+     * replaced by {@code path} to avoid redundant per-child operations.
+     */
     public void addNodeToDelete(String customGptPageId, String path) {
         if (customGptPageId != null) {
             customGptPageToRemove.add(customGptPageId);

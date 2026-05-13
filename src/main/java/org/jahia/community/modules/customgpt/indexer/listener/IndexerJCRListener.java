@@ -17,6 +17,12 @@ import org.quartz.SchedulerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * JCR observation listener registered on the live workspace.
+ * Listens to node add/remove and property change events; a {@code j:lastPublished} property change
+ * is the trigger for an index operation, while a NODE_REMOVED event (or trash move) triggers a delete.
+ * Nodes carrying {@code jmix:skipCustomGptIndexation} are excluded.
+ */
 public class IndexerJCRListener extends DefaultEventListener {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IndexerJCRListener.class);

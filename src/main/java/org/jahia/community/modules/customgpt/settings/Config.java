@@ -13,6 +13,12 @@ import org.osgi.service.component.annotations.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * OSGi {@link ManagedService} that reads the {@code org.jahia.community.modules.customgpt} configuration and
+ * publishes an OSGi event on every update. The event type is {@link CustomGptConstants#EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX}
+ * when {@code scheduleJobASAP=true} (triggering immediate re-indexation), or
+ * {@link CustomGptConstants#EVENT_TYPE_CONFIG_UPDATED} otherwise.
+ */
 @Component(service = {ManagedService.class, Config.class}, property = {
     "service.pid=org.jahia.community.modules.customgpt",
     "service.description=CustomGPT.ai configuration service",
@@ -60,6 +66,11 @@ public class Config implements ManagedService {
     private String jahiaServerCookieDomain;
     private String customGptApiBaseUrl;
 
+    /**
+     * Called by OSGi ConfigurationAdmin whenever the {@code org.jahia.community.modules.customgpt.cfg} file changes.
+     * Parses all properties then fires an OSGi event so {@link org.jahia.community.modules.customgpt.service.Service}
+     * can reinitialise its HTTP clients and optionally kick off re-indexation.
+     */
     @Override
     public void updated(Dictionary<String, ?> properties) throws ConfigurationException {
         if (properties == null) {
@@ -194,6 +205,10 @@ public class Config implements ManagedService {
         return configured;
     }
 
+    /**
+     * Removes from {@code set} any type that extends {@code jmix:mainResource} when {@code jmix:mainResource} itself
+     * is already in the set, avoiding double-indexing of concrete subtypes.
+     */
     private void updateSetToExcludeMainResourceType(Set<String> set) {
         // Main resource is not set so don't try to exclude types that may extend it
         if (!set.contains(JMIX_MAIN_RESOURCE)) {

@@ -6,6 +6,7 @@ import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 
+/** {@link IndexBuilder} for structured Jahia content nodes (pages, main resources). */
 @Component(service = {ContentIndexBuilder.class})
 public class ContentIndexBuilder extends AbstractIndexBuilder {
 

@@ -17,6 +17,11 @@ import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRSessionFactory;
 
+/**
+ * GraphQL query resolver for the {@code admin.customGpt} namespace.
+ * Provides access to indexed-site listing and configuration settings.
+ * All methods check for the {@code admin} permission on the root path before returning data.
+ */
 @GraphQLName("CustomGptAdminQueries")
 @GraphQLDescription("List of indexed sites entry point")
 public class AdminQueries {

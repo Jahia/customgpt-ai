@@ -2,6 +2,9 @@ package org.jahia.community.modules.customgpt;
 
 import java.util.Locale;
 
+/**
+ * Marker interface for a pending CustomGPT operation (index or delete) targeting a single JCR node / language pair.
+ */
 public interface CustomGptRequest<T> {
 
     enum RequestType {

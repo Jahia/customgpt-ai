@@ -21,6 +21,11 @@ import org.quartz.JobDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * GraphQL mutation resolver for the {@code admin.customGpt} namespace.
+ * Contains mutations for site management, indexation triggering, settings persistence,
+ * and the danger-zone purge operation. All mutations enforce the {@code admin} permission.
+ */
 @GraphQLName("CustomGptAdminMutations")
 @GraphQLDescription("Generic object with admin mutation results")
 public class GqlCustomGptAdminMutationResult {

@@ -8,12 +8,17 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.builder.ToStringBuilder;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
 
+/**
+ * Serialisable container for a set of {@link CustomGptIndexOperation} objects that are passed to asynchronous executors.
+ * Duplicate operations (same type + path + page ID) are silently dropped by {@link #addOperation}.
+ */
 public class IndexOperations implements Serializable {
 
     public enum CustomGptOperationType {
         NODE_INDEX, TREE_INDEX, NODE_REMOVE, NODE_MOVE, SITE_INDEX
     }
 
+    /** A single pending indexation or removal operation for a specific JCR node path. */
     public static class CustomGptIndexOperation implements Serializable {
 
         private static final long serialVersionUID = -3525953451007848573L;

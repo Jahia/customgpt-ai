@@ -3,6 +3,10 @@ package org.jahia.community.modules.customgpt;
 import java.util.Objects;
 import org.jahia.services.content.JCRNodeWrapper;
 
+/**
+ * Base request carrying the target JCR node and language.
+ * Equality is based on node path + language so duplicate requests are naturally deduplicated when stored in a {@link java.util.Set}.
+ */
 public abstract class AbstractCustomGptRequest<R extends AbstractCustomGptRequest<R>> implements CustomGptRequest<R> {
 
     private final JCRNodeWrapper node;

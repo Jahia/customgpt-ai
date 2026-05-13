@@ -13,6 +13,11 @@ import org.quartz.JobExecutionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Quartz {@link BackgroundJob} that performs a full-site re-indexation.
+ * Scheduled by {@link Service#reIndexUsingJob(String, boolean)};
+ * the target site key is read from the job's {@link org.quartz.JobDataMap}.
+ */
 public class ReindexJob extends BackgroundJob {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ReindexJob.class);

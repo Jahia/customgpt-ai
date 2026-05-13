@@ -6,6 +6,11 @@ import javax.jcr.RepositoryException;
 import javax.jcr.observation.Event;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
 
+/**
+ * Synthetic JCR {@link Event} used internally when a deletion must be queued from code that does not have a real
+ * JCR event available (e.g. when a node carrying {@code jmix:skipCustomGptIndexation} is detected via a mixin-change
+ * event rather than a removal event).
+ */
 public class CustomEvent implements Event {
 
     private final Map<String, String> info = new HashMap<>();

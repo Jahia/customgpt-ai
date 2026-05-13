@@ -7,6 +7,10 @@ import org.jahia.community.modules.customgpt.graphql.extensions.GqlCustomGptAdmi
 import org.jahia.modules.graphql.provider.dxm.DXGraphQLExtensionsProvider;
 import org.osgi.service.component.annotations.Component;
 
+/**
+ * Registers the CustomGPT GraphQL type extensions ({@link GqlAdminQuery} and {@link GqlCustomGptAdminMutation})
+ * with the {@code graphql-dxm-provider} extension mechanism.
+ */
 @Component(immediate = true, service = DXGraphQLExtensionsProvider.class)
 public class DXGraphQLProvider implements DXGraphQLExtensionsProvider {
 

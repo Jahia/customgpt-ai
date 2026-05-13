@@ -1,5 +1,8 @@
 package org.jahia.community.modules.customgpt;
 
+/**
+ * Module-wide constants: OSGi event types, JCR node/mixin/property names, and URL helpers.
+ */
 public class CustomGptConstants {
 
     public enum IndexType {
@@ -39,6 +42,7 @@ public class CustomGptConstants {
     public static final String NT_CUSTOM_GPT_INDEX_ENTRY = "jnt:customGptIndexEntry";
     public static final String CUSTOMGPT_INDEX_NODE_NAME = "customgptIndex";
 
+    /** Returns the path of the {@code jnt:customGptIndexEntry} child node for the given content node path. */
     public static String buildMappingPath(String nodePath) {
         return nodePath + PATH_DELIMITER + CUSTOMGPT_INDEX_NODE_NAME;
     }
