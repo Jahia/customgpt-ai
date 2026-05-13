@@ -86,12 +86,12 @@ describe('CustomGPT.ai new page indexing', function () {
 
             cy.waitUntil(
                 () =>
-                    cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgpt-index`}}).then(result => {
+                    cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}}).then(result => {
                         return Boolean(result.data.jcr.nodeByPath?.property?.value);
                     }),
                 {timeout: 60000, interval: 5000, errorMsg: 'Timed out waiting for new page to be indexed in CustomGPT'}
             );
-            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgpt-index`}})
+            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
                 .its('data.jcr.nodeByPath')
                 .should(node => {
                     expect(node).to.exist;

@@ -37,7 +37,7 @@ public class CustomGptConstants {
     public static final String PERM_SITE_ADMIN = "site-admin";
     public static final String DEFAULT_CUSTOM_GPT_API_BASE_URL = "https://app.customgpt.ai/api/v1";
     public static final String NT_CUSTOM_GPT_INDEX_ENTRY = "jnt:customGptIndexEntry";
-    public static final String CUSTOMGPT_INDEX_NODE_NAME = "customgpt-index";
+    public static final String CUSTOMGPT_INDEX_NODE_NAME = "customgptIndex";
 
     public static String buildMappingPath(String nodePath) {
         return nodePath + PATH_DELIMITER + CUSTOMGPT_INDEX_NODE_NAME;

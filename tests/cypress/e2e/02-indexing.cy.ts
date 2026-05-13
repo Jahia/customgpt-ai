@@ -173,7 +173,7 @@ describe('CustomGPT.ai Indexing', function () {
         });
 
         it('sets customGptPageId on the home page', () => {
-            cy.apollo({query: getNodeStatus, variables: {path: `/sites/${siteKey()}/home/customgpt-index`}})
+            cy.apollo({query: getNodeStatus, variables: {path: `/sites/${siteKey()}/home/customgptIndex`}})
                 .its('data.jcr.nodeByPath')
                 .should(node => {
                     expect(node).to.exist;
