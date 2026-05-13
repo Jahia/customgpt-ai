@@ -191,7 +191,7 @@ describe('CustomGPT.ai Indexing', function () {
         before(() => {
             cy.apollo({
                 mutation: createPage,
-                variables: {parentPath: `/sites/${siteKey()}/home`, name: testPageName}
+                variables: {parentPathOrId: `/sites/${siteKey()}/home`, name: testPageName}
             });
 
             cy.apollo({

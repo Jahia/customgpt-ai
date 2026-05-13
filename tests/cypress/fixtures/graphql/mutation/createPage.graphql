@@ -1,7 +1,23 @@
-mutation createPage($parentPath: String!, $name: String!) {
+mutation ($parentPathOrId: String!, $name: String!) {
     jcr(workspace: EDIT) {
-        addNode(parentPathOrId: $parentPath, primaryNodeType: "jnt:page", name: $name) {
-            uuid
+        addNode(
+            parentPathOrId: $parentPathOrId
+            name: $name
+            primaryNodeType: "jnt:page"
+            properties: [
+                { name: "j:templateName", type: STRING, value: "default" }
+                { name: "jcr:title", type: STRING, value: $name, language: "en" }
+            ]
+        ) {
+            addChild(name: "area-main", primaryNodeType: "jnt:contentList") {
+                addChild(
+                    name: "text"
+                    primaryNodeType: "jnt:text"
+                    properties: [{ language: "en", name: "text", type: STRING, value: $name }]
+                ) {
+                    uuid
+                }
+            }
         }
     }
 }
