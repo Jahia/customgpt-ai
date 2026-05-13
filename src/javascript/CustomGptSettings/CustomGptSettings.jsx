@@ -9,6 +9,8 @@ export const CustomGptSettingsAdmin = () => {
     const {t} = useTranslation('customgpt-ai');
     const [saveStatus, setSaveStatus] = useState(null);
 
+    const [projectName, setProjectName] = useState(null);
+
     const [formState, setFormState] = useState({
         contentIndexedMainResourceTypes: '',
         contentIndexedSubNodeTypes: '',
@@ -31,6 +33,7 @@ export const CustomGptSettingsAdmin = () => {
         onCompleted: data => {
             const s = data?.admin?.customGpt?.settings;
             if (s) {
+                setProjectName(s.projectName ?? null);
                 setFormState({
                     contentIndexedMainResourceTypes: s.contentIndexedMainResourceTypes ?? '',
                     contentIndexedSubNodeTypes: s.contentIndexedSubNodeTypes ?? '',
@@ -199,6 +202,9 @@ export const CustomGptSettingsAdmin = () => {
                         value={formState.projectId}
                         onChange={handleChange('projectId')}
                     />
+                    {projectName && (
+                        <span className={styles.cgpt_projectName}>{projectName}</span>
+                    )}
                 </div>
 
                 <div className={styles.cgpt_fieldGroup}>

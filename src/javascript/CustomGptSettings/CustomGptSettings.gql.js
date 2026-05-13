@@ -10,6 +10,7 @@ export const GET_SETTINGS = gql`
                     contentIndexedFileExtensions
                     operationsBatchSize
                     projectId
+                    projectName
                     token
                     jahiaUsername
                     jahiaPassword

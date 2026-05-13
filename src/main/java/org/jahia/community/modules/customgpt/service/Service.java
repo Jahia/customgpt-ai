@@ -770,6 +770,38 @@ public class Service implements EventHandler {
         return node.isNodeType(CustomGptConstants.MIX_SKIP_INDEX);
     }
 
+    public String getProjectName() {
+        final String projectId = customGptConfig.getCustomGptProjectId();
+        if (projectId == null || projectId.isEmpty()) {
+            return null;
+        }
+        String baseUrl = customGptConfig.getCustomGptApiBaseUrl();
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
+        }
+        if (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        final Request request = new Request.Builder()
+                .url(String.format("%s/projects/%s", baseUrl, projectId))
+                .get()
+                .addHeader("accept", "application/json")
+                .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
+                .build();
+        try (Response response = customGptClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                LOGGER.warn("Failed to fetch CustomGPT project name for project {}: {}", projectId, response.code());
+                return null;
+            }
+            final JSONObject body = new JSONObject(response.body().string());
+            final JSONObject data = body.optJSONObject("data");
+            return data != null ? data.optString("project_name", null) : null;
+        } catch (IOException e) {
+            LOGGER.warn("Error fetching CustomGPT project name: {}", e.getMessage());
+            return null;
+        }
+    }
+
     public int purgeAllPages() throws IOException {
         final String projectId = customGptConfig.getCustomGptProjectId();
         String baseUrl = customGptConfig.getCustomGptApiBaseUrl();

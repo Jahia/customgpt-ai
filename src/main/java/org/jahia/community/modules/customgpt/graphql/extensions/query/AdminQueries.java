@@ -47,9 +47,11 @@ public class AdminQueries {
         }
         final Config config = BundleUtils.getOsgiService(Config.class, null);
         if (config == null || !config.isConfigured()) {
-            return new GqlSettings("", "", "", "", 500, "", "", "", "", "", "", "", true, false, CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
+            return new GqlSettings("", "", "", "", 500, "", null, "", "", "", "", "", "", true, false, CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
         }
         try {
+            final Service service = BundleUtils.getOsgiService(Service.class, null);
+            final String projectName = service != null ? service.getProjectName() : null;
             return new GqlSettings(
                     String.join(",", config.getContentIndexedMainResources()),
                     String.join(",", config.getContentIndexedSubNodes()),
@@ -57,6 +59,7 @@ public class AdminQueries {
                     "",
                     config.getBulkOperationsBatchSize(),
                     config.getCustomGptProjectId(),
+                    projectName,
                     config.getCustomGptToken(),
                     config.getJahiaUsername(),
                     config.getJahiaPassword(),

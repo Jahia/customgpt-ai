@@ -14,6 +14,7 @@ public class GqlSettings {
     private final String fileMappedNodetypes;
     private final int operationsBatchSize;
     private final String projectId;
+    private final String projectName;
     private final String token;
     private final String jahiaUsername;
     private final String jahiaPassword;
@@ -26,7 +27,7 @@ public class GqlSettings {
 
     public GqlSettings(String contentIndexedMainResourceTypes, String contentIndexedSubNodeTypes,
             String contentIndexedFileExtensions, String fileMappedNodetypes, int operationsBatchSize,
-            String projectId, String token, String jahiaUsername, String jahiaPassword,
+            String projectId, String projectName, String token, String jahiaUsername, String jahiaPassword,
             String jahiaServerCookieName, String jahiaServerCookieValue, String jahiaServerCookieDomain,
             boolean dryRun, boolean scheduleJobASAP, String apiBaseUrl) {
         this.contentIndexedMainResourceTypes = contentIndexedMainResourceTypes;
@@ -35,6 +36,7 @@ public class GqlSettings {
         this.fileMappedNodetypes = fileMappedNodetypes;
         this.operationsBatchSize = operationsBatchSize;
         this.projectId = projectId;
+        this.projectName = projectName;
         this.token = token;
         this.jahiaUsername = jahiaUsername;
         this.jahiaPassword = jahiaPassword;
@@ -86,6 +88,13 @@ public class GqlSettings {
     @GraphQLDescription("CustomGPT project ID")
     public String getProjectId() {
         return projectId;
+    }
+
+    @GraphQLField
+    @GraphQLName("projectName")
+    @GraphQLDescription("CustomGPT project name resolved from the API")
+    public String getProjectName() {
+        return projectName;
     }
 
     @GraphQLField
