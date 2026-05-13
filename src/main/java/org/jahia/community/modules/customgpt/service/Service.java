@@ -47,6 +47,7 @@ import org.jahia.services.usermanager.JahiaUser;
 import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
+import org.osgi.service.cm.ConfigurationAdmin;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Deactivate;
@@ -652,7 +653,7 @@ public class Service implements EventHandler {
     public void handleEvent(Event event) {
         final String type = (String) event.getProperty("type");
         LOGGER.info("Received event from topic {} of type {}", event.getTopic(), type);
-        
+
         if ((CustomGptConstants.EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE.equals(type)
                 || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED.equals(type)
                 || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type))
@@ -661,10 +662,30 @@ public class Service implements EventHandler {
             if (CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type)) {
                 try {
                     reIndexUsingJob();
+                    resetScheduleJobASAP();
                 } catch (SchedulerException | RepositoryException e) {
                     LOGGER.error("Failed to schedule re-indexation after config update", e);
                 }
             }
+        }
+    }
+
+    private void resetScheduleJobASAP() {
+        try {
+            final ConfigurationAdmin configAdmin = org.jahia.osgi.BundleUtils.getOsgiService(ConfigurationAdmin.class, null);
+            if (configAdmin == null) {
+                return;
+            }
+            final org.osgi.service.cm.Configuration config = configAdmin.getConfiguration("org.jahia.community.modules.customgpt", null);
+            java.util.Dictionary<String, Object> props = config.getProperties();
+            if (props == null) {
+                props = new java.util.Hashtable<>();
+            }
+            props.put("org.jahia.community.modules.customgpt.scheduleJobASAP", Boolean.FALSE);
+            config.update(props);
+            LOGGER.info("Reset scheduleJobASAP to false after scheduling indexation jobs");
+        } catch (Exception e) {
+            LOGGER.warn("Failed to reset scheduleJobASAP property: {}", e.getMessage());
         }
     }
     
