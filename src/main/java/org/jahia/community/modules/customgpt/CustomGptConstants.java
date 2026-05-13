@@ -37,6 +37,12 @@ public class CustomGptConstants {
     public static final String PROP_SITE_KEY = "siteKey";
     public static final String PERM_SITE_ADMIN = "site-admin";
     public static final String DEFAULT_CUSTOM_GPT_API_BASE_URL = "https://app.customgpt.ai/api/v1";
+    public static final String NT_CUSTOM_GPT_INDEX_ENTRY = "jnt:customGptIndexEntry";
+    public static final String CUSTOMGPT_INDEX_NODE_NAME = "customgpt-index";
+
+    public static String buildMappingPath(String siteKey, String nodeUuid) {
+        return PATH_SITES + siteKey + "/" + CUSTOMGPT_INDEX_NODE_NAME + "/" + nodeUuid;
+    }
 
     private CustomGptConstants() {
         throw new IllegalStateException("Utility class");

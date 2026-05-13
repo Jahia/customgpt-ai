@@ -12,6 +12,7 @@ import org.jahia.community.modules.customgpt.service.Service;
 import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.services.content.*;
+import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.content.JCRObservationManager.EventWrapper;
 import org.quartz.SchedulerException;
 import org.slf4j.Logger;
@@ -90,9 +91,13 @@ public class IndexerJCRListener extends DefaultEventListener {
                                         isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
                                     }
                                     if (isMainResourceType) {
-                                        if (nodeWrapper.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
-                                            final String customGtpPageId = nodeWrapper.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
-                                            processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, customGtpPageId), null, customGptIndexOperations);
+                                        try {
+                                            final JCRSiteNode site = nodeWrapper.getResolveSite();
+                                            if (site != null) {
+                                                findAndQueueMappingRemoval(site.getSiteKey(), identifier, customGptIndexOperations);
+                                            }
+                                        } catch (Exception e) {
+                                            LOGGER.warn("Cannot resolve site for node {}, skipping CustomGPT cleanup", identifier, e);
                                         }
                                     } // Deletion of the sub-nodes
                                     else {
@@ -114,7 +119,8 @@ public class IndexerJCRListener extends DefaultEventListener {
 
                 } else if (event.getPath().startsWith("/trash-")) {
                     final String identifier = event.getIdentifier();
-                    // Deletion of the main resources
+                    // srcAbsPath is the original site path before the node was moved to trash
+                    final String originalPath = (String) event.getInfo().get("srcAbsPath");
 
                     JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, new JCRCallback<Void>() {
                         @Override
@@ -126,9 +132,11 @@ public class IndexerJCRListener extends DefaultEventListener {
                                     isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
                                 }
                                 if (isMainResourceType) {
-                                    if (nodeWrapper.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
-                                        final String customGtpPageId = nodeWrapper.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
-                                        processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, customGtpPageId), null, customGptIndexOperations);
+                                    final String siteKey = extractSiteKey(originalPath);
+                                    if (siteKey != null) {
+                                        findAndQueueMappingRemoval(siteKey, identifier, customGptIndexOperations);
+                                    } else {
+                                        LOGGER.warn("Cannot determine siteKey for deleted node {}, skipping CustomGPT cleanup", identifier);
                                     }
                                 } // Deletion of the sub-nodes
                                 else {
@@ -222,6 +230,45 @@ public class IndexerJCRListener extends DefaultEventListener {
 
     private void addIndexOperation(String nodePath, IndexOperations indexOperations) throws RepositoryException {
         indexOperations.addOperation(new IndexOperations.CustomGptIndexOperation(IndexOperations.CustomGptOperationType.NODE_INDEX, nodePath));
+    }
+
+    // Opens an EDIT session to retrieve customGptPageId from the mapping node, queues the CustomGPT
+    // page deletion, then removes the mapping node so it stays in sync with the deleted content.
+    private void findAndQueueMappingRemoval(String siteKey, String nodeUuid, IndexOperations operations) {
+        try {
+            JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.EDIT_WORKSPACE, null, new JCRCallback<Void>() {
+                @Override
+                public Void doInJCR(JCRSessionWrapper editSession) throws RepositoryException {
+                    final String mappingPath = CustomGptConstants.buildMappingPath(siteKey, nodeUuid);
+                    if (editSession.nodeExists(mappingPath)) {
+                        final JCRNodeWrapper mappingNode = editSession.getNode(mappingPath);
+                        if (mappingNode.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
+                            final String pageId = mappingNode.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
+                            try {
+                                processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, pageId), null, operations);
+                            } catch (NotConfiguredException | SchedulerException e) {
+                                LOGGER.error("Error queuing CustomGPT removal for mapping node {}", mappingPath, e);
+                            }
+                        }
+                        mappingNode.remove();
+                        editSession.save();
+                    }
+                    return null;
+                }
+            });
+        } catch (RepositoryException e) {
+            LOGGER.warn("Error accessing CustomGPT mapping node for node {}", nodeUuid, e);
+        }
+    }
+
+    private static String extractSiteKey(String path) {
+        if (path == null) return null;
+        if (path.startsWith(CustomGptConstants.PATH_SITES)) {
+            final String afterSites = path.substring(CustomGptConstants.PATH_SITES.length());
+            final int slashIdx = afterSites.indexOf('/');
+            return slashIdx > 0 ? afterSites.substring(0, slashIdx) : afterSites;
+        }
+        return null;
     }
 
     @Override

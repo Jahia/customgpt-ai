@@ -21,4 +21,7 @@
  - customGptIndexationEnd (date) indexed=no hidden
  - customGptIndexationScheduled (date) indexed=no hidden
 
+[jnt:customGptIndexEntry] > jnt:content, jmix:nolive
+ - customGptPageId (string) indexed=no
+
 
