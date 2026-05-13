@@ -100,7 +100,6 @@ final class CustomGptIndexerNodeHandler {
         final String apiBaseUrl = getApiBaseUrl(customGptIndexer);
         final JCRNodeWrapper nodeToIndex = createCustomGptRequest.getNode();
         final JCRSiteNode siteNode = nodeToIndex.getResolveSite();
-        final String siteKey = siteNode.getSiteKey();
         final String language = createCustomGptRequest.getLanguage();
         final JahiaUser rootUser = JahiaUserManagerService.getInstance().lookupRootUser().getJahiaUser();
         JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.LIVE_WORKSPACE, language == null ? null : Locale.forLanguageTag(language), new JCRCallback<Object>() {
@@ -128,10 +127,10 @@ final class CustomGptIndexerNodeHandler {
                 if (session.nodeExists(nodeToIndex.getPath()) && !customGptIndexer.getCustomGptConfig().isDryRun()) {
                     try {
                         final JCRNodeWrapper liveNode = session.getNode(nodeToIndex.getPath());
-                        final String nodeUuid = liveNode.getIdentifier();
+                        final String nodePath = liveNode.getPath();
                         final String url = hostName + Utils.encode(liveNode.getUrl(), customRenderContext);
 
-                        final String existingPageId = getExistingPageId(rootUser, siteKey, nodeUuid);
+                        final String existingPageId = getExistingPageId(rootUser, nodePath);
                         if (existingPageId != null) {
                             LOGGER.info("Removing page with the id {} for the url {}, language {}", existingPageId, url, language);
                             deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), existingPageId, apiBaseUrl);
@@ -158,7 +157,7 @@ final class CustomGptIndexerNodeHandler {
                                         LOGGER.debug("Retrieving CustomGpt page id");
                                         final String pageId = extractPageId(document);
                                         LOGGER.debug("Writing page id {} to mapping node for {}, language {}", pageId, nodeToIndex.getPath(), language);
-                                        writeMappingNode(rootUser, siteKey, nodeUuid, pageId);
+                                        writeMappingNode(rootUser, nodePath, pageId);
                                         LOGGER.debug("Updating page metadata in customGPT");
                                         try (Response metaResponse = updatePageMedata(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, title, url, apiBaseUrl)) {
                                             if (metaResponse.isSuccessful()) {
@@ -184,12 +183,11 @@ final class CustomGptIndexerNodeHandler {
         });
     }
 
-    // Reads customGptPageId from the EDIT-workspace mapping node (never touches content nodes).
-    private static String getExistingPageId(JahiaUser rootUser, String siteKey, String nodeUuid) throws RepositoryException {
+    private static String getExistingPageId(JahiaUser rootUser, String nodePath) throws RepositoryException {
         return JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.EDIT_WORKSPACE, null, new JCRCallback<String>() {
             @Override
             public String doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                final String mappingPath = CustomGptConstants.buildMappingPath(siteKey, nodeUuid);
+                final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
                 if (session.nodeExists(mappingPath)) {
                     final JCRNodeWrapper node = session.getNode(mappingPath);
                     if (node.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
@@ -201,12 +199,11 @@ final class CustomGptIndexerNodeHandler {
         });
     }
 
-    // Persists customGptPageId to the EDIT-workspace mapping node (jmix:nolive, never published to live).
-    private static void writeMappingNode(JahiaUser rootUser, String siteKey, String nodeUuid, String pageId) throws RepositoryException {
+    private static void writeMappingNode(JahiaUser rootUser, String nodePath, String pageId) throws RepositoryException {
         JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.EDIT_WORKSPACE, null, new JCRCallback<Void>() {
             @Override
             public Void doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                final JCRNodeWrapper mappingNode = getOrCreateMappingNode(session, siteKey, nodeUuid);
+                final JCRNodeWrapper mappingNode = getOrCreateMappingNode(session, nodePath);
                 mappingNode.setProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID, pageId);
                 session.save();
                 return null;
@@ -214,21 +211,12 @@ final class CustomGptIndexerNodeHandler {
         });
     }
 
-    private static JCRNodeWrapper getOrCreateMappingNode(JCRSessionWrapper session, String siteKey, String nodeUuid) throws RepositoryException {
-        final String containerPath = CustomGptConstants.PATH_SITES + siteKey + "/" + CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME;
-        final JCRNodeWrapper container;
-        if (session.nodeExists(containerPath)) {
-            container = session.getNode(containerPath);
-        } else {
-            container = session.getNode(CustomGptConstants.PATH_SITES + siteKey)
-                               .addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, CustomGptConstants.NT_CUSTOM_GPT_INDEX_CONTAINER);
-            session.save();
-        }
-        final String mappingPath = containerPath + "/" + nodeUuid;
+    private static JCRNodeWrapper getOrCreateMappingNode(JCRSessionWrapper session, String nodePath) throws RepositoryException {
+        final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
         if (session.nodeExists(mappingPath)) {
             return session.getNode(mappingPath);
         }
-        return container.addNode(nodeUuid, CustomGptConstants.NT_CUSTOM_GPT_INDEX_ENTRY);
+        return session.getNode(nodePath).addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, CustomGptConstants.NT_CUSTOM_GPT_INDEX_ENTRY);
     }
 
     private static boolean deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException {

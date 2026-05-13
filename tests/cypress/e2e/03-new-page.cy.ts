@@ -29,8 +29,6 @@ describe('CustomGPT.ai new page indexing', function () {
     const listSites: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/listSites.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getNodeStatus: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeStatus.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const getNodeUuid: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeUuid.graphql');
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
     const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
@@ -88,27 +86,18 @@ describe('CustomGPT.ai new page indexing', function () {
 
             cy.waitUntil(
                 () =>
-                    cy.apollo({query: getNodeUuid, variables: {path: testPagePath()}}).then(uuidResult => {
-                        const uuid = uuidResult.data.jcr.nodeByPath?.uuid;
-                        if (!uuid) return false;
-                        const mappingPath = `/sites/${siteKey()}/customgpt-index/${uuid}`;
-                        return cy.apollo({query: getNodeStatus, variables: {path: mappingPath}}).then(statusResult => {
-                            return Boolean(statusResult.data.jcr.nodeByPath?.property?.value);
-                        });
+                    cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgpt-index`}}).then(result => {
+                        return Boolean(result.data.jcr.nodeByPath?.property?.value);
                     }),
                 {timeout: 60000, interval: 5000, errorMsg: 'Timed out waiting for new page to be indexed in CustomGPT'}
             );
-            cy.apollo({query: getNodeUuid, variables: {path: testPagePath()}}).then(uuidResult => {
-                const uuid = uuidResult.data.jcr.nodeByPath.uuid;
-                const mappingPath = `/sites/${siteKey()}/customgpt-index/${uuid}`;
-                cy.apollo({query: getNodeStatus, variables: {path: mappingPath}})
-                    .its('data.jcr.nodeByPath')
-                    .should(node => {
-                        expect(node).to.exist;
-                        expect(node.property).to.exist;
-                        expect(node.property.value).to.be.a('string').and.not.be.empty;
-                    });
-            });
+            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgpt-index`}})
+                .its('data.jcr.nodeByPath')
+                .should(node => {
+                    expect(node).to.exist;
+                    expect(node.property).to.exist;
+                    expect(node.property.value).to.be.a('string').and.not.be.empty;
+                });
         });
 
         // Deactivated because of a Jahia bug: https://github.com/Jahia/jahia-private/issues/4165

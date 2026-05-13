@@ -12,7 +12,6 @@ import org.jahia.community.modules.customgpt.service.Service;
 import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.services.content.*;
-import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.content.JCRObservationManager.EventWrapper;
 import org.quartz.SchedulerException;
 import org.slf4j.Logger;
@@ -92,12 +91,9 @@ public class IndexerJCRListener extends DefaultEventListener {
                                     }
                                     if (isMainResourceType) {
                                         try {
-                                            final JCRSiteNode site = nodeWrapper.getResolveSite();
-                                            if (site != null) {
-                                                findAndQueueMappingRemoval(site.getSiteKey(), identifier, customGptIndexOperations);
-                                            }
+                                            findAndQueueMappingRemoval(nodeWrapper.getPath(), customGptIndexOperations);
                                         } catch (Exception e) {
-                                            LOGGER.warn("Cannot resolve site for node {}, skipping CustomGPT cleanup", identifier, e);
+                                            LOGGER.warn("Cannot resolve path for node {}, skipping CustomGPT cleanup", identifier, e);
                                         }
                                     } // Deletion of the sub-nodes
                                     else {
@@ -132,11 +128,10 @@ public class IndexerJCRListener extends DefaultEventListener {
                                     isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
                                 }
                                 if (isMainResourceType) {
-                                    final String siteKey = extractSiteKey(originalPath);
-                                    if (siteKey != null) {
-                                        findAndQueueMappingRemoval(siteKey, identifier, customGptIndexOperations);
+                                    if (originalPath != null) {
+                                        findAndQueueMappingRemoval(originalPath, customGptIndexOperations);
                                     } else {
-                                        LOGGER.warn("Cannot determine siteKey for deleted node {}, skipping CustomGPT cleanup", identifier);
+                                        LOGGER.warn("Cannot determine original path for deleted node {}, skipping CustomGPT cleanup", identifier);
                                     }
                                 } // Deletion of the sub-nodes
                                 else {
@@ -232,14 +227,12 @@ public class IndexerJCRListener extends DefaultEventListener {
         indexOperations.addOperation(new IndexOperations.CustomGptIndexOperation(IndexOperations.CustomGptOperationType.NODE_INDEX, nodePath));
     }
 
-    // Opens an EDIT session to retrieve customGptPageId from the mapping node, queues the CustomGPT
-    // page deletion, then removes the mapping node so it stays in sync with the deleted content.
-    private void findAndQueueMappingRemoval(String siteKey, String nodeUuid, IndexOperations operations) {
+    private void findAndQueueMappingRemoval(String nodePath, IndexOperations operations) {
         try {
             JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.EDIT_WORKSPACE, null, new JCRCallback<Void>() {
                 @Override
                 public Void doInJCR(JCRSessionWrapper editSession) throws RepositoryException {
-                    final String mappingPath = CustomGptConstants.buildMappingPath(siteKey, nodeUuid);
+                    final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
                     if (editSession.nodeExists(mappingPath)) {
                         final JCRNodeWrapper mappingNode = editSession.getNode(mappingPath);
                         if (mappingNode.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
@@ -257,18 +250,8 @@ public class IndexerJCRListener extends DefaultEventListener {
                 }
             });
         } catch (RepositoryException e) {
-            LOGGER.warn("Error accessing CustomGPT mapping node for node {}", nodeUuid, e);
+            LOGGER.warn("Error accessing CustomGPT mapping node for node path {}", nodePath, e);
         }
-    }
-
-    private static String extractSiteKey(String path) {
-        if (path == null) return null;
-        if (path.startsWith(CustomGptConstants.PATH_SITES)) {
-            final String afterSites = path.substring(CustomGptConstants.PATH_SITES.length());
-            final int slashIdx = afterSites.indexOf('/');
-            return slashIdx > 0 ? afterSites.substring(0, slashIdx) : afterSites;
-        }
-        return null;
     }
 
     @Override

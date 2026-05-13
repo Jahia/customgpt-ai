@@ -1,7 +1,0 @@
-query getNodeUuid($path: String!) {
-    jcr(workspace: LIVE) {
-        nodeByPath(path: $path) {
-            uuid
-        }
-    }
-}

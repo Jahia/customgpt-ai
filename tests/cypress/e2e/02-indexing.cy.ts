@@ -29,8 +29,6 @@ describe('CustomGPT.ai Indexing', function () {
     const listSites: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/listSites.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getNodeStatus: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeStatus.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const getNodeUuid: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeUuid.graphql');
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
     const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
@@ -175,17 +173,12 @@ describe('CustomGPT.ai Indexing', function () {
         });
 
         it('sets customGptPageId on the home page', () => {
-            cy.apollo({query: getNodeUuid, variables: {path: `/sites/${siteKey()}/home`}})
-                .then(uuidResult => {
-                    const uuid = uuidResult.data.jcr.nodeByPath.uuid;
-                    const mappingPath = `/sites/${siteKey()}/customgpt-index/${uuid}`;
-                    cy.apollo({query: getNodeStatus, variables: {path: mappingPath}})
-                        .its('data.jcr.nodeByPath')
-                        .should(node => {
-                            expect(node).to.exist;
-                            expect(node.property).to.exist;
-                            expect(node.property.value).to.be.a('string').and.not.be.empty;
-                        });
+            cy.apollo({query: getNodeStatus, variables: {path: `/sites/${siteKey()}/home/customgpt-index`}})
+                .its('data.jcr.nodeByPath')
+                .should(node => {
+                    expect(node).to.exist;
+                    expect(node.property).to.exist;
+                    expect(node.property.value).to.be.a('string').and.not.be.empty;
                 });
         });
     });
