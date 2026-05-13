@@ -26,6 +26,11 @@
     "scheduleJobASAPHint": "Indexierungsjobs sofort beim Auslösen planen",
     "save": "Speichern",
     "saveSuccess": "Einstellungen erfolgreich gespeichert.",
-    "saveError": "Fehler beim Speichern der Einstellungen."
+    "saveError": "Fehler beim Speichern der Einstellungen.",
+    "dangerZoneTitle": "Gefahrenbereich",
+    "purgeAllPages": "Alle Seiten löschen",
+    "purgeConfirm": "Alle Seiten aus Ihrem CustomGPT-Projekt werden unwiderruflich gelöscht. Sind Sie sicher?",
+    "purgeSuccess": "{{count}} Seite(n) erfolgreich aus CustomGPT gelöscht.",
+    "purgeError": "Fehler beim Löschen der Seiten aus CustomGPT."
   }
 }

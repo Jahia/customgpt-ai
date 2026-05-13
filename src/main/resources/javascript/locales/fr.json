@@ -26,6 +26,11 @@
     "scheduleJobASAPHint": "Planifier les tâches d'indexation immédiatement lors du déclenchement",
     "save": "Enregistrer",
     "saveSuccess": "Paramètres enregistrés avec succès.",
-    "saveError": "Échec de l'enregistrement des paramètres."
+    "saveError": "Échec de l'enregistrement des paramètres.",
+    "dangerZoneTitle": "Zone dangereuse",
+    "purgeAllPages": "Supprimer toutes les pages",
+    "purgeConfirm": "Cette action supprimera définitivement toutes les pages de votre projet CustomGPT. Cette action est irréversible. Êtes-vous sûr ?",
+    "purgeSuccess": "Suppression réussie de {{count}} page(s) de CustomGPT.",
+    "purgeError": "Échec de la suppression des pages de CustomGPT."
   }
 }
