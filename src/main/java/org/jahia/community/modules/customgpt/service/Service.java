@@ -2,6 +2,7 @@ package org.jahia.community.modules.customgpt.service;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.concurrent.CompletableFuture;
@@ -879,27 +880,59 @@ public class Service implements EventHandler {
 
         LOGGER.info("[purgeAllPages] Found {} page(s) to delete in project {}", pageIds.size(), projectId);
 
-        int deleted = 0;
-        for (Long pageId : pageIds) {
-            LOGGER.info("[purgeAllPages] Deleting page {} ({}/{})", pageId, deleted + 1, pageIds.size());
-            final Request delRequest = new Request.Builder()
-                    .url(String.format("%s/projects/%s/pages/%s", baseUrl, projectId, pageId))
-                    .delete()
-                    .addHeader("accept", "application/json")
-                    .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
-                    .build();
-            try (Response delResponse = customGptClient.newCall(delRequest).execute()) {
-                if (delResponse.isSuccessful()) {
-                    deleted++;
-                    LOGGER.info("[purgeAllPages] Successfully deleted page {}", pageId);
-                } else {
-                    LOGGER.warn("[purgeAllPages] Failed to delete page {} (HTTP {})", pageId, delResponse.code());
+        int batchSize;
+        try {
+            batchSize = customGptConfig.getBulkOperationsBatchSize();
+        } catch (Exception e) {
+            batchSize = 10;
+        }
+        LOGGER.info("[purgeAllPages] Deleting in batches of {}", batchSize);
+
+        final int total = pageIds.size();
+        final AtomicInteger deleted = new AtomicInteger(0);
+        final String resolvedBaseUrl = baseUrl;
+        final ExecutorService batchExecutor = Executors.newFixedThreadPool(batchSize);
+
+        try {
+            for (int batchStart = 0; batchStart < total; batchStart += batchSize) {
+                final int batchEnd = Math.min(batchStart + batchSize, total);
+                final List<Long> batch = pageIds.subList(batchStart, batchEnd);
+                final int batchNumber = batchStart / batchSize + 1;
+                LOGGER.info("[purgeAllPages] Starting batch {} — pages {}-{} of {}",
+                        batchNumber, batchStart + 1, batchEnd, total);
+
+                final List<CompletableFuture<Void>> futures = new ArrayList<>();
+                for (Long pageId : batch) {
+                    futures.add(CompletableFuture.runAsync(() -> {
+                        final Request delRequest = new Request.Builder()
+                                .url(String.format("%s/projects/%s/pages/%s", resolvedBaseUrl, projectId, pageId))
+                                .delete()
+                                .addHeader("accept", "application/json")
+                                .addHeader("Authorization", "Bearer " + customGptConfig.getCustomGptToken())
+                                .build();
+                        try (Response delResponse = customGptClient.newCall(delRequest).execute()) {
+                            if (delResponse.isSuccessful()) {
+                                LOGGER.info("[purgeAllPages] Deleted page {}", pageId);
+                                deleted.incrementAndGet();
+                            } else {
+                                LOGGER.warn("[purgeAllPages] Failed to delete page {} (HTTP {})", pageId, delResponse.code());
+                            }
+                        } catch (IOException e) {
+                            LOGGER.warn("[purgeAllPages] Error deleting page {}: {}", pageId, e.getMessage());
+                        }
+                    }, batchExecutor));
                 }
+
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                LOGGER.info("[purgeAllPages] Batch {} complete — {}/{} page(s) deleted so far",
+                        batchNumber, deleted.get(), total);
             }
+        } finally {
+            shutdownAndAwaitTermination(batchExecutor);
         }
 
         LOGGER.info("[purgeAllPages] Purge complete — deleted {}/{} page(s) from project {}",
-                deleted, pageIds.size(), projectId);
-        return deleted;
+                deleted.get(), total, projectId);
+        return deleted.get();
     }
 }
