@@ -19,7 +19,7 @@ This document captures the contracts, patterns, and pitfalls needed to generate 
 |---|---|
 | Build | Maven 3 + `frontend-maven-plugin` (Node v22.6.0, Yarn 1.22.21, webpack) |
 | Backend | Java 11, OSGi DS (`@Component`, `@Reference`), Jahia 8.2+ |
-| HTTP client | OkHttp3 4.12 (`customGptClient` with Bearer interceptor) |
+| HTTP client | OkHttp3 4.12 (`customGptClient` with Bearer `Authenticator` + `RateLimitInterceptor`) |
 | GraphQL | `graphql-dxm-provider` 3.4 — annotation-driven (`@GraphQLField`, `@GraphQLName`, etc.) |
 | Frontend | React 17, i18next, CSS Modules (SCSS), Apollo Client |
 | Testing | Cypress + TypeScript |
@@ -66,7 +66,8 @@ src/main/resources/
 
 - `@Component(service = Service.class, immediate = true)`
 - Holds and manages the OkHttp3 client (`customGptClient`) with Bearer token `Authenticator` and `RateLimitInterceptor`
-- Has a shared `ExecutorService` (`indexingExecutor`); purge creates a dedicated `batchExecutor` and shuts it down in `finally`
+- `RateLimitInterceptor` is constructed with `config.getRateLimitRequestsPerSecond()` at `init()` time and is **not rebuilt** on subsequent config updates — changing the rate requires a module restart
+- Has a shared `ExecutorService` (`indexingExecutor`); purge creates a dedicated `batchExecutor` (capped to `min(batchSize, requestsPerSecond)` threads) and shuts it down in `finally`
 - `shutdownAndAwaitTermination(executor)` helper must be used for all executor shutdowns
 - `resetScheduleJobASAP()` writes `scheduleJobASAP=false` back via `ConfigurationAdmin` — this will re-fire `Config.updated()` but with `false`, so it is safe (no infinite loop)
 
@@ -131,27 +132,36 @@ String baseUrl = customGptConfig.getApiBaseUrl();
 if (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
 ```
 
-### Pagination (`next_page_url`)
+### Pagination (`data.pages.data` / `next_page_url`)
+
+The CustomGPT API response shape for page lists:
+```
+data.pages.data[]         — array of page objects, each with an .id (long)
+data.pages.next_page_url  — next page URL string, or null/JSONObject.NULL
+```
+
+Parse with `optJSONObject` / `optJSONArray` so missing fields return `null` rather than throwing.
+
+### Purge: streaming-batch pattern (do NOT follow `next_page_url`)
+
+The purge loop **always re-fetches from the first page URL** after each deletion round. Following `next_page_url` would silently skip items because CustomGPT uses offset-based pagination — after deleting page 1's items, page 2 shifts into page 1, so the cursor lands on what was previously page 3.
 
 ```java
-String nextUrl = baseUrl + "/projects/" + projectId + "/pages";
-while (nextUrl != null) {
-    // GET nextUrl, parse JSON
-    // data.pages.data → array of page objects with .id
-    // data.pages.next_page_url → next page or null/JSONObject.NULL
-    JSONObject body = new JSONObject(response.body().string());
-    JSONObject pages = body.getJSONObject("data").getJSONObject("pages");
-    JSONArray data = pages.getJSONArray("data");
-    // ...
-    Object next = pages.opt("next_page_url");
-    nextUrl = (next instanceof String) ? (String) next : null;
+final String firstPageUrl = baseUrl + "/projects/" + projectId + "/pages";
+while (true) {
+    List<Long> ids = fetchOnePage(firstPageUrl);   // GET first page, parse data.pages.data[]
+    if (ids.isEmpty()) break;
+    deleteAllPages(ids, baseUrl, projectId, batchSize);  // concurrent DELETE per id
 }
 ```
 
 ### Batch concurrent deletion
 
+Thread pool size is capped to `min(batchSize, requestsPerSecond)` so the number of concurrent threads never exceeds the token-bucket supply:
+
 ```java
-ExecutorService batchExecutor = Executors.newFixedThreadPool(batchSize);
+int threadCount = Math.min(batchSize, config.getRateLimitRequestsPerSecond());
+ExecutorService batchExecutor = Executors.newFixedThreadPool(threadCount);
 try {
     for (int i = 0; i < total; i += batchSize) {
         List<Long> batch = pageIds.subList(i, Math.min(i + batchSize, total));
@@ -250,7 +260,9 @@ Tests use `cy.apollo(...)` for GraphQL calls. GraphQL fixture files are in `test
 
 1. **Never edit `src/main/resources/javascript/apps/` directly** — it is webpack output.
 2. **`.properties` files are NOT i18next** — React UI translations belong in JSON locale files only.
-3. **`GqlSettings` uses a Builder** — construct it with `GqlSettings.builder().<setters>.build()`. All 16 fields have a corresponding fluent setter. The GraphQL schema is unaffected (schema reflects getters, not the constructor).
+3. **`GqlSettings` uses a Builder** — construct it with `GqlSettings.builder().<setters>.build()`. All 17 fields have a corresponding fluent setter. The GraphQL schema is unaffected (schema reflects getters, not the constructor).
 4. **OkHttp response bodies must be closed** — always use try-with-resources or explicit `close()` on `Response`.
 5. **`scheduleJobASAP` self-reset** — resetting via ConfigurationAdmin re-fires `Config.updated()` with `scheduleJobASAP=false`, which is safe because the event listener checks the value before re-indexing.
 6. **Base URL trailing slash** — always strip before appending path segments to avoid double slashes.
+7. **`rateLimit.requestsPerSecond` requires restart** — `RateLimitInterceptor` is instantiated once during `init()` with the config value at that moment. Updating the OSGi config at runtime does not rebuild the interceptor; a module restart is required for the new rate to take effect.
+8. **Never follow `next_page_url` in the purge loop** — CustomGPT pagination is offset-based. Always re-query the first-page URL after each deletion round; see the "Purge: streaming-batch pattern" section above.

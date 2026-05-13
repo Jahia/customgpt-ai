@@ -9,7 +9,8 @@ Jahia module that integrates with the [CustomGPT.ai](https://customgpt.ai) API t
 - **Admin UI** — React settings panel under Jahia Administration (`/jahia/administration/customgptAiSettings`)
 - **Purge all pages** — Danger-zone action that deletes every page in the CustomGPT project via the API
 - **Dry-run mode** — simulate indexing without sending any data to CustomGPT
-- **Batch operations** — configurable batch size for concurrent page deletions
+- **Rate limiting** — token-bucket interceptor limits outgoing requests to a configurable rate (default 10 req/s); exponential back-off with full jitter on HTTP 429, honouring `Retry-After`
+- **Batch operations** — purge streams one API result page at a time, deleting each batch concurrently before fetching the next
 - **i18n** — UI labels in English, French, and German
 
 ## Requirements
@@ -47,6 +48,7 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
 | `dryRun` | `true` | When `true`, simulate indexing without calling CustomGPT |
 | `scheduleJobASAP` | `false` | When `true`, schedule indexing jobs immediately; auto-resets to `false` after jobs are queued |
+| `rateLimit.requestsPerSecond` | `10` | Token-bucket rate: maximum CustomGPT API requests per second. The OkHttp client reads this at startup — **a module restart is required** for changes to take effect |
 
 ## Admin UI
 
