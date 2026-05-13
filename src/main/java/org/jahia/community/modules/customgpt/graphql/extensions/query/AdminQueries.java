@@ -6,7 +6,6 @@ import graphql.annotations.annotationTypes.GraphQLName;
 import java.util.Collection;
 import javax.jcr.AccessDeniedException;
 import javax.jcr.RepositoryException;
-import java.util.Collections;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSettings;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSiteListModel;

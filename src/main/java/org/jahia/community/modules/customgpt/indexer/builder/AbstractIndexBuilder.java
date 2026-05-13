@@ -222,7 +222,6 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
             return false;
         }
 
-        boolean result = indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));
-        return result;
+        return indexedExtensions.stream().anyMatch(ext -> node.getName().endsWith("." + ext));
     }
 }

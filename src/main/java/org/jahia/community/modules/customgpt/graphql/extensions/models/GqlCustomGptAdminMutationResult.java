@@ -234,7 +234,6 @@ public class GqlCustomGptAdminMutationResult {
         try {
             return customGptService.purgeAllPages();
         } catch (Exception e) {
-            LOGGER.error("Failed to purge all CustomGPT pages", e);
             throw new DataFetchingException(e);
         }
     }

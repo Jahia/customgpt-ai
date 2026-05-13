@@ -183,6 +183,9 @@ final class CustomGptIndexerNodeHandler {
                                 LOGGER.warn("Impossible to retrieve content from {}", url);
                             }
                         }
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        LOGGER.error("Issue:", ex);
                     } catch (Exception ex) {
                         LOGGER.error("Issue:", ex);
                     }

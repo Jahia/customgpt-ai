@@ -622,6 +622,7 @@ public class Service implements EventHandler {
             try {
                 httpClient.dispatcher().executorService().awaitTermination(5, TimeUnit.SECONDS); // wait for termination
             } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
                 LOGGER.error("Impossible to stop http client", ex);
             }
         }

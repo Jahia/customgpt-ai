@@ -12,9 +12,6 @@ import org.jahia.community.modules.customgpt.util.Utils;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * Routes indexing operations to the correct {@link IndexBuilder} (content or file) based on the node type,
  * and aggregates the sets of indexed node types from all builders.
@@ -22,7 +19,6 @@ import org.slf4j.LoggerFactory;
 @Component(service = IndexService.class)
 public class IndexService {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(IndexService.class);
     private final List<IndexBuilder> indexBuilders = new ArrayList<>(2);
     private ContentIndexBuilder contentIndexBuilder;
     private FileIndexBuilder fileIndexBuilder;
