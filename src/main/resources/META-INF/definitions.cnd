@@ -8,12 +8,6 @@
  extends = nt:base
  itemtype = options
 
-[jmix:customGptIndexed] mixin
-- customGptPageId (string) indexed=no hidden
-
-[jmix:customGptFileIndexed] mixin
-- customGptPageId (string) indexed=no hidden
-
 [jmix:customGptIndexableSite] mixin
  extends = jnt:virtualsite
  itemtype = options

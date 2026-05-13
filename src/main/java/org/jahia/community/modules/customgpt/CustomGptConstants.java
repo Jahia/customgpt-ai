@@ -28,8 +28,6 @@ public class CustomGptConstants {
     public static final String EVENT_TYPE_CONFIG_UPDATED = "configurationUpdated";
     public static final String EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX = "configurationUpdatedRequireReindex";
     public static final String EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE = "customGptTransportClientServiceAvailable";
-    public static final String MIX_CUSTOM_GPT_INDEXED = "jmix:customGptIndexed";
-    public static final String MIX_CUSTOM_GPT_FILE_INDEXED = "jmix:customGptFileIndexed";
     public static final String MIX_INDEXABLE_SITE = "jmix:customGptIndexableSite";
     public static final String MIX_SKIP_INDEX = "jmix:skipCustomGptIndexation";
     public static final String MIX_CUSTOM_GPT_INDEXABLE = "jmix:customGptIndexable";
