@@ -24,6 +24,8 @@
     "dryRunHint": "Activer pour simuler l'indexation sans envoyer de données à CustomGPT",
     "scheduleJobASAP": "Planifier immédiatement",
     "scheduleJobASAPHint": "Planifier les tâches d'indexation immédiatement lors du déclenchement",
+    "rateLimitRequestsPerSecond": "Limite de débit (requêtes/sec)",
+    "rateLimitRequestsPerSecondHint": "Nombre maximum de requêtes envoyées à l'API CustomGPT par seconde",
     "save": "Enregistrer",
     "saveSuccess": "Paramètres enregistrés avec succès.",
     "saveError": "Échec de l'enregistrement des paramètres.",

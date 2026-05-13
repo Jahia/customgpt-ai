@@ -175,7 +175,8 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("jahiaServerCookieDomain") @GraphQLDescription("Jahia server cookie domain") String jahiaServerCookieDomain,
             @GraphQLName("dryRun") @GraphQLDescription("Dry run mode") Boolean dryRun,
             @GraphQLName("scheduleJobASAP") @GraphQLDescription("Schedule indexing jobs immediately") Boolean scheduleJobASAP,
-            @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl) {
+            @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl,
+            @GraphQLName("rateLimitRequestsPerSecond") @GraphQLDescription("Maximum API requests per second (token-bucket rate limit)") Integer rateLimitRequestsPerSecond) {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
         } catch (RepositoryException e) {
@@ -211,6 +212,9 @@ public class GqlCustomGptAdminMutationResult {
                 props.put("org.jahia.community.modules.customgpt.scheduleJobASAP", scheduleJobASAP);
             }
             putIfNotNull(props, "org.jahia.community.modules.customgpt.apiBaseUrl", apiBaseUrl);
+            if (rateLimitRequestsPerSecond != null) {
+                props.put("org.jahia.community.modules.customgpt.rateLimit.requestsPerSecond", rateLimitRequestsPerSecond);
+            }
             config.update(props);
             return Boolean.TRUE;
         } catch (Exception e) {

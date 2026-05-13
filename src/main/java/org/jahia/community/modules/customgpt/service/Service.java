@@ -591,7 +591,7 @@ public class Service implements EventHandler {
                                     .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
                                     .build();
                         })
-                        .addInterceptor(new RateLimitInterceptor())
+                        .addInterceptor(new RateLimitInterceptor(customGptConfig.getRateLimitRequestsPerSecond()))
                         .build();
             }
             initialized = true;
@@ -950,7 +950,9 @@ public class Service implements EventHandler {
     private int deleteAllPages(List<Long> pageIds, String baseUrl, String projectId, int batchSize) {
         final int total = pageIds.size();
         final AtomicInteger deleted = new AtomicInteger(0);
-        final ExecutorService batchExecutor = Executors.newFixedThreadPool(batchSize);
+        // Cap threads to the rate limit so we never create more concurrent callers than tokens-per-second
+        final int threadCount = Math.min(batchSize, customGptConfig.getRateLimitRequestsPerSecond());
+        final ExecutorService batchExecutor = Executors.newFixedThreadPool(threadCount);
         try {
             for (int batchStart = 0; batchStart < total; batchStart += batchSize) {
                 final int batchEnd = Math.min(batchStart + batchSize, total);

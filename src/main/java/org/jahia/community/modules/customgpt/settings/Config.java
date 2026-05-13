@@ -49,6 +49,7 @@ public class Config implements ManagedService {
     private static final String SCHEDULE_JOB_ASAP = CONFIG_NAMESPACE_PREFIX + ".scheduleJobASAP";
     private static final String DRY_RUN = CONFIG_NAMESPACE_PREFIX + ".dryRun";
     private static final String PROP_CUSTOM_GPT_API_BASE_URL = CONFIG_NAMESPACE_PREFIX + ".apiBaseUrl";
+    private static final String PROP_RATE_LIMIT_REQUESTS_PER_SECOND = CONFIG_NAMESPACE_PREFIX + ".rateLimit.requestsPerSecond";
 
     private Set<String> contentIndexedMainResources;
     private Set<String> contentIndexedSubNodes;
@@ -65,6 +66,7 @@ public class Config implements ManagedService {
     private String jahiaServerCookieValue;
     private String jahiaServerCookieDomain;
     private String customGptApiBaseUrl;
+    private int rateLimitRequestsPerSecond;
 
     /**
      * Called by OSGi ConfigurationAdmin whenever the {@code org.jahia.community.modules.customgpt.cfg} file changes.
@@ -136,6 +138,7 @@ public class Config implements ManagedService {
         scheduleJobASAP = getBoolean(properties, SCHEDULE_JOB_ASAP, false);
         dryRun = getBoolean(properties, DRY_RUN, false);
         customGptApiBaseUrl = getString(properties, PROP_CUSTOM_GPT_API_BASE_URL, CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
+        rateLimitRequestsPerSecond = getInt(properties, PROP_RATE_LIMIT_REQUESTS_PER_SECOND, 10);
 
         customGptProjectId = getString(properties, PROP_GUSTOM_GPT_PROJECT_ID, "");
         customGptToken = getString(properties, PROP_GUSTOM_GPT_TOKEN, "");
@@ -262,5 +265,9 @@ public class Config implements ManagedService {
 
     public String getCustomGptApiBaseUrl() {
         return customGptApiBaseUrl;
+    }
+
+    public int getRateLimitRequestsPerSecond() {
+        return rateLimitRequestsPerSecond;
     }
 }

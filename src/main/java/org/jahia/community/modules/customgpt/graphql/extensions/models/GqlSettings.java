@@ -24,6 +24,7 @@ public class GqlSettings {
     private final boolean dryRun;
     private final boolean scheduleJobASAP;
     private final String apiBaseUrl;
+    private final int rateLimitRequestsPerSecond;
 
     private GqlSettings(Builder b) {
         this.contentIndexedMainResourceTypes = b.contentIndexedMainResourceTypes;
@@ -42,6 +43,7 @@ public class GqlSettings {
         this.dryRun = b.dryRun;
         this.scheduleJobASAP = b.scheduleJobASAP;
         this.apiBaseUrl = b.apiBaseUrl;
+        this.rateLimitRequestsPerSecond = b.rateLimitRequestsPerSecond;
     }
 
     public static Builder builder() {
@@ -65,6 +67,7 @@ public class GqlSettings {
         private boolean dryRun;
         private boolean scheduleJobASAP;
         private String apiBaseUrl;
+        private int rateLimitRequestsPerSecond;
 
         public Builder contentIndexedMainResourceTypes(String v) { this.contentIndexedMainResourceTypes = v; return this; }
         public Builder contentIndexedSubNodeTypes(String v) { this.contentIndexedSubNodeTypes = v; return this; }
@@ -82,6 +85,7 @@ public class GqlSettings {
         public Builder dryRun(boolean v) { this.dryRun = v; return this; }
         public Builder scheduleJobASAP(boolean v) { this.scheduleJobASAP = v; return this; }
         public Builder apiBaseUrl(String v) { this.apiBaseUrl = v; return this; }
+        public Builder rateLimitRequestsPerSecond(int v) { this.rateLimitRequestsPerSecond = v; return this; }
 
         public GqlSettings build() { return new GqlSettings(this); }
     }
@@ -196,5 +200,12 @@ public class GqlSettings {
     @GraphQLDescription("CustomGPT API base URL")
     public String getApiBaseUrl() {
         return apiBaseUrl;
+    }
+
+    @GraphQLField
+    @GraphQLName("rateLimitRequestsPerSecond")
+    @GraphQLDescription("Maximum number of requests per second sent to the CustomGPT API (token-bucket rate limit)")
+    public int getRateLimitRequestsPerSecond() {
+        return rateLimitRequestsPerSecond;
     }
 }

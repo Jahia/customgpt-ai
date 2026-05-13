@@ -56,7 +56,8 @@ public class AdminQueries {
                     .fileMappedNodetypes("").operationsBatchSize(500).projectId("").projectName(null).token("")
                     .jahiaUsername("").jahiaPassword("").jahiaServerCookieName("").jahiaServerCookieValue("")
                     .jahiaServerCookieDomain("").dryRun(true).scheduleJobASAP(false)
-                    .apiBaseUrl(CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL).build();
+                    .apiBaseUrl(CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL)
+                    .rateLimitRequestsPerSecond(10).build();
         }
         try {
             final Service service = BundleUtils.getOsgiService(Service.class, null);
@@ -78,6 +79,7 @@ public class AdminQueries {
                     .dryRun(config.isDryRun())
                     .scheduleJobASAP(config.isScheduleJobASAP())
                     .apiBaseUrl(config.getCustomGptApiBaseUrl())
+                    .rateLimitRequestsPerSecond(config.getRateLimitRequestsPerSecond())
                     .build();
         } catch (org.jahia.community.modules.customgpt.settings.NotConfiguredException e) {
             throw new DataFetchingException(e);

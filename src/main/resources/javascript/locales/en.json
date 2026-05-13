@@ -24,6 +24,8 @@
     "dryRunHint": "Enable to simulate indexing without sending data to CustomGPT",
     "scheduleJobASAP": "Schedule Job ASAP",
     "scheduleJobASAPHint": "Schedule indexing jobs immediately when triggered",
+    "rateLimitRequestsPerSecond": "Rate Limit (requests/sec)",
+    "rateLimitRequestsPerSecondHint": "Maximum number of requests sent to the CustomGPT API per second",
     "save": "Save",
     "saveSuccess": "Settings saved successfully.",
     "saveError": "Failed to save settings.",
