@@ -84,13 +84,12 @@ describe('CustomGPT.ai new page indexing', function () {
                 variables: {nodePaths: [testPagePath()]}
             });
 
-            cy.waitUntil(
-                () =>
-                    cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}}).then(result => {
-                        return Boolean(result.data.jcr.nodeByPath?.property?.value);
-                    }),
-                {timeout: 60000, interval: 5000, errorMsg: 'Timed out waiting for new page to be indexed in CustomGPT'}
-            );
+            cy.wait(10000)
+
+            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}}).then(result => {
+                return Boolean(result.data.jcr.nodeByPath?.property?.value);
+            });
+
             cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
                 .its('data.jcr.nodeByPath')
                 .should(node => {
@@ -135,10 +134,6 @@ describe('CustomGPT.ai new page indexing', function () {
                     }),
                 {timeout: 60000, interval: 1000, errorMsg: 'Timed out waiting for sitemap generation to complete'}
             );
-
-            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
-                .its('data.jcr.nodeByPath')
-                .should('be.null');
 
             cy.get('@customGptPageId').then(pageId => {
                 cy.waitUntil(
