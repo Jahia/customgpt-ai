@@ -30,6 +30,7 @@
     "saveSuccess": "Settings saved successfully.",
     "saveError": "Failed to save settings.",
     "dangerZoneTitle": "Danger Zone",
+    "loading": "Loading settings…",
     "purgeAllPages": "Purge All Pages",
     "purgeConfirm": "This will permanently delete all pages from your CustomGPT project. This action cannot be undone. Are you sure?",
     "purgeSuccess": "Successfully deleted {{count}} page(s) from CustomGPT.",

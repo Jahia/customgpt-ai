@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {useMutation, useQuery} from '@apollo/client';
 import {useTranslation} from 'react-i18next';
 import {Button, Loader, Typography} from '@jahia/moonstone';
@@ -28,6 +28,9 @@ export const CustomGptSettingsAdmin = () => {
         apiBaseUrl: '',
         rateLimitRequestsPerSecond: 10
     });
+
+    const saveStatusRef = useRef(null);
+    const purgeStatusRef = useRef(null);
 
     const {loading} = useQuery(GET_SETTINGS, {
         fetchPolicy: 'network-only',
@@ -86,6 +89,8 @@ export const CustomGptSettingsAdmin = () => {
             console.error('Failed to purge pages:', err);
             setPurgeStatus({type: 'error'});
         }
+
+        setTimeout(() => purgeStatusRef.current?.focus(), 50);
     };
 
     const handleSave = async () => {
@@ -115,18 +120,48 @@ export const CustomGptSettingsAdmin = () => {
             console.error('Failed to save settings:', err);
             setSaveStatus('error');
         }
+
+        setTimeout(() => saveStatusRef.current?.focus(), 50);
     };
+
+    const srSaveMsg = saveStatus === 'success' ? t('label.saveSuccess') :
+        saveStatus === 'error' ? t('label.saveError') : '';
+
+    const srPurgeMsg = purgeStatus?.type === 'success' ? t('label.purgeSuccess', {count: purgeStatus.count}) :
+        purgeStatus?.type === 'error' ? t('label.purgeError') : '';
 
     if (loading) {
         return (
-            <div className={styles.cgpt_loading}>
-                <Loader size="big"/>
+            <div className={styles.cgpt_loading} role="status" aria-label={t('label.loading')}>
+                <Loader size="big" aria-hidden="true"/>
             </div>
         );
     }
 
     return (
         <div className={styles.cgpt_container}>
+            {/* Persistent live regions — always in DOM so AT registers them before content appears */}
+            <div
+                ref={saveStatusRef}
+                tabIndex={-1}
+                role={saveStatus === 'error' ? 'alert' : 'status'}
+                aria-live={saveStatus === 'error' ? 'assertive' : 'polite'}
+                aria-atomic="true"
+                className={styles.cgpt_sr_only}
+            >
+                {srSaveMsg}
+            </div>
+            <div
+                ref={purgeStatusRef}
+                tabIndex={-1}
+                role={purgeStatus?.type === 'error' ? 'alert' : 'status'}
+                aria-live={purgeStatus?.type === 'error' ? 'assertive' : 'polite'}
+                aria-atomic="true"
+                className={styles.cgpt_sr_only}
+            >
+                {srPurgeMsg}
+            </div>
+
             <div className={styles.cgpt_header}>
                 <h2>{t('label.settingsTitle')}</h2>
             </div>
@@ -348,16 +383,17 @@ export const CustomGptSettingsAdmin = () => {
 
             <div className={styles.cgpt_actions}>
                 {saveStatus === 'success' && (
-                    <div className={`${styles.cgpt_alert} ${styles['cgpt_alert--success']}`}>
+                    <div aria-hidden="true" className={`${styles.cgpt_alert} ${styles['cgpt_alert--success']}`}>
                         {t('label.saveSuccess')}
                     </div>
                 )}
                 {saveStatus === 'error' && (
-                    <div className={`${styles.cgpt_alert} ${styles['cgpt_alert--error']}`}>
+                    <div aria-hidden="true" className={`${styles.cgpt_alert} ${styles['cgpt_alert--error']}`}>
                         {t('label.saveError')}
                     </div>
                 )}
                 <Button
+                    type="button"
                     label={t('label.save')}
                     variant="primary"
                     isDisabled={saving}
@@ -368,16 +404,17 @@ export const CustomGptSettingsAdmin = () => {
             <div className={styles.cgpt_dangerZone}>
                 <h3>{t('label.dangerZoneTitle')}</h3>
                 {purgeStatus?.type === 'success' && (
-                    <div className={`${styles.cgpt_alert} ${styles['cgpt_alert--success']}`}>
+                    <div aria-hidden="true" className={`${styles.cgpt_alert} ${styles['cgpt_alert--success']}`}>
                         {t('label.purgeSuccess', {count: purgeStatus.count})}
                     </div>
                 )}
                 {purgeStatus?.type === 'error' && (
-                    <div className={`${styles.cgpt_alert} ${styles['cgpt_alert--error']}`}>
+                    <div aria-hidden="true" className={`${styles.cgpt_alert} ${styles['cgpt_alert--error']}`}>
                         {t('label.purgeError')}
                     </div>
                 )}
                 <Button
+                    type="button"
                     label={t('label.purgeAllPages')}
                     variant="danger"
                     isDisabled={purging}
