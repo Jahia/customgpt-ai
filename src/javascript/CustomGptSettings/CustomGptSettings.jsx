@@ -1,4 +1,4 @@
-import React, {useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {useMutation, useQuery} from '@apollo/client';
 import {useTranslation} from 'react-i18next';
 import {Button, Loader, Typography} from '@jahia/moonstone';
@@ -8,6 +8,9 @@ import {GET_SETTINGS, PURGE_ALL_PAGES, SAVE_SETTINGS} from './CustomGptSettings.
 export const CustomGptSettingsAdmin = () => {
     const {t} = useTranslation('customgpt-ai');
     const [saveStatus, setSaveStatus] = useState(null);
+    const [purgeStatus, setPurgeStatus] = useState(null);
+    const [showPurgeDialog, setShowPurgeDialog] = useState(false);
+    const purgeDialogRef = useRef(null);
 
     const [projectName, setProjectName] = useState(null);
 
@@ -29,8 +32,15 @@ export const CustomGptSettingsAdmin = () => {
         rateLimitRequestsPerSecond: 10
     });
 
-    const saveStatusRef = useRef(null);
-    const purgeStatusRef = useRef(null);
+    useEffect(() => {
+        document.title = `${t('label.settingsTitle')} - Jahia Administration`;
+    }, [t]);
+
+    useEffect(() => {
+        if (showPurgeDialog) {
+            purgeDialogRef.current?.showModal();
+        }
+    }, [showPurgeDialog]);
 
     const {loading} = useQuery(GET_SETTINGS, {
         fetchPolicy: 'network-only',
@@ -61,7 +71,6 @@ export const CustomGptSettingsAdmin = () => {
 
     const [saveSettings, {loading: saving}] = useMutation(SAVE_SETTINGS);
     const [purgeAllPages, {loading: purging}] = useMutation(PURGE_ALL_PAGES);
-    const [purgeStatus, setPurgeStatus] = useState(null);
 
     const handleChange = field => e => {
         setSaveStatus(null);
@@ -75,12 +84,13 @@ export const CustomGptSettingsAdmin = () => {
         setFormState(prev => ({...prev, [field]: value}));
     };
 
-    const handlePurge = async () => {
-        if (!window.confirm(t('label.purgeConfirm'))) {
-            return;
-        }
+    const handlePurge = () => {
+        setShowPurgeDialog(true);
+    };
 
-        setPurgeStatus(null);
+    const handlePurgeConfirm = async () => {
+        purgeDialogRef.current?.close();
+        setShowPurgeDialog(false);
         try {
             const result = await purgeAllPages();
             const count = result.data?.admin?.customGpt?.purgeAllPages;
@@ -89,12 +99,9 @@ export const CustomGptSettingsAdmin = () => {
             console.error('Failed to purge pages:', err);
             setPurgeStatus({type: 'error'});
         }
-
-        setTimeout(() => purgeStatusRef.current?.focus(), 50);
     };
 
     const handleSave = async () => {
-        setSaveStatus(null);
         try {
             const result = await saveSettings({
                 variables: {
@@ -120,15 +127,7 @@ export const CustomGptSettingsAdmin = () => {
             console.error('Failed to save settings:', err);
             setSaveStatus('error');
         }
-
-        setTimeout(() => saveStatusRef.current?.focus(), 50);
     };
-
-    const srSaveMsg = saveStatus === 'success' ? t('label.saveSuccess') :
-        saveStatus === 'error' ? t('label.saveError') : '';
-
-    const srPurgeMsg = purgeStatus?.type === 'success' ? t('label.purgeSuccess', {count: purgeStatus.count}) :
-        purgeStatus?.type === 'error' ? t('label.purgeError') : '';
 
     if (loading) {
         return (
@@ -140,26 +139,19 @@ export const CustomGptSettingsAdmin = () => {
 
     return (
         <div className={styles.cgpt_container}>
-            {/* Persistent live regions — always in DOM so AT registers them before content appears */}
-            <div
-                ref={saveStatusRef}
-                tabIndex={-1}
-                role={saveStatus === 'error' ? 'alert' : 'status'}
-                aria-live={saveStatus === 'error' ? 'assertive' : 'polite'}
-                aria-atomic="true"
-                className={styles.cgpt_sr_only}
-            >
-                {srSaveMsg}
+            {/* Save status — two fixed-role regions always in DOM so AT registers them at mount */}
+            <div role="status" aria-live="polite" aria-atomic="true" className={styles.cgpt_sr_only}>
+                {saveStatus === 'success' ? t('label.saveSuccess') : ''}
             </div>
-            <div
-                ref={purgeStatusRef}
-                tabIndex={-1}
-                role={purgeStatus?.type === 'error' ? 'alert' : 'status'}
-                aria-live={purgeStatus?.type === 'error' ? 'assertive' : 'polite'}
-                aria-atomic="true"
-                className={styles.cgpt_sr_only}
-            >
-                {srPurgeMsg}
+            <div role="alert" aria-live="assertive" aria-atomic="true" className={styles.cgpt_sr_only}>
+                {saveStatus === 'error' ? t('label.saveError') : ''}
+            </div>
+            {/* Purge status — two fixed-role regions always in DOM */}
+            <div role="status" aria-live="polite" aria-atomic="true" className={styles.cgpt_sr_only}>
+                {purgeStatus?.type === 'success' ? t('label.purgeSuccess', {count: purgeStatus.count}) : ''}
+            </div>
+            <div role="alert" aria-live="assertive" aria-atomic="true" className={styles.cgpt_sr_only}>
+                {purgeStatus?.type === 'error' ? t('label.purgeError') : ''}
             </div>
 
             <div className={styles.cgpt_header}>
@@ -169,6 +161,10 @@ export const CustomGptSettingsAdmin = () => {
             <div className={styles.cgpt_description}>
                 <Typography>{t('label.settingsDescription')}</Typography>
             </div>
+
+            <p className={styles.cgpt_requiredNote}>
+                <span aria-hidden="true">* </span>{t('label.requiredFieldsNote')}
+            </p>
 
             <div className={styles.cgpt_form}>
                 <div className={styles.cgpt_fieldGroup}>
@@ -246,13 +242,15 @@ export const CustomGptSettingsAdmin = () => {
 
                 <div className={styles.cgpt_fieldGroup}>
                     <label className={styles.cgpt_label} htmlFor="cgpt-project-id">
-                        {t('label.projectId')}
+                        {t('label.projectId')}<span aria-hidden="true"> *</span>
                     </label>
                     <input
                         type="text"
                         id="cgpt-project-id"
                         className={styles.cgpt_input}
                         value={formState.projectId}
+                        required
+                        aria-required="true"
                         onChange={handleChange('projectId')}
                     />
                     {projectName && (
@@ -262,13 +260,15 @@ export const CustomGptSettingsAdmin = () => {
 
                 <div className={styles.cgpt_fieldGroup}>
                     <label className={styles.cgpt_label} htmlFor="cgpt-token">
-                        {t('label.token')}
+                        {t('label.token')}<span aria-hidden="true"> *</span>
                     </label>
                     <input
                         type="password"
                         id="cgpt-token"
                         className={styles.cgpt_input}
                         value={formState.token}
+                        required
+                        aria-required="true"
                         onChange={handleChange('token')}
                     />
                 </div>
@@ -295,6 +295,7 @@ export const CustomGptSettingsAdmin = () => {
                         type="text"
                         id="cgpt-jahia-username"
                         className={styles.cgpt_input}
+                        autoComplete="username"
                         value={formState.jahiaUsername}
                         onChange={handleChange('jahiaUsername')}
                     />
@@ -308,6 +309,7 @@ export const CustomGptSettingsAdmin = () => {
                         type="password"
                         id="cgpt-jahia-password"
                         className={styles.cgpt_input}
+                        autoComplete="current-password"
                         value={formState.jahiaPassword}
                         onChange={handleChange('jahiaPassword')}
                     />
@@ -421,6 +423,30 @@ export const CustomGptSettingsAdmin = () => {
                     onClick={handlePurge}
                 />
             </div>
+
+            <dialog
+                ref={purgeDialogRef}
+                role="alertdialog"
+                aria-labelledby="cgpt-purge-dialog-title"
+                aria-describedby="cgpt-purge-dialog-desc"
+                className={styles.cgpt_dialog}
+                onClose={() => setShowPurgeDialog(false)}
+            >
+                <h3 id="cgpt-purge-dialog-title">{t('label.purgeConfirmTitle')}</h3>
+                <p id="cgpt-purge-dialog-desc">{t('label.purgeConfirm')}</p>
+                <div className={styles.cgpt_dialogActions}>
+                    <Button
+                        label={t('label.cancel')}
+                        onClick={() => purgeDialogRef.current?.close()}
+                    />
+                    <Button
+                        label={t('label.confirmPurge')}
+                        variant="danger"
+                        isDisabled={purging}
+                        onClick={handlePurgeConfirm}
+                    />
+                </div>
+            </dialog>
         </div>
     );
 };

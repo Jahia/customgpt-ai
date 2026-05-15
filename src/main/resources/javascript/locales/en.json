@@ -34,6 +34,10 @@
     "purgeAllPages": "Purge All Pages",
     "purgeConfirm": "This will permanently delete all pages from your CustomGPT project. This action cannot be undone. Are you sure?",
     "purgeSuccess": "Successfully deleted {{count}} page(s) from CustomGPT.",
-    "purgeError": "Failed to purge pages from CustomGPT."
+    "purgeError": "Failed to purge pages from CustomGPT.",
+    "purgeConfirmTitle": "Confirm Purge",
+    "confirmPurge": "Yes, Purge All",
+    "cancel": "Cancel",
+    "requiredFieldsNote": "Fields marked with * are required"
   }
 }

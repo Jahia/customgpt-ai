@@ -33,6 +33,10 @@
     "purgeAllPages": "Alle Seiten löschen",
     "purgeConfirm": "Alle Seiten aus Ihrem CustomGPT-Projekt werden unwiderruflich gelöscht. Sind Sie sicher?",
     "purgeSuccess": "{{count}} Seite(n) erfolgreich aus CustomGPT gelöscht.",
-    "purgeError": "Fehler beim Löschen der Seiten aus CustomGPT."
+    "purgeError": "Fehler beim Löschen der Seiten aus CustomGPT.",
+    "purgeConfirmTitle": "Löschen bestätigen",
+    "confirmPurge": "Ja, alles löschen",
+    "cancel": "Abbrechen",
+    "requiredFieldsNote": "Mit * markierte Felder sind Pflichtfelder"
   }
 }
