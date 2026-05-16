@@ -1,6 +1,7 @@
 package org.jahia.community.modules.customgpt.util;
 
 import java.io.IOException;
+import java.util.concurrent.ThreadLocalRandom;
 import okhttp3.Interceptor;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -75,16 +76,18 @@ public class RateLimitInterceptor implements Interceptor {
     }
 
     private void acquireToken() throws InterruptedException {
-        synchronized (bucketLock) {
-            refill();
-            if (availableTokens <= 0) {
-                final long waitNanos = tokenIntervalNanos - (System.nanoTime() - lastRefillNanos);
-                if (waitNanos > 0) {
-                    Thread.sleep(waitNanos / 1_000_000L);
-                }
+        while (true) {
+            final long waitMs;
+            synchronized (bucketLock) {
                 refill();
+                if (availableTokens > 0) {
+                    availableTokens--;
+                    return;
+                }
+                final long waitNanos = tokenIntervalNanos - (System.nanoTime() - lastRefillNanos);
+                waitMs = Math.max(1L, waitNanos / 1_000_000L);
             }
-            availableTokens = Math.max(0L, availableTokens - 1);
+            Thread.sleep(waitMs);
         }
     }
 
@@ -109,6 +112,6 @@ public class RateLimitInterceptor implements Interceptor {
         }
         // Full-jitter exponential back-off: random value in [0, min(MAX_BACKOFF, BASE * 2^(attempt-1))]
         final long cap = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS << (attempt - 1));
-        return (long) (Math.random() * cap);
+        return ThreadLocalRandom.current().nextLong(cap + 1L);
     }
 }
