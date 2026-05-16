@@ -41,12 +41,10 @@ public class IndexService {
     }
 
     public IndexBuilder getIndexBuilder(CustomGptConstants.IndexType indexType) {
-        switch (indexType) {
-            case FILE:
-                return fileIndexBuilder;
-            default:
-                return contentIndexBuilder;
+        if (indexType == CustomGptConstants.IndexType.FILE) {
+            return fileIndexBuilder;
         }
+        return contentIndexBuilder;
     }
 
     public Set<String> getIndexedMainResourceNodeTypes() throws NotConfiguredException {
@@ -73,7 +71,7 @@ public class IndexService {
         return result;
     }
 
-    public JCRNodeWrapper getParentDisplayableNode(JCRNodeWrapper nestedNode, String index) throws NotConfiguredException {
+    public JCRNodeWrapper getParentDisplayableNode(JCRNodeWrapper nestedNode) throws NotConfiguredException {
         return contentIndexBuilder.getMainResourceNode(nestedNode);
     }
 }

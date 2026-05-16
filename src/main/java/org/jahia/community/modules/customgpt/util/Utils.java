@@ -90,43 +90,46 @@ public final class Utils {
      */
     public static JCRNodeWrapper getParentOfType(JCRSessionWrapper session, Config customGptConfig, String path) throws RepositoryException, NotConfiguredException {
         final String[] pathParts = path.split(CustomGptConstants.PATH_DELIMITER);
-        if (pathParts.length > 2) {
-            final String[] parentPathParts = Arrays.copyOf(pathParts, pathParts.length - 1);
-            final String parentPath = String.join(CustomGptConstants.PATH_DELIMITER, parentPathParts);
-            if (session.nodeExists(parentPath)) {
-                final JCRNodeWrapper node = session.getNode(parentPath);
-                for (String type : customGptConfig.getContentIndexedMainResources()) {
-                    if (node.isNodeType(type)) {
-                        return node;
-                    }
-                }
-                for (String type : customGptConfig.getContentIndexedMainResources()) {
-                    final JCRNodeWrapper parentNode = JCRContentUtils.getParentOfType(node, type);
-                    if (parentNode != null) {
-                        return parentNode;
-                    }
-                }
-            } else {
-                return getParentOfType(session, customGptConfig, parentPath);
+        if (pathParts.length <= 2) {
+            return null;
+        }
+        final String[] parentPathParts = Arrays.copyOf(pathParts, pathParts.length - 1);
+        final String parentPath = String.join(CustomGptConstants.PATH_DELIMITER, parentPathParts);
+        if (!session.nodeExists(parentPath)) {
+            return getParentOfType(session, customGptConfig, parentPath);
+        }
+        return findMainResourceAncestor(session.getNode(parentPath), customGptConfig);
+    }
+
+    private static JCRNodeWrapper findMainResourceAncestor(JCRNodeWrapper node, Config customGptConfig) throws RepositoryException, NotConfiguredException {
+        for (String type : customGptConfig.getContentIndexedMainResources()) {
+            if (node.isNodeType(type)) {
+                return node;
+            }
+        }
+        for (String type : customGptConfig.getContentIndexedMainResources()) {
+            final JCRNodeWrapper parentNode = JCRContentUtils.getParentOfType(node, type);
+            if (parentNode != null) {
+                return parentNode;
             }
         }
         return null;
     }
     
-    private static String encodeLink(String URIPath, boolean shouldBeDecodedFirst, RenderContext renderContext, boolean removeContextPath) throws IOException, ServletException, InvocationTargetException, URISyntaxException {
+    private static String encodeLink(String uriPath, boolean shouldBeDecodedFirst, RenderContext renderContext, boolean removeContextPath) throws IOException, ServletException, InvocationTargetException, URISyntaxException {
         final UrlRewriteService urlRewriteService = BundleUtils.getOsgiService(UrlRewriteService.class, null);
-        String encodedURIPath = urlRewriteService.rewriteOutbound(URIPath, renderContext.getRequest(), renderContext.getResponse());
+        String encodedUriPath = urlRewriteService.rewriteOutbound(uriPath, renderContext.getRequest(), renderContext.getResponse());
 
         if (removeContextPath) {
-            encodedURIPath = RegExUtils.replaceFirst(encodedURIPath, renderContext.getRequest().getContextPath(), "");
+            encodedUriPath = RegExUtils.replaceFirst(encodedUriPath, renderContext.getRequest().getContextPath(), "");
         }
 
         if (shouldBeDecodedFirst) {
-            encodedURIPath = URLDecoder.decode(encodedURIPath, StandardCharsets.UTF_8);
+            encodedUriPath = URLDecoder.decode(encodedUriPath, StandardCharsets.UTF_8);
         }
 
-        encodedURIPath = StringEscapeUtils.escapeXml10(encodedURIPath);
-        encodedURIPath = new URI(null, null, encodedURIPath, null).toASCIIString();
-        return encodedURIPath;
+        encodedUriPath = StringEscapeUtils.escapeXml10(encodedUriPath);
+        encodedUriPath = new URI(null, null, encodedUriPath, null).toASCIIString();
+        return encodedUriPath;
     }
 }

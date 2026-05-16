@@ -129,6 +129,7 @@ public class IndexOperations implements Serializable {
     private Set<CustomGptIndexOperation> operations = new LinkedHashSet<>();
 
     public IndexOperations() {
+        // default constructor; operations are added later via addOperation()
     }
 
     public void addOperation(CustomGptIndexOperation operation) {

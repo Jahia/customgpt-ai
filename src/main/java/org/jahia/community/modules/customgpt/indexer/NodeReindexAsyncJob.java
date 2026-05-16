@@ -11,7 +11,6 @@ import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlProjec
 import org.jahia.community.modules.customgpt.indexer.listener.IndexOperations;
 import org.jahia.community.modules.customgpt.indexer.listener.IndexOperations.CustomGptOperationType;
 import org.jahia.community.modules.customgpt.service.Service;
-import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRSessionFactory;
 
@@ -19,10 +18,14 @@ import org.jahia.services.content.JCRSessionFactory;
  * Static helper that triggers an ad-hoc asynchronous re-indexation for a list of specific JCR node paths,
  * bypassing the Quartz scheduler used for full-site jobs.
  */
-public class NodeReindexAsyncJob {
+public final class NodeReindexAsyncJob {
+
+    private NodeReindexAsyncJob() {
+        // Utility class
+    }
 
     public static GqlIndexingJob triggerJob(List<String> nodePaths, boolean inclDescendants)
-            throws NotConfiguredException, RepositoryException {
+            throws RepositoryException {
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
 
         final List<IndexOperations> operations = initIndexOperations();
@@ -38,7 +41,7 @@ public class NodeReindexAsyncJob {
         return new GqlIndexingJob("Node reindex Job", new GqlProjectInfo("ALL"), GqlIndexingJob.JobStatus.STARTED);
     }
 
-    private static List<IndexOperations> initIndexOperations() throws NotConfiguredException {
+    private static List<IndexOperations> initIndexOperations() {
         final List<IndexOperations> indexOps = new ArrayList<>();
         final IndexOperations op = createIndexOperation();
         indexOps.add(op);

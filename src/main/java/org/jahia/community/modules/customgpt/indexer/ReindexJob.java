@@ -28,7 +28,7 @@ public class ReindexJob extends BackgroundJob {
         LOGGER.info("Starting Site {} indexation job in workspace live, injecting operation into CustomGptService", siteKey);
         final JahiaTemplatesPackage module = ServicesRegistry.getInstance().getJahiaTemplateManagerService().getTemplatePackageById(CustomGptConstants.CUSTOM_GPT_MODULE_NAME);
         if (module == null) {
-            LOGGER.error("Cannot find module %s, indexation of {} cancelled", CustomGptConstants.CUSTOM_GPT_MODULE_NAME, siteKey);
+            LOGGER.error("Cannot find module {}, indexation of {} cancelled", CustomGptConstants.CUSTOM_GPT_MODULE_NAME, siteKey);
             return;
         }
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);

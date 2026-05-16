@@ -57,6 +57,10 @@ import org.slf4j.LoggerFactory;
 final class CustomGptIndexerNodeHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CustomGptIndexerNodeHandler.class);
+    private static final String HEADER_ACCEPT = "accept";
+    private static final String HEADER_CONTENT_TYPE = "content-type";
+    private static final String MEDIA_TYPE_JSON = "application/json";
+    private static final String VALUE_FALSE = "false";
 
     private CustomGptIndexerNodeHandler() {
         throw new IllegalStateException("Utility class");
@@ -93,14 +97,14 @@ final class CustomGptIndexerNodeHandler {
                 index(customGptClient, jahiaClient, createCustomGptRequest, customGptIndexer);
             } else if (request instanceof DeleteRequest) {
                 final DeleteRequest deleteCustomGptRequest = ((DeleteRequest) request);
-                LOGGER.info("Deleting: " + deleteCustomGptRequest.getNode().getPath() + " in " + deleteCustomGptRequest.getLanguage());
+                LOGGER.info("Deleting: {} in {}", deleteCustomGptRequest.getNode().getPath(), deleteCustomGptRequest.getLanguage());
             }
         }
         systemSession.refresh(false);
         LOGGER.debug("Ending to handle nodes to reindex");
     }
 
-    private static void delete(OkHttpClient customGptClient, String pageId, Indexer customGptIndexer) throws RepositoryException, IOException {
+    private static void delete(OkHttpClient customGptClient, String pageId, Indexer customGptIndexer) throws IOException {
         String apiBaseUrl = getApiBaseUrl(customGptIndexer);
         deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, apiBaseUrl);
     }
@@ -111,88 +115,110 @@ final class CustomGptIndexerNodeHandler {
         final JCRSiteNode siteNode = nodeToIndex.getResolveSite();
         final String language = createCustomGptRequest.getLanguage();
         final JahiaUser rootUser = JahiaUserManagerService.getInstance().lookupRootUser().getJahiaUser();
-        JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.LIVE_WORKSPACE, language == null ? null : Locale.forLanguageTag(language), new JCRCallback<Object>() {
-            @Override
-            public Object doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                final URL serverUrl;
-                final String hostName = Utils.getHostName(siteNode);
-                if (StringUtils.isEmpty(hostName)) {
-                    LOGGER.warn("The host name can not be extracted from the property sitemapIndexURL");
-                    return null;
-                }
-
-                try {
-                    serverUrl = new URL(hostName);
-                } catch (MalformedURLException e) {
-                    LOGGER.warn("The property sitemapIndexURL does not match an URL pattern, Sitemap generation won't happen");
-                    return null;
-                }
-
-                final HttpServletRequestMock request = new HttpServletRequestMock(new HashMap<>(), serverUrl.getHost(), serverUrl.getPath());
-                final HttpServletResponseMock response = new HttpServletResponseMock(new StringWriter());
-                final RenderContext customRenderContext = new RenderContext(request, response, rootUser);
-                customRenderContext.setSite(siteNode);
-
-                if (session.nodeExists(nodeToIndex.getPath()) && !customGptIndexer.getCustomGptConfig().isDryRun()) {
-                    try {
-                        final JCRNodeWrapper liveNode = session.getNode(nodeToIndex.getPath());
-                        final String nodePath = liveNode.getPath();
-                        final String url = hostName + Utils.encode(liveNode.getUrl(), customRenderContext);
-
-                        final String existingPageId = getExistingPageId(rootUser, nodePath);
-                        if (existingPageId != null) {
-                            LOGGER.info("Removing page with the id {} for the url {}, language {}", existingPageId, url, language);
-                            deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), existingPageId, apiBaseUrl);
-                        }
-
-                        LOGGER.debug("Adding url {}", url);
-                        try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
-                            if (jahiaResponse != null && jahiaResponse.isSuccessful()) {
-                                LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
-                                final String output = jahiaResponse.body().string();
-                                final String title;
-                                if (liveNode.hasProperty(Constants.JCR_TITLE)) {
-                                    title = liveNode.getPropertyAsString(Constants.JCR_TITLE);
-                                } else {
-                                    title = liveNode.getName();
-                                }
-                                LOGGER.debug("Adding page in customGPT for {}", url);
-                                try (Response addDocResponse = addPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), title, output, apiBaseUrl)) {
-                                    if (addDocResponse.isSuccessful()) {
-                                        LOGGER.debug("Adding page in customGPT is successful, retrieving response body");
-                                        final String jsonResponse = addDocResponse.body().string();
-                                        LOGGER.debug("Converting JSON response to JSON object");
-                                        final JSONObject document = new JSONObject(jsonResponse);
-                                        LOGGER.debug("Retrieving CustomGpt page id");
-                                        final String pageId = extractPageId(document);
-                                        LOGGER.debug("Writing page id {} to mapping node for {}, language {}", pageId, nodeToIndex.getPath(), language);
-                                        writeMappingNode(rootUser, nodePath, pageId);
-                                        LOGGER.debug("Updating page metadata in customGPT");
-                                        try (Response metaResponse = updatePageMedata(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, title, url, apiBaseUrl)) {
-                                            if (metaResponse.isSuccessful()) {
-                                                LOGGER.debug("Updating page metadata in customGPT is successful");
-                                            } else {
-                                                throw new IOException("Unexpected code " + metaResponse);
-                                            }
-                                        }
-                                    } else {
-                                        throw new IOException("Impossible to add the page for the URL " + url + ", following response received, " + addDocResponse);
-                                    }
-                                }
-                            } else {
-                                LOGGER.warn("Impossible to retrieve content from {}", url);
-                            }
-                        }
-                    } catch (InterruptedException ex) {
-                        Thread.currentThread().interrupt();
-                        LOGGER.error("Issue:", ex);
-                    } catch (Exception ex) {
-                        LOGGER.error("Issue:", ex);
-                    }
-                }
-                return null;
-            }
+        JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.LIVE_WORKSPACE, language == null ? null : Locale.forLanguageTag(language), session -> {
+            indexInSession(session, customGptClient, jahiaClient, nodeToIndex, siteNode, language, apiBaseUrl, customGptIndexer, rootUser);
+            return null;
         });
+    }
+
+    @SuppressWarnings("java:S107")
+    private static void indexInSession(JCRSessionWrapper session, OkHttpClient customGptClient, OkHttpClient jahiaClient,
+            JCRNodeWrapper nodeToIndex, JCRSiteNode siteNode, String language, String apiBaseUrl,
+            Indexer customGptIndexer, JahiaUser rootUser) throws RepositoryException {
+        final String hostName = Utils.getHostName(siteNode);
+        if (StringUtils.isEmpty(hostName)) {
+            LOGGER.warn("The host name can not be extracted from the property sitemapIndexURL");
+            return;
+        }
+        final URL serverUrl;
+        try {
+            serverUrl = new URL(hostName);
+        } catch (MalformedURLException e) {
+            LOGGER.warn("The property sitemapIndexURL does not match an URL pattern, Sitemap generation won't happen");
+            return;
+        }
+        final RenderContext customRenderContext = buildRenderContext(serverUrl, siteNode, rootUser);
+
+        if (!session.nodeExists(nodeToIndex.getPath()) || customGptIndexer.getCustomGptConfig().isDryRun()) {
+            return;
+        }
+        try {
+            final JCRNodeWrapper liveNode = session.getNode(nodeToIndex.getPath());
+            final String url = hostName + Utils.encode(liveNode.getUrl(), customRenderContext);
+            removeExistingPage(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode.getPath(), url, language);
+            indexJahiaPage(customGptClient, jahiaClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, url, language);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            LOGGER.error("Issue:", ex);
+        } catch (Exception ex) {
+            LOGGER.error("Issue:", ex);
+        }
+    }
+
+    private static RenderContext buildRenderContext(URL serverUrl, JCRSiteNode siteNode, JahiaUser rootUser) {
+        final HttpServletRequestMock request = new HttpServletRequestMock(new HashMap<>(), serverUrl.getHost(), serverUrl.getPath());
+        final HttpServletResponseMock response = new HttpServletResponseMock(new StringWriter());
+        final RenderContext customRenderContext = new RenderContext(request, response, rootUser);
+        customRenderContext.setSite(siteNode);
+        return customRenderContext;
+    }
+
+    private static void removeExistingPage(OkHttpClient customGptClient, Indexer customGptIndexer, String apiBaseUrl,
+            JahiaUser rootUser, String nodePath, String url, String language) throws RepositoryException, IOException {
+        final String existingPageId = getExistingPageId(rootUser, nodePath);
+        if (existingPageId != null) {
+            LOGGER.info("Removing page with the id {} for the url {}, language {}", existingPageId, url, language);
+            deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), existingPageId, apiBaseUrl);
+        }
+    }
+
+    @SuppressWarnings("java:S107")
+    private static void indexJahiaPage(OkHttpClient customGptClient, OkHttpClient jahiaClient, Indexer customGptIndexer,
+            String apiBaseUrl, JahiaUser rootUser, JCRNodeWrapper liveNode, String url, String language)
+            throws RepositoryException, IOException, InterruptedException {
+        LOGGER.debug("Adding url {}", url);
+        try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
+            if (jahiaResponse == null || !jahiaResponse.isSuccessful()) {
+                LOGGER.warn("Impossible to retrieve content from {}", url);
+                return;
+            }
+            LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
+            final String output = jahiaResponse.body().string();
+            final String title = liveNode.hasProperty(Constants.JCR_TITLE)
+                    ? liveNode.getPropertyAsString(Constants.JCR_TITLE)
+                    : liveNode.getName();
+            uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title, output, url, language);
+        }
+    }
+
+    @SuppressWarnings("java:S107")
+    private static void uploadAndUpdateMetadata(OkHttpClient customGptClient, Indexer customGptIndexer, String apiBaseUrl,
+            JahiaUser rootUser, JCRNodeWrapper liveNode, String title, String output, String url, String language)
+            throws IOException, RepositoryException {
+        final String projectId = customGptIndexer.getCustomGptConfig().getCustomGptProjectId();
+        LOGGER.debug("Adding page in customGPT for {}", url);
+        try (Response addDocResponse = addPage(customGptClient, projectId, title, output, apiBaseUrl)) {
+            if (!addDocResponse.isSuccessful()) {
+                throw new IOException("Impossible to add the page for the URL " + url + ", following response received, " + addDocResponse);
+            }
+            LOGGER.debug("Adding page in customGPT is successful, retrieving response body");
+            final JSONObject document = new JSONObject(addDocResponse.body().string());
+            final String pageId = extractPageId(document);
+            LOGGER.debug("Writing page id {} to mapping node for {}, language {}", pageId, liveNode.getPath(), language);
+            writeMappingNode(rootUser, liveNode.getPath(), pageId);
+            updatePageMetadataChecked(customGptClient, projectId, pageId, title, url, apiBaseUrl);
+        }
+    }
+
+    private static void updatePageMetadataChecked(OkHttpClient customGptClient, String projectId, String pageId,
+            String title, String url, String apiBaseUrl) throws IOException {
+        LOGGER.debug("Updating page metadata in customGPT");
+        try (Response metaResponse = updatePageMedata(customGptClient, projectId, pageId, title, url, apiBaseUrl)) {
+            if (!metaResponse.isSuccessful()) {
+                throw new IOException("Unexpected code " + metaResponse);
+            }
+            LOGGER.debug("Updating page metadata in customGPT is successful");
+        }
     }
 
     private static String getExistingPageId(JahiaUser rootUser, String nodePath) throws RepositoryException {
@@ -240,7 +266,7 @@ final class CustomGptIndexerNodeHandler {
         final Request delPageRequest = new Request.Builder()
                 .url(String.format("%s/projects/%s/pages/%s", apiBaseUrl, customGptProject, pageId))
                 .delete()
-                .addHeader("accept", "application/json")
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
                 .build();
         try (Response delPageResponse = customGptClient.newCall(delPageRequest).execute()) {
             return delPageResponse.isSuccessful();
@@ -252,17 +278,17 @@ final class CustomGptIndexerNodeHandler {
         final MediaType mediaType = MediaType.parse("text/html");
         final RequestBody addDocBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file_data_retension", "false")
-                .addFormDataPart("is_ocr_enabled", "false")
-                .addFormDataPart("is_anonymized", "false")
+                .addFormDataPart("file_data_retension", VALUE_FALSE)
+                .addFormDataPart("is_ocr_enabled", VALUE_FALSE)
+                .addFormDataPart("is_anonymized", VALUE_FALSE)
                 .addFormDataPart("file", title,
                         RequestBody.create(output.getBytes(StandardCharsets.UTF_8), mediaType))
                 .build();
         final Request request = new Request.Builder()
                 .url(String.format("%s/projects/%s/sources", apiBaseUrl, customGptProject))
                 .post(addDocBody)
-                .addHeader("accept", "application/json")
-                .addHeader("content-type", "multipart/form-data")
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_CONTENT_TYPE, "multipart/form-data")
                 .build();
         return customGptClient.newCall(request).execute();
     }
@@ -276,8 +302,8 @@ final class CustomGptIndexerNodeHandler {
         final Request request = new Request.Builder()
                 .url(String.format("%s/projects/%s/pages/%s/metadata", apiBaseUrl, customGptProject, pageId))
                 .put(metadataBody)
-                .addHeader("accept", "application/json")
-                .addHeader("content-type", "application/json")
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_CONTENT_TYPE, MEDIA_TYPE_JSON)
                 .build();
         return customGptClient.newCall(request).execute();
     }
@@ -310,7 +336,7 @@ final class CustomGptIndexerNodeHandler {
         Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
                 .get()
-                .addHeader("content-type", "text/html;charset=UTF-8");
+                .addHeader(HEADER_CONTENT_TYPE, "text/html;charset=UTF-8");
 
         if (StringUtils.isNotEmpty(config.getJahiaUsername()) && StringUtils.isNotEmpty(config.getJahiaPassword())) {
             String credential = Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8);

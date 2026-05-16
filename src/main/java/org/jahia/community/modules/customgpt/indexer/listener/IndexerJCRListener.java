@@ -13,7 +13,6 @@ import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.services.content.*;
 import org.jahia.services.content.JCRObservationManager.EventWrapper;
-import org.quartz.SchedulerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,147 +61,152 @@ public class IndexerJCRListener extends DefaultEventListener {
     public void onEvent(EventIterator events) {
         try {
             final IndexOperations customGptIndexOperations = new IndexOperations();
-
             while (events.hasNext()) {
                 final EventWrapper event = (EventWrapper) events.nextEvent();
-                if (!service.acceptablePathToIndex(event.getPath(), null)) {
+                if (!service.acceptablePathToIndex(event.getPath())) {
                     continue;
                 }
-
-                final String path = event.getPath();
-                final String srcPath = (String) event.getInfo().get("srcAbsPath");
-
-                // only need to process the node created event to index it
-                final int type = event.getType();
-                final String nodePath;
-                final boolean isPropertyEvent = (type | PROPERTY_EVENTS) == PROPERTY_EVENTS;
-                if (isPropertyEvent) {
-                    final int endIndex = path.lastIndexOf(CustomGptConstants.PATH_DELIMITER);
-                    nodePath = path.substring(0, endIndex);
-                } else {
-                    nodePath = path;
-                }
-
-                if (event.getPath().endsWith(Constants.JCR_MIXINTYPES) && event.getType() == Event.PROPERTY_CHANGED) {
-                    if (event.getNodeTypes().contains(CustomGptConstants.MIX_SKIP_INDEX)) {
-                        final String identifier = event.getIdentifier();
-                        JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, new JCRCallback<Void>() {
-                            @Override
-                            public Void doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                                try {
-                                    final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(identifier);
-                                    boolean isMainResourceType = false;
-                                    for (String type : customGptConfig.getContentIndexedMainResources()) {
-                                        isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
-                                    }
-                                    if (isMainResourceType) {
-                                        tryQueueMappingRemoval(nodeWrapper, identifier, customGptIndexOperations);
-                                    } // Deletion of the sub-nodes
-                                    else {
-                                        boolean isSubNodeType = false;
-                                        for (String mainResourceType : customGptConfig.getContentIndexedSubNodes()) {
-                                            isSubNodeType = isSubNodeType || nodeWrapper.isNodeType(mainResourceType);
-                                        }
-                                        if (isSubNodeType) {
-                                            processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    LOGGER.warn("Error processing JCR event for skip-index mixin on node {}", identifier, e);
-                                }
-                                return null;
-                            }
-                        });
-                    }
-
-                } else if (event.getPath().startsWith("/trash-")) {
-                    final String identifier = event.getIdentifier();
-                    // srcAbsPath is the original site path before the node was moved to trash
-                    final String originalPath = (String) event.getInfo().get("srcAbsPath");
-
-                    JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, new JCRCallback<Void>() {
-                        @Override
-                        public Void doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                            try {
-                                final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(identifier);
-                                boolean isMainResourceType = false;
-                                for (String type : customGptConfig.getContentIndexedMainResources()) {
-                                    isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(type);
-                                }
-                                if (isMainResourceType) {
-                                    if (originalPath != null) {
-                                        findAndQueueMappingRemoval(originalPath, customGptIndexOperations);
-                                    } else {
-                                        LOGGER.warn("Cannot determine original path for deleted node {}, skipping CustomGPT cleanup", identifier);
-                                    }
-                                } // Deletion of the sub-nodes
-                                else {
-                                    boolean isSubNodeType = false;
-                                    for (String mainResourceType : customGptConfig.getContentIndexedSubNodes()) {
-                                        isSubNodeType = isSubNodeType || nodeWrapper.isNodeType(mainResourceType);
-                                    }
-                                    if (isSubNodeType) {
-                                        processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                LOGGER.warn("Error processing trash JCR event for node {}", identifier, e);
-                            }
-                            return null;
-                        }
-                    });
-
-                } else {
-                    JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, new JCRCallback<Void>() {
-                        @Override
-                        public Void doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                            try {
-                                final String identifier = event.getIdentifier();
-                                final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(identifier);
-                                boolean isMainResourceType = false;
-                                final Set<String> mainResourceTypes = customGptConfig.getContentIndexedMainResources();
-                                for (String mainResourceType : mainResourceTypes) {
-                                    isMainResourceType = isMainResourceType || nodeWrapper.isNodeType(mainResourceType);
-                                }
-                                if (isMainResourceType) {
-                                    processEvent(event, nodePath, customGptIndexOperations);
-                                } else {
-                                    boolean isSubNodeType = false;
-                                    for (String subNodeType : customGptConfig.getContentIndexedSubNodes()) {
-                                        isSubNodeType = isSubNodeType || nodeWrapper.isNodeType(subNodeType);
-                                    }
-                                    if (isSubNodeType) {
-                                        for (String mainResourceType : mainResourceTypes) {
-                                            final JCRNodeWrapper parentMainResource = JCRContentUtils.getParentOfType(nodeWrapper, mainResourceType);
-                                            if (parentMainResource != null) {
-                                                processEvent(event, parentMainResource.getPath(), customGptIndexOperations);
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (Exception e) {
-                                LOGGER.error("Error processing events in the customGpt listener", e);
-                            }
-                            return null;
-                        }
-                    });
-                }
+                handleSingleEvent(event, customGptIndexOperations);
             }
-
             if (!customGptIndexOperations.getOperations().isEmpty()) {
                 LOGGER.debug("Triggering {} index operation(s)", customGptIndexOperations.getOperations().size());
                 service.produceAsynchronousOperations(customGptIndexOperations);
             }
-        } catch (RepositoryException | NotConfiguredException ex) {
+        } catch (RepositoryException ex) {
             LOGGER.error("Error processing events in the customGpt listener", ex);
         }
     }
 
+    private void handleSingleEvent(EventWrapper event, IndexOperations customGptIndexOperations) throws RepositoryException {
+        final String path = event.getPath();
+        final String nodePath = computeNodePath(path, event.getType());
+
+        if (isSkipIndexMixinChange(event)) {
+            handleSkipIndexMixinEvent(event, nodePath, customGptIndexOperations);
+        } else if (event.getPath().startsWith("/trash-")) {
+            handleTrashEvent(event, nodePath, customGptIndexOperations);
+        } else {
+            handleRegularEvent(event, nodePath, customGptIndexOperations);
+        }
+    }
+
+    private static String computeNodePath(String path, int type) {
+        final boolean isPropertyEvent = (type | PROPERTY_EVENTS) == PROPERTY_EVENTS;
+        if (isPropertyEvent) {
+            final int endIndex = path.lastIndexOf(CustomGptConstants.PATH_DELIMITER);
+            return path.substring(0, endIndex);
+        }
+        return path;
+    }
+
+    private static boolean isSkipIndexMixinChange(EventWrapper event) throws RepositoryException {
+        return event.getPath().endsWith(Constants.JCR_MIXINTYPES)
+                && event.getType() == Event.PROPERTY_CHANGED
+                && event.getNodeTypes().contains(CustomGptConstants.MIX_SKIP_INDEX);
+    }
+
+    private void handleSkipIndexMixinEvent(EventWrapper event, String nodePath, IndexOperations customGptIndexOperations) throws RepositoryException {
+        final String identifier = event.getIdentifier();
+        try {
+            JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, session -> {
+                try {
+                    final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(identifier);
+                    if (isMainResourceType(nodeWrapper)) {
+                        tryQueueMappingRemoval(nodeWrapper, identifier, customGptIndexOperations);
+                    } else if (isSubNodeType(nodeWrapper)) {
+                        processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Error processing JCR event for skip-index mixin on node {}", identifier, e);
+                }
+                return null;
+            });
+        } catch (RepositoryException e) {
+            LOGGER.warn("Error executing session for skip-index mixin on node {}", identifier, e);
+        }
+    }
+
+    private void handleTrashEvent(EventWrapper event, String nodePath, IndexOperations customGptIndexOperations) throws RepositoryException {
+        final String identifier = event.getIdentifier();
+        // srcAbsPath is the original site path before the node was moved to trash
+        final String originalPath = (String) event.getInfo().get("srcAbsPath");
+        try {
+            JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, session -> {
+                try {
+                    final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(identifier);
+                    if (isMainResourceType(nodeWrapper)) {
+                        if (originalPath != null) {
+                            findAndQueueMappingRemoval(originalPath, customGptIndexOperations);
+                        } else {
+                            LOGGER.warn("Cannot determine original path for deleted node {}, skipping CustomGPT cleanup", identifier);
+                        }
+                    } else if (isSubNodeType(nodeWrapper)) {
+                        processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Error processing trash JCR event for node {}", identifier, e);
+                }
+                return null;
+            });
+        } catch (RepositoryException e) {
+            LOGGER.warn("Error executing session for trash event on node {}", identifier, e);
+        }
+    }
+
+    private void handleRegularEvent(EventWrapper event, String nodePath, IndexOperations customGptIndexOperations) throws RepositoryException {
+        try {
+            JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.LIVE_WORKSPACE, null, session -> {
+                try {
+                    final JCRNodeWrapper nodeWrapper = session.getNodeByIdentifier(event.getIdentifier());
+                    final Set<String> mainResourceTypes = customGptConfig.getContentIndexedMainResources();
+                    if (isNodeOfAnyType(nodeWrapper, mainResourceTypes)) {
+                        processEvent(event, nodePath, customGptIndexOperations);
+                    } else if (isSubNodeType(nodeWrapper)) {
+                        queueIndexationForSubNodeParents(event, nodeWrapper, mainResourceTypes, customGptIndexOperations);
+                    }
+                } catch (Exception e) {
+                    LOGGER.error("Error processing events in the customGpt listener", e);
+                }
+                return null;
+            });
+        } catch (RepositoryException e) {
+            LOGGER.error("Error executing session in customGpt listener", e);
+        }
+    }
+
+    private void queueIndexationForSubNodeParents(EventWrapper event, JCRNodeWrapper nodeWrapper,
+            Set<String> mainResourceTypes, IndexOperations customGptIndexOperations)
+            throws RepositoryException {
+        for (String mainResourceType : mainResourceTypes) {
+            final JCRNodeWrapper parentMainResource = JCRContentUtils.getParentOfType(nodeWrapper, mainResourceType);
+            if (parentMainResource != null) {
+                processEvent(event, parentMainResource.getPath(), customGptIndexOperations);
+            }
+        }
+    }
+
+    private boolean isMainResourceType(JCRNodeWrapper nodeWrapper) throws RepositoryException, NotConfiguredException {
+        return isNodeOfAnyType(nodeWrapper, customGptConfig.getContentIndexedMainResources());
+    }
+
+    private boolean isSubNodeType(JCRNodeWrapper nodeWrapper) throws RepositoryException, NotConfiguredException {
+        return isNodeOfAnyType(nodeWrapper, customGptConfig.getContentIndexedSubNodes());
+    }
+
+    private static boolean isNodeOfAnyType(JCRNodeWrapper nodeWrapper, Set<String> nodeTypes) throws RepositoryException {
+        for (String type : nodeTypes) {
+            if (nodeWrapper.isNodeType(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void processEvent(Event event, String nodePath, IndexOperations customGptIndexOperations)
-            throws RepositoryException, NotConfiguredException, SchedulerException {
+            throws RepositoryException {
         switch (event.getType()) {
             case Event.NODE_REMOVED:
-                final Map info = event.getInfo();
+                final Map<?, ?> info = event.getInfo();
                 final IndexOperations.CustomGptIndexOperation operation = new IndexOperations.CustomGptIndexOperation(IndexOperations.CustomGptOperationType.NODE_REMOVE, nodePath, event.getPath(), event.getIdentifier());
                 if (info.containsKey(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
                     operation.setCustomGptPageId(info.get(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).toString());
@@ -225,7 +229,7 @@ public class IndexerJCRListener extends DefaultEventListener {
         }
     }
 
-    private void addIndexOperation(String nodePath, IndexOperations indexOperations) throws RepositoryException {
+    private void addIndexOperation(String nodePath, IndexOperations indexOperations) {
         indexOperations.addOperation(new IndexOperations.CustomGptIndexOperation(IndexOperations.CustomGptOperationType.NODE_INDEX, nodePath));
     }
 
@@ -239,11 +243,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                         final JCRNodeWrapper mappingNode = editSession.getNode(mappingPath);
                         if (mappingNode.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
                             final String pageId = mappingNode.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
-                            try {
-                                processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, pageId), null, operations);
-                            } catch (NotConfiguredException | SchedulerException e) {
-                                LOGGER.error("Error queuing CustomGPT removal for mapping node {}", mappingPath, e);
-                            }
+                            processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, pageId), null, operations);
                         }
                         mappingNode.remove();
                         editSession.save();

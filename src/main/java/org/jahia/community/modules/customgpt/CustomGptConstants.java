@@ -34,6 +34,7 @@ public class CustomGptConstants {
     public static final String MIX_INDEXABLE_SITE = "jmix:customGptIndexableSite";
     public static final String MIX_SKIP_INDEX = "jmix:skipCustomGptIndexation";
     public static final String MIX_CUSTOM_GPT_INDEXABLE = "jmix:customGptIndexable";
+    @SuppressWarnings("java:S1075")
     public static final String PATH_SITES = "/sites/";
     public static final String PROP_CUSTOM_GPT_PAGE_ID = "customGptPageId";
     public static final String PROP_SITE_KEY = "siteKey";

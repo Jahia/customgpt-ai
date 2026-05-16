@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Locale;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.Cookie;
@@ -29,12 +30,12 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public Collection<String> getHeaders(String s) {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override
     public Collection<String> getHeaderNames() {
-        return null;
+        return Collections.emptyList();
     }
 
     public HttpServletResponseMock(StringWriter out) {
@@ -43,7 +44,7 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void addCookie(Cookie cookie) {
-
+        // no-op for test mock
     }
 
     @Override
@@ -73,57 +74,57 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void sendError(int sc, String msg) throws IOException {
-
+        // no-op for test mock
     }
 
     @Override
     public void sendError(int sc) throws IOException {
-
+        // no-op for test mock
     }
 
     @Override
     public void sendRedirect(String location) throws IOException {
-
+        // no-op for test mock
     }
 
     @Override
     public void setDateHeader(String name, long date) {
-
+        // no-op for test mock
     }
 
     @Override
     public void addDateHeader(String name, long date) {
-
+        // no-op for test mock
     }
 
     @Override
     public void setHeader(String name, String value) {
-
+        // no-op for test mock
     }
 
     @Override
     public void addHeader(String name, String value) {
-
+        // no-op for test mock
     }
 
     @Override
     public void setIntHeader(String name, int value) {
-
+        // no-op for test mock
     }
 
     @Override
     public void addIntHeader(String name, int value) {
-
+        // no-op for test mock
     }
 
     @Override
     public void setStatus(int sc) {
-
+        // no-op for test mock
     }
 
     @Override
     public void setStatus(int sc, String sm) {
-
+        // no-op for test mock
     }
 
     @Override
@@ -133,7 +134,7 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void setCharacterEncoding(String charset) {
-
+        // no-op for test mock
     }
 
     @Override
@@ -143,7 +144,7 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void setContentType(String type) {
-
+        // no-op for test mock
     }
 
     @Override
@@ -158,7 +159,7 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void setContentLength(int len) {
-
+        // no-op for test mock
     }
 
     @Override
@@ -168,17 +169,17 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void setBufferSize(int size) {
-
+        // no-op for test mock
     }
 
     @Override
     public void flushBuffer() throws IOException {
-
+        // no-op for test mock
     }
 
     @Override
     public void resetBuffer() {
-
+        // no-op for test mock
     }
 
     @Override
@@ -188,7 +189,7 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void reset() {
-
+        // no-op for test mock
     }
 
     @Override
@@ -198,7 +199,7 @@ public class HttpServletResponseMock implements HttpServletResponse {
 
     @Override
     public void setLocale(Locale loc) {
-
+        // no-op for test mock
     }
 
     @Override

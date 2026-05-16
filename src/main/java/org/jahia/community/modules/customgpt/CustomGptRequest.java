@@ -5,7 +5,7 @@ import java.util.Locale;
 /**
  * Marker interface for a pending CustomGPT operation (index or delete) targeting a single JCR node / language pair.
  */
-public interface CustomGptRequest<T> {
+public interface CustomGptRequest {
 
     enum RequestType {
         INDEX(0),
@@ -27,6 +27,6 @@ public interface CustomGptRequest<T> {
         }
     }
 
-   public RequestType requestType();
+    RequestType requestType();
 
 }

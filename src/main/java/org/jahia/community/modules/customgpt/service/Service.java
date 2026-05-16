@@ -45,7 +45,6 @@ import org.jahia.services.query.QueryWrapper;
 import org.jahia.services.scheduler.BackgroundJob;
 import org.jahia.services.scheduler.SchedulerService;
 import org.jahia.services.usermanager.JahiaUser;
-import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.cm.ConfigurationAdmin;
@@ -79,9 +78,7 @@ public class Service implements EventHandler {
     private static final String REGISTER_EVENT = "org/jahia/modules/sam/TaskRegistryService/REGISTER";
     private static final String REMOVED_FROM_REGISTRY = "Task {} {} is removed from registry";
     private static final String UNREGISTER_EVENT = "org/jahia/modules/sam/TaskRegistryService/UNREGISTER";
-    private static final String INDEXATION_FAILED_DUE_TO_ABSENT_CONNECTION = "Indexation failed due to absent connection: {}";
     private static final String INDEXATION_FAILED_DUE_TO_CONFIGURATION_ISSUES = "Indexation failed due to configuration issues: {}";
-    private static final String INDEXATION_FAILED_DUE_TO_THREAD_INTERRUPTION = "Indexation failed due to thread interruption: {}";
     private static final String PROP_INDEXATION_END = "customGptIndexationEnd";
     private static final String PROP_INDEXATION_SCHEDULED = "customGptIndexationScheduled";
     private static final String PROP_INDEXATION_START = "customGptIndexationStart";
@@ -108,14 +105,11 @@ public class Service implements EventHandler {
     private OkHttpClient customGptClient;
     private OkHttpClient jahiaClient;
     
-    private enum Alias {
-        READ, WRITE
-    }
-    
     @Activate
     public void activate(BundleContext bundleContext) {
         this.bundleContext = bundleContext;
-        final Dictionary topics = new Hashtable();
+        @SuppressWarnings("java:S1149")
+        final Dictionary<String, Object> topics = new Hashtable<>();
         topics.put(EventConstants.EVENT_TOPIC, new String[]{CustomGptConstants.EVENT_TOPIC});
         bundleContext.registerService(EventHandler.class.getName(), this, topics);
         start();
@@ -153,9 +147,8 @@ public class Service implements EventHandler {
         ((ContentIndexBuilder) this.indexService.getIndexBuilder(CustomGptConstants.IndexType.CONTENT)).setCustomGptService(this);
     }
     
-    private Indexer createIndexer() throws RepositoryException {
-        final Indexer customGptIndexer = new Indexer(this, customGptConfig);
-        return customGptIndexer;
+    private Indexer createIndexer() {
+        return new Indexer(this, customGptConfig);
     }
     
     public Set<String> getNodePathsToIndex(JCRNodeWrapper node) throws RepositoryException, NotConfiguredException {
@@ -167,8 +160,8 @@ public class Service implements EventHandler {
         indexService.addIndexRequests(node, language, requests);
     }
     
-    public JCRNodeWrapper getParentDisplayableNode(JCRNodeWrapper nestedNode, String index) throws NotConfiguredException {
-        return indexService.getParentDisplayableNode(nestedNode, index);
+    public JCRNodeWrapper getParentDisplayableNode(JCRNodeWrapper nestedNode) throws NotConfiguredException {
+        return indexService.getParentDisplayableNode(nestedNode);
     }
     
     public Set<String> getIndexedMainResourceNodeTypes() throws NotConfiguredException {
@@ -213,32 +206,42 @@ public class Service implements EventHandler {
     private void updateIndexationProperties(JCRNodeWrapper jcrNodeWrapper, Calendar scheduled, boolean force) throws RepositoryException {
         final boolean hasIndexationStart = jcrNodeWrapper.hasProperty(PROP_INDEXATION_START);
         final boolean hasIndexationEnd = jcrNodeWrapper.hasProperty(PROP_INDEXATION_END);
-        
+
         if (!hasIndexationStart && !hasIndexationEnd) {
             jcrNodeWrapper.setProperty(Service.PROP_INDEXATION_SCHEDULED, scheduled);
-        } else {
-            final Calendar indexationStartLastRun = hasIndexationStart
-                    ? jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_START).getDate() : null;
-            if (!jcrNodeWrapper.hasProperty(Service.PROP_INDEXATION_SCHEDULED)) {
-                jcrNodeWrapper.setProperty(Service.PROP_INDEXATION_SCHEDULED, scheduled);
-            }
-            final Calendar indexationScheduledLastRun = jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_SCHEDULED).getDate();
-            if (force || !hasIndexationStart || (indexationScheduledLastRun.before(indexationStartLastRun) && scheduled.after(indexationStartLastRun))) {
-                
-                final Calendar indexationEndLastRun = hasIndexationEnd
-                        ? jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_END).getDate() : null;
-                if (force) {
-                    if (hasIndexationStart) {
-                        jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_START).remove();
-                    }
-                    if (hasIndexationEnd) {
-                        jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_END).remove();
-                    }
-                }
-                if (force || !hasIndexationStart || (indexationEndLastRun != null && scheduled.after(indexationEndLastRun) && indexationEndLastRun.after(indexationStartLastRun))) {
-                    jcrNodeWrapper.setProperty(Service.PROP_INDEXATION_SCHEDULED, scheduled);
-                }
-            }
+            return;
+        }
+        final Calendar indexationStartLastRun = hasIndexationStart
+                ? jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_START).getDate() : null;
+        if (!jcrNodeWrapper.hasProperty(Service.PROP_INDEXATION_SCHEDULED)) {
+            jcrNodeWrapper.setProperty(Service.PROP_INDEXATION_SCHEDULED, scheduled);
+        }
+        final Calendar indexationScheduledLastRun = jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_SCHEDULED).getDate();
+        if (!shouldUpdateScheduled(force, hasIndexationStart, indexationScheduledLastRun, indexationStartLastRun, scheduled)) {
+            return;
+        }
+        final Calendar indexationEndLastRun = hasIndexationEnd
+                ? jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_END).getDate() : null;
+        if (force) {
+            clearForcedTimestamps(jcrNodeWrapper, hasIndexationStart, hasIndexationEnd);
+        }
+        if (force || !hasIndexationStart || (indexationEndLastRun != null && scheduled.after(indexationEndLastRun) && indexationEndLastRun.after(indexationStartLastRun))) {
+            jcrNodeWrapper.setProperty(Service.PROP_INDEXATION_SCHEDULED, scheduled);
+        }
+    }
+
+    private static boolean shouldUpdateScheduled(boolean force, boolean hasIndexationStart,
+            Calendar indexationScheduledLastRun, Calendar indexationStartLastRun, Calendar scheduled) {
+        return force || !hasIndexationStart
+                || (indexationScheduledLastRun.before(indexationStartLastRun) && scheduled.after(indexationStartLastRun));
+    }
+
+    private static void clearForcedTimestamps(JCRNodeWrapper jcrNodeWrapper, boolean hasIndexationStart, boolean hasIndexationEnd) throws RepositoryException {
+        if (hasIndexationStart) {
+            jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_START).remove();
+        }
+        if (hasIndexationEnd) {
+            jcrNodeWrapper.getProperty(Service.PROP_INDEXATION_END).remove();
         }
     }
     
@@ -257,28 +260,10 @@ public class Service implements EventHandler {
         return trigger;
     }
     
-    public void reIndexUsingJob() throws SchedulerException, RepositoryException {
+    public void reIndexUsingJob() {
         for (String site : getIndexedSites().keySet()) {
             reIndexUsingJob(site);
         }
-    }
-    
-    private Set<String> getSitePathsToIndex() {
-        final Collection<Site> siteNodes = getIndexedSites().values();
-        final Set<String> sitePathsToBeIndexed = new HashSet<>();
-        if (!siteNodes.isEmpty()) {
-            
-            for (Site site : siteNodes) {
-                if (site.getIndexationScheduled() != null
-                        && ((site.getIndexationEnd() == null && site.getIndexationStart() == null)
-                        || (site.getIndexationScheduled().after(site.getIndexationStart())
-                        && site.getIndexationScheduled().after(site.getIndexationEnd())
-                        && site.getIndexationStart().before(site.getIndexationEnd())))) {
-                    sitePathsToBeIndexed.add(site.getPath());
-                }
-            }
-        }
-        return sitePathsToBeIndexed;
     }
     
     public void produceAsynchronousFullIndexation(IndexOperations operations) {
@@ -286,9 +271,6 @@ public class Service implements EventHandler {
         CompletableFuture.runAsync(() -> {
             try {
                 performIndexation(operations);
-            } catch (InterruptedException e) {
-                LOGGER.error(INDEXATION_FAILED_DUE_TO_THREAD_INTERRUPTION, e.getMessage());
-                Thread.currentThread().interrupt();
             } catch (Exception e) {
                 LOGGER.error("Indexation failed due to: {}", e.getMessage(), e);
             }
@@ -320,7 +302,7 @@ public class Service implements EventHandler {
     private ExecutorService executorFullIndexation = Executors.newFixedThreadPool(1);
     private ExecutorService executorNThreads = Executors.newFixedThreadPool(N_THREADS);
     
-    public void produceAsynchronousOperations(IndexOperations... operations) throws NotConfiguredException {
+    public void produceAsynchronousOperations(IndexOperations... operations) {
         restartExecutor();
         final CompletableFuture<Void>[] completableFuture = new CompletableFuture[operations.length];
         int i = 0;
@@ -330,7 +312,7 @@ public class Service implements EventHandler {
         CompletableFuture.allOf(completableFuture);
     }
     
-    public void produceSiteAsynchronousIndexations(String sitePath, IndexOperations... operations) throws NotConfiguredException {
+    public void produceSiteAsynchronousIndexations(String sitePath, IndexOperations... operations) {
         CompletableFuture<Void>[] completableFuture = new CompletableFuture[operations.length];
         int i = 0;
         restartExecutorNThreads();
@@ -355,9 +337,6 @@ public class Service implements EventHandler {
         return () -> {
             try {
                 performIndexation(operations);
-            } catch (InterruptedException e) {
-                LOGGER.error(INDEXATION_FAILED_DUE_TO_THREAD_INTERRUPTION, e.getMessage());
-                Thread.currentThread().interrupt();
             } catch (Exception e) {
                 LOGGER.error("Indexation failed due to: {}", e.getMessage(), e);
             }
@@ -366,7 +345,7 @@ public class Service implements EventHandler {
     }
     
     private void performIndexation(IndexOperations operations)
-            throws RepositoryException, NotConfiguredException, InterruptedException, IOException {
+            throws RepositoryException, IOException {
         if (operations == null || operations.isEmpty()) {
             // No operations to queueRequests
             LOGGER.error("Operations is empty, exiting performIndexation");
@@ -377,77 +356,103 @@ public class Service implements EventHandler {
     }
     
     private void indexAllOperations(IndexOperations operations)
-            throws RepositoryException, NotConfiguredException, InterruptedException, IOException {
+            throws RepositoryException, IOException {
         Indexer customGptIndexer = null;
         try {
-            final Collection<Site> indexedSites = getIndexedSites(getSystemSession(JahiaUserManagerService.getInstance().lookupRootUser().getJahiaUser(), null, null)).values();
             for (IndexOperations.CustomGptIndexOperation indexOperation : operations.getOperations()) {
                 // Check that the path for the operation require indexation to avoid unwanted indexation
-                customGptIndexer = indexOperation(operations, customGptIndexer, indexOperation, indexedSites);
+                customGptIndexer = indexOperation(operations, customGptIndexer, indexOperation);
             }
-            
+
             if (customGptIndexer != null) {
                 customGptIndexer.queueRequests(customGptClient, jahiaClient);
             }
         } catch (NotConfiguredException e) {
             LOGGER.error(INDEXATION_FAILED_DUE_TO_CONFIGURATION_ISSUES, e.getMessage(), e);
         }
-        
+
     }
 
-    // Complexity 11 instead of needed 10
     private Indexer indexOperation(IndexOperations operations, Indexer customGptIndexer,
-            IndexOperations.CustomGptIndexOperation customGptIndexOperation, Collection<Site> indexedSites)
+            IndexOperations.CustomGptIndexOperation customGptIndexOperation)
             throws RepositoryException, NotConfiguredException {
         try {
-            final CustomGptOperationType opType = customGptIndexOperation.getType();
-            switch (opType) {
-                case NODE_INDEX:
-                    customGptIndexer = initIndexer(customGptIndexer);
-                    if (acceptablePathToIndex(customGptIndexOperation.getNodePath(), indexedSites)) {
-                        indexNode(customGptIndexer, customGptIndexOperation);
-                    }
-                    break;
-                case NODE_REMOVE:
-                    customGptIndexer = initIndexer(customGptIndexer);
-                    // we don't care of node remove under non indexed sites, since it's used by the RemoveSiteJob.
-                    customGptIndexer.addNodeToDelete(customGptIndexOperation.getCustomGptPageId(), customGptIndexOperation.getNodePath());
-                    break;
-                case NODE_MOVE:
-                    customGptIndexer = initIndexer(customGptIndexer);
-                    if (acceptablePathToIndex(customGptIndexOperation.getNodePath(), indexedSites)) {
-                        customGptIndexer.addNodePathToMove(customGptIndexOperation.getSourcePath(), customGptIndexOperation.getNodePath());
-                    }
-                    break;
-                case SITE_INDEX:
-                    preIndexOperationHandler(operations);
-                    customGptIndexer = initIndexer(customGptIndexer);
-                    if (acceptablePathToIndex(customGptIndexOperation.getNodePath(), indexedSites)) {
-                        customGptIndexer.addSiteToIndex(customGptClient, jahiaClient, customGptIndexOperation.getNodePath());
-                    }
-                    postIndexOperationHandler(operations);
-                    break;
-                case TREE_INDEX: // re-index descendant nodes
-                    LOGGER.info("Received a sub nodes index operation for following node {} in workspace live", customGptIndexOperation.getNodePath());
-                    customGptIndexer = initIndexer(customGptIndexer);
-                    final String path = customGptIndexOperation.getNodePath();
-                    if (acceptablePathToIndex(path, indexedSites)) {
-                        final JCRNodeWrapper node = customGptIndexer.getSystemSession().getNode(path);
-                        indexNode(customGptIndexer, customGptIndexOperation);
-                        customGptIndexer.addNodesToIndex(customGptClient, jahiaClient, node);
-                    }
-                    break;
-                default:
-                    break;
-            }
+            customGptIndexer = dispatchOperation(operations, customGptIndexer, customGptIndexOperation);
         } catch (PathNotFoundException e) {
             // Skip the operation as its node no longer exists
             LOGGER.info("Did not find indexation path: {}", e.getMessage());
         }
         return customGptIndexer;
     }
+
+    private Indexer dispatchOperation(IndexOperations operations, Indexer customGptIndexer,
+            IndexOperations.CustomGptIndexOperation customGptIndexOperation)
+            throws RepositoryException, NotConfiguredException {
+        final CustomGptOperationType opType = customGptIndexOperation.getType();
+        switch (opType) {
+            case NODE_INDEX:
+                return handleNodeIndex(customGptIndexer, customGptIndexOperation);
+            case NODE_REMOVE:
+                return handleNodeRemove(customGptIndexer, customGptIndexOperation);
+            case NODE_MOVE:
+                return handleNodeMove(customGptIndexer, customGptIndexOperation);
+            case SITE_INDEX:
+                return handleSiteIndex(operations, customGptIndexer, customGptIndexOperation);
+            case TREE_INDEX:
+                return handleTreeIndex(customGptIndexer, customGptIndexOperation);
+            default:
+                return customGptIndexer;
+        }
+    }
+
+    private Indexer handleNodeIndex(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation op) throws NotConfiguredException {
+        customGptIndexer = initIndexer(customGptIndexer);
+        if (acceptablePathToIndex(op.getNodePath())) {
+            indexNode(customGptIndexer, op);
+        }
+        return customGptIndexer;
+    }
+
+    private Indexer handleNodeRemove(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation op) {
+        customGptIndexer = initIndexer(customGptIndexer);
+        // we don't care of node remove under non indexed sites, since it's used by the RemoveSiteJob.
+        customGptIndexer.addNodeToDelete(op.getCustomGptPageId(), op.getNodePath());
+        return customGptIndexer;
+    }
+
+    private Indexer handleNodeMove(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation op) {
+        customGptIndexer = initIndexer(customGptIndexer);
+        if (acceptablePathToIndex(op.getNodePath())) {
+            customGptIndexer.addNodePathToMove(op.getSourcePath(), op.getNodePath());
+        }
+        return customGptIndexer;
+    }
+
+    private Indexer handleSiteIndex(IndexOperations operations, Indexer customGptIndexer,
+            IndexOperations.CustomGptIndexOperation op) throws RepositoryException, NotConfiguredException {
+        preIndexOperationHandler(operations);
+        customGptIndexer = initIndexer(customGptIndexer);
+        if (acceptablePathToIndex(op.getNodePath())) {
+            customGptIndexer.addSiteToIndex(customGptClient, jahiaClient, op.getNodePath());
+        }
+        postIndexOperationHandler(operations);
+        return customGptIndexer;
+    }
+
+    private Indexer handleTreeIndex(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation op)
+            throws RepositoryException, NotConfiguredException {
+        LOGGER.info("Received a sub nodes index operation for following node {} in workspace live", op.getNodePath());
+        customGptIndexer = initIndexer(customGptIndexer);
+        final String path = op.getNodePath();
+        if (acceptablePathToIndex(path)) {
+            final JCRNodeWrapper node = customGptIndexer.getSystemSession().getNode(path);
+            indexNode(customGptIndexer, op);
+            customGptIndexer.addNodesToIndex(customGptClient, jahiaClient, node);
+        }
+        return customGptIndexer;
+    }
     
-    private void postIndexOperationHandler(IndexOperations operations) throws NotConfiguredException {
+    private void postIndexOperationHandler(IndexOperations operations) {
         final Map<String, Site> indexedSites = getIndexedSites();
         for (IndexOperations.CustomGptIndexOperation indexOperation : operations.getOperations()) {
             if (indexOperation.getType().equals(CustomGptOperationType.SITE_INDEX)) {
@@ -470,7 +475,7 @@ public class Service implements EventHandler {
         }
     }
     
-    private void preIndexOperationHandler(IndexOperations operations) throws NotConfiguredException {
+    private void preIndexOperationHandler(IndexOperations operations) {
         final Map<String, Site> indexedSites = getIndexedSites();
         for (IndexOperations.CustomGptIndexOperation indexOperation : operations.getOperations()) {
             if (indexOperation.getType().equals(CustomGptOperationType.SITE_INDEX)) {
@@ -498,9 +503,9 @@ public class Service implements EventHandler {
         customGptIndexer.addNodePathToIndex(indexOperation.getNodePath());
     }
     
-    private Indexer initIndexer(Indexer customGptIndexer) throws RepositoryException {
+    private Indexer initIndexer(Indexer customGptIndexer) {
         if (customGptIndexer == null) {
-            customGptIndexer = createIndexer();
+            return createIndexer();
         }
         return customGptIndexer;
     }
@@ -686,12 +691,8 @@ public class Service implements EventHandler {
                 && customGptConfig.isConfigured()) {
             init();
             if (CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type)) {
-                try {
-                    reIndexUsingJob();
-                    resetScheduleJobASAP();
-                } catch (SchedulerException | RepositoryException e) {
-                    LOGGER.error("Failed to schedule re-indexation after config update", e);
-                }
+                reIndexUsingJob();
+                resetScheduleJobASAP();
             }
         }
     }
@@ -755,30 +756,37 @@ public class Service implements EventHandler {
                     "SELECT * FROM [" + CustomGptConstants.MIX_INDEXABLE_SITE + "] AS site WHERE ISCHILDNODE(site, '" + CustomGptConstants.PATH_SITES + "') ORDER BY localname()",
                     Query.JCR_SQL2);
             for (JCRNodeWrapper jcrNodeWrapper : query.execute().getNodes()) {
-                final Site site = new Site(jcrNodeWrapper.getName(), jcrNodeWrapper.getPath());
-                if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_START)) {
-                    site.setIndexationStart(jcrNodeWrapper.getProperty(PROP_INDEXATION_START).getDate());
-                }
-                
-                if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_END)) {
-                    site.setIndexationEnd(jcrNodeWrapper.getProperty(PROP_INDEXATION_END).getDate());
-                }
-                
-                if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_SCHEDULED)) {
-                    site.setIndexationScheduled(jcrNodeWrapper.getProperty(PROP_INDEXATION_SCHEDULED).getDate());
-                }
+                final Site site = buildSite(jcrNodeWrapper);
                 sites.put(site.getSiteKey(), site);
             }
-            if (LOGGER.isDebugEnabled()) {
-                sites.forEach((s, site) -> LOGGER.debug("Site {}, has props: start {}, end {}, scheduled {}", s,
-                        site.getIndexationStart() != null ? site.getIndexationStart().toInstant() : UNSET,
-                        site.getIndexationEnd() != null ? site.getIndexationEnd().toInstant() : UNSET,
-                        site.getIndexationScheduled() != null ? site.getIndexationScheduled().toInstant() : UNSET));
-            }
+            logSites(sites);
             return sites;
         } catch (RepositoryException e) {
             LOGGER.warn("Issue while fetching list of sites for CustomGpt", e);
             return Collections.emptyMap();
+        }
+    }
+
+    private static Site buildSite(JCRNodeWrapper jcrNodeWrapper) throws RepositoryException {
+        final Site site = new Site(jcrNodeWrapper.getName(), jcrNodeWrapper.getPath());
+        if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_START)) {
+            site.setIndexationStart(jcrNodeWrapper.getProperty(PROP_INDEXATION_START).getDate());
+        }
+        if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_END)) {
+            site.setIndexationEnd(jcrNodeWrapper.getProperty(PROP_INDEXATION_END).getDate());
+        }
+        if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_SCHEDULED)) {
+            site.setIndexationScheduled(jcrNodeWrapper.getProperty(PROP_INDEXATION_SCHEDULED).getDate());
+        }
+        return site;
+    }
+
+    private static void logSites(Map<String, Site> sites) {
+        if (LOGGER.isDebugEnabled()) {
+            sites.forEach((s, site) -> LOGGER.debug("Site {}, has props: start {}, end {}, scheduled {}", s,
+                    site.getIndexationStart() != null ? site.getIndexationStart().toInstant() : UNSET,
+                    site.getIndexationEnd() != null ? site.getIndexationEnd().toInstant() : UNSET,
+                    site.getIndexationScheduled() != null ? site.getIndexationScheduled().toInstant() : UNSET));
         }
     }
     
@@ -787,7 +795,7 @@ public class Service implements EventHandler {
      * {@code /trash-}, and must not end with the internal {@code customGptPageId} or {@code jcr:lastModified}
      * property names (which would indicate a property-path rather than a node-path).
      */
-    public boolean acceptablePathToIndex(String path, Collection<Site> indexedSites) {
+    public boolean acceptablePathToIndex(String path) {
         return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_LASTMODIFIED));
     }
     

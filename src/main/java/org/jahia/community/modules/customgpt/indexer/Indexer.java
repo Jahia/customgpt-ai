@@ -59,7 +59,7 @@ public class Indexer {
         this.customGptConfig = customGptConfig;
     }
 
-    public void init() throws RepositoryException {
+    public void init() {
         rootUser = JahiaUserManagerService.getInstance().lookupRootUser().getJahiaUser();
     }
 
@@ -72,9 +72,8 @@ public class Indexer {
     }
 
     public boolean isEmpty() {
-        boolean nodePathsEmpty = nodePathsToRemove.isEmpty() && nodePathsToAddOrReIndex.isEmpty()
+        return nodePathsToRemove.isEmpty() && nodePathsToAddOrReIndex.isEmpty()
                 && nodePathsToMove.isEmpty() && customGptPageToRemove.isEmpty();
-        return nodePathsEmpty;
     }
 
     public Collection<String> getNodePathsToRemove() {
@@ -270,38 +269,48 @@ public class Indexer {
             while (nodeIterator.hasNext()) {
                 final JCRNodeWrapper node = (JCRNodeWrapper) nodeIterator.nextNode();
                 nodeCounter++;
-
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("Checking if path {} should be indexed", node.getPath());
-                }
-
-                for (String indexedMainResourceTypes : nodeTypes) {
-                    if (node.isNodeType(indexedMainResourceTypes)) {
-                        nodePathsToAddOrReIndex.add(node.getPath());
-                        LOGGER.debug("Adding path {} to be indexed", node.getPath());
-                    } else {
-                        final JCRNodeWrapper parentMainResource = JCRContentUtils.getParentOfType(node, indexedMainResourceTypes);
-                        if (parentMainResource != null && !nodePathsToAddOrReIndex.contains(parentMainResource.getPath())) {
-                            nodePathsToAddOrReIndex.add(parentMainResource.getPath());
-                            LOGGER.debug("Adding path {} to be indexed", parentMainResource.getPath());
-                        }
-                    }
-                }
-
-                try {
-                    if ((nodeCounter % customGptConfig.getBulkOperationsBatchSize()) == 0 || !nodeIterator.hasNext()) {
-                        LOGGER.debug("Starting to queue requests");
-                        queueRequests(customGptClient, jahiaClient);
-                        LOGGER.debug("Ending to queue requests");
-                        nodePathsToAddOrReIndex.clear();
-                        LOGGER.debug("Refreshing session internal cache.");
-                        node.getSession().refresh(false);
-                    }
-                } catch (NotConfiguredException | IOException ex) {
-                    throw new JahiaRuntimeException("Error while reindexing content in " + indexedNode.getPath(), ex);
-                }
+                logChecking(node);
+                collectIndexablePaths(node);
+                flushBatchIfNeeded(node, nodeIterator);
             }
             return true;
+        }
+
+        @SuppressWarnings("java:S1130")
+        private void logChecking(JCRNodeWrapper node) throws RepositoryException {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Checking if path {} should be indexed", node.getPath());
+            }
+        }
+
+        private void collectIndexablePaths(JCRNodeWrapper node) throws RepositoryException {
+            for (String indexedMainResourceTypes : nodeTypes) {
+                if (node.isNodeType(indexedMainResourceTypes)) {
+                    nodePathsToAddOrReIndex.add(node.getPath());
+                    LOGGER.debug("Adding path {} to be indexed", node.getPath());
+                } else {
+                    final JCRNodeWrapper parentMainResource = JCRContentUtils.getParentOfType(node, indexedMainResourceTypes);
+                    if (parentMainResource != null && !nodePathsToAddOrReIndex.contains(parentMainResource.getPath())) {
+                        nodePathsToAddOrReIndex.add(parentMainResource.getPath());
+                        LOGGER.debug("Adding path {} to be indexed", parentMainResource.getPath());
+                    }
+                }
+            }
+        }
+
+        private void flushBatchIfNeeded(JCRNodeWrapper node, NodeIterator nodeIterator) throws RepositoryException {
+            try {
+                if ((nodeCounter % customGptConfig.getBulkOperationsBatchSize()) == 0 || !nodeIterator.hasNext()) {
+                    LOGGER.debug("Starting to queue requests");
+                    queueRequests(customGptClient, jahiaClient);
+                    LOGGER.debug("Ending to queue requests");
+                    nodePathsToAddOrReIndex.clear();
+                    LOGGER.debug("Refreshing session internal cache.");
+                    node.getSession().refresh(false);
+                }
+            } catch (NotConfiguredException | IOException ex) {
+                throw new JahiaRuntimeException("Error while reindexing content in " + indexedNode.getPath(), ex);
+            }
         }
 
         @Override

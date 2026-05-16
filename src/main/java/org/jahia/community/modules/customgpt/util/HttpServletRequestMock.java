@@ -156,17 +156,17 @@ public class HttpServletRequestMock implements HttpServletRequest {
 
     @Override
     public void login(String s, String s1) throws ServletException {
-
+        // no-op for test mock
     }
 
     @Override
     public void logout() throws ServletException {
-
+        // no-op for test mock
     }
 
     @Override
     public Collection<Part> getParts() throws IOException, ServletException {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override
@@ -191,7 +191,7 @@ public class HttpServletRequestMock implements HttpServletRequest {
 
     @Override
     public void setCharacterEncoding(String s) throws UnsupportedEncodingException {
-
+        // no-op for test mock
     }
 
     @Override
@@ -226,7 +226,7 @@ public class HttpServletRequestMock implements HttpServletRequest {
 
     @Override
     public Map<String, String[]> getParameterMap() {
-        return null;
+        return Collections.emptyMap();
     }
 
     @Override

@@ -30,10 +30,6 @@ public class Config implements ManagedService {
     private static final String JMIX_MAIN_RESOURCE = "jmix:mainResource";
     private static final int FIVE_HUNDRED = 500;
 
-    private enum WaitStrategyType {
-        FIBONACCI, EXPONENTIAL, FIXED
-    }
-
     private static final String CONFIG_NAMESPACE_PREFIX = "org.jahia.community.modules.customgpt";
     private static final String PROP_CONTENT_INDEXED_SUB_NODE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedSubNodeTypes";
     private static final String PROP_CONTENT_INDEXED_MAIN_RESOURCE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedMainResourceTypes";

@@ -71,7 +71,7 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("force")
             @GraphQLDescription("Force start indexation for when job has already been started")
             @GraphQLDefaultValue(DefaultForce.class) boolean force
-    ) throws Exception {
+    ) throws RepositoryException {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
         } catch (RepositoryException e) {
@@ -100,7 +100,7 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLDescription("List of node paths to index") List<String> nodePaths,
             @GraphQLName("inclDescendants")
             @GraphQLDescription("Re-index descendants (Optional; default=false)") Boolean inclDescendants
-    ) throws Exception {
+    ) throws RepositoryException {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
         } catch (RepositoryException e) {

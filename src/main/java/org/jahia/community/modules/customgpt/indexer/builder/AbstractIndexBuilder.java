@@ -76,7 +76,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
                     indexNode(nodeWrapper, language, requests);
                 }
             }
-        } catch (RepositoryException | NotConfiguredException e) {
+        } catch (NotConfiguredException e) {
             LOGGER.warn("Skipping node {} indexation due to {}", node.getPath(), e.getMessage(), e);
         }
     }
@@ -109,8 +109,7 @@ public abstract class AbstractIndexBuilder implements IndexBuilder {
         return null;
     }
 
-    private void indexNode(JCRNodeWrapper node, String language, Set<CustomGptRequest> requests)
-            throws RepositoryException {
+    private void indexNode(JCRNodeWrapper node, String language, Set<CustomGptRequest> requests) {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug("Generating customGPT request for main resource node: {}, in language {}", node.getPath(), language);
         }
