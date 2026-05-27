@@ -12,6 +12,7 @@ import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSiteLi
 import org.jahia.community.modules.customgpt.service.Service;
 import org.jahia.community.modules.customgpt.service.models.Site;
 import org.jahia.community.modules.customgpt.settings.Config;
+import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRSessionFactory;
@@ -70,11 +71,12 @@ public class AdminQueries {
                     .operationsBatchSize(config.getBulkOperationsBatchSize())
                     .projectId(config.getCustomGptProjectId())
                     .projectName(projectName)
-                    .token(config.getCustomGptToken())
+                    // Secrets are write-only: never echo the stored value back to the client, only whether one is set.
+                    .token(SecurityUtils.maskSecretForDisplay(config.getCustomGptToken()))
                     .jahiaUsername(config.getJahiaUsername())
-                    .jahiaPassword(config.getJahiaPassword())
+                    .jahiaPassword(SecurityUtils.maskSecretForDisplay(config.getJahiaPassword()))
                     .jahiaServerCookieName(config.getJahiaServerCookieName())
-                    .jahiaServerCookieValue(config.getJahiaServerCookieValue())
+                    .jahiaServerCookieValue(SecurityUtils.maskSecretForDisplay(config.getJahiaServerCookieValue()))
                     .jahiaServerCookieDomain(config.getJahiaServerCookieDomain())
                     .dryRun(config.isDryRun())
                     .scheduleJobASAP(config.isScheduleJobASAP())

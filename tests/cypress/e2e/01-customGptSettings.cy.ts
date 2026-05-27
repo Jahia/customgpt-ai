@@ -103,11 +103,14 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.contentIndexedFileExtensions).to.eq('pdf,docx');
                     expect(s.operationsBatchSize).to.eq(100);
                     expect(s.projectId).to.eq(Cypress.env('CUSTOMGPT_PROJECT_ID'));
-                    expect(s.token).to.eq(Cypress.env('CUSTOMGPT_TOKEN'));
+                    // Secrets are write-only: a stored value is masked, never echoed back in cleartext (SECURITY-746).
+                    expect(s.token).to.eq('********');
+                    expect(s.token).to.not.eq(Cypress.env('CUSTOMGPT_TOKEN'));
                     expect(s.jahiaUsername).to.eq('root');
-                    expect(s.jahiaPassword).to.eq(Cypress.env('SUPER_USER_PASSWORD'));
+                    expect(s.jahiaPassword).to.eq('********');
+                    expect(s.jahiaPassword).to.not.eq(Cypress.env('SUPER_USER_PASSWORD'));
                     expect(s.jahiaServerCookieName).to.eq('roundtrip-cookie');
-                    expect(s.jahiaServerCookieValue).to.eq('roundtrip-value');
+                    expect(s.jahiaServerCookieValue).to.eq('********');
                     expect(s.jahiaServerCookieDomain).to.eq('roundtrip.local');
                     expect(s.dryRun).to.eq(false);
                     // scheduleJobASAP is a one-shot trigger: the service resets it to
@@ -141,6 +144,18 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.projectId).to.be.empty;
                     expect(s.token).to.be.empty;
                 });
+        });
+
+        it('rejects a non-https apiBaseUrl (the Bearer token must never travel over cleartext)', () => {
+            // GraphQL errors are caught and yielded by cy.apollo instead of failing the test.
+            cy.apollo({
+                mutation: saveSettings,
+                variables: {apiBaseUrl: 'http://insecure.example.com/api'}
+            }).should(result => {
+                const graphQLErrors = (result && result.graphQLErrors) || [];
+                const errors = (result && result.errors) || [];
+                expect(graphQLErrors.length + errors.length, JSON.stringify(result)).to.be.greaterThan(0);
+            });
         });
     });
 

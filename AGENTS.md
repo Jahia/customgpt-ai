@@ -266,3 +266,15 @@ Tests use `cy.apollo(...)` for GraphQL calls. GraphQL fixture files are in `test
 6. **Base URL trailing slash** — always strip before appending path segments to avoid double slashes.
 7. **`rateLimit.requestsPerSecond` requires restart** — `RateLimitInterceptor` is instantiated once during `init()` with the config value at that moment. Updating the OSGi config at runtime does not rebuild the interceptor; a module restart is required for the new rate to take effect.
 8. **Never follow `next_page_url` in the purge loop** — CustomGPT pagination is offset-based. Always re-query the first-page URL after each deletion round; see the "Purge: streaming-batch pattern" section above.
+
+---
+
+## Security invariants (do not regress)
+
+These were hardened in SECURITY-746. `SecurityUtils` (pure, unit-tested) is the single source of truth.
+
+1. **Secrets are write-only.** `token`, `jahiaPassword` and `jahiaServerCookieValue` must **never** be returned to the client. `AdminQueries.getSettings` returns `SecurityUtils.maskSecretForDisplay(...)` (the `********` placeholder when set, `""` when not). `saveSettings` persists a secret only via `putSecretIfChanged`, which skips a blank value or the placeholder echoed back unchanged — so the existing stored secret is preserved. Do **not** switch these back to `putIfNotNull` or surface the raw getter in the GraphQL schema.
+2. **`apiBaseUrl` must be https.** It travels with the Bearer token on every API call. `saveSettings` rejects any non-`https://` value via `SecurityUtils.isHttpsUrl`. Validate with `java.net.URI` (never `URL`) so the check itself cannot trigger DNS/SSRF.
+3. **Basic auth only over HTTPS.** `CustomGptIndexerNodeHandler.getJahiaPageContent` attaches the Jahia password only when the rendering URL (derived from the site's `sitemapIndexURL` property, which may be `http://`) is HTTPS; otherwise it logs and skips.
+4. **`customGptClient` does not follow redirects** (`followRedirects(false)` / `followSslRedirects(false)`) so the Authorization header is never forwarded to a redirect target. The `jahiaClient` may still redirect (page rendering), which is why its Basic auth is HTTPS-gated per point 3.
+5. **Secrets at rest** live in the OSGi `.cfg` in cleartext (inherent to ConfigurationAdmin) — keep `digital-factory-data/karaf/etc/*.cfg` filesystem-protected; this is a deployment, not a code, control.
