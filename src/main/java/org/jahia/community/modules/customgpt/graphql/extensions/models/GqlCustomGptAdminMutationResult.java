@@ -9,6 +9,7 @@ import org.jahia.community.modules.customgpt.CustomGptConstants;
 import org.jahia.community.modules.customgpt.indexer.NodeReindexAsyncJob;
 import org.jahia.community.modules.customgpt.service.Service;
 import org.jahia.community.modules.customgpt.service.models.Site;
+import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRNodeWrapper;
@@ -182,6 +183,11 @@ public class GqlCustomGptAdminMutationResult {
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }
+        // The base URL travels with the Bearer token on every API call; reject anything that is not https to
+        // prevent the token from being exfiltrated over cleartext or to a non-HTTP scheme.
+        if (apiBaseUrl != null && !apiBaseUrl.isEmpty() && !SecurityUtils.isHttpsUrl(apiBaseUrl)) {
+            throw new DataFetchingException(new IllegalArgumentException("apiBaseUrl must be a valid https:// URL"));
+        }
         try {
             final ConfigurationAdmin configAdmin = BundleUtils.getOsgiService(ConfigurationAdmin.class, null);
             if (configAdmin == null) {
@@ -199,11 +205,13 @@ public class GqlCustomGptAdminMutationResult {
                 props.put("org.jahia.community.modules.customgpt.operations.batch.size", operationsBatchSize);
             }
             putIfNotNull(props, "org.jahia.community.modules.customgpt.projectId", projectId);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.token", token);
+            // Secrets: persist only when the admin actually supplied a new value. A blank or the masking
+            // placeholder echoed back from the settings query leaves the stored secret untouched.
+            putSecretIfChanged(props, "org.jahia.community.modules.customgpt.token", token);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.username", jahiaUsername);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.password", jahiaPassword);
+            putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.password", jahiaPassword);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.name", jahiaServerCookieName);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
+            putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.domain", jahiaServerCookieDomain);
             if (dryRun != null) {
                 props.put("org.jahia.community.modules.customgpt.dryRun", dryRun);
@@ -245,6 +253,18 @@ public class GqlCustomGptAdminMutationResult {
 
     private void putIfNotNull(java.util.Dictionary<String, Object> props, String key, String value) {
         if (value != null) {
+            props.put(key, value);
+        }
+    }
+
+    /**
+     * Persists a secret unless the caller did not really change it. {@code null} (field omitted) and the masking
+     * placeholder (see {@link org.jahia.community.modules.customgpt.util.SecurityUtils#SECRET_PLACEHOLDER}, echoed
+     * back unchanged by the UI) both leave the stored secret untouched. An explicit empty string is persisted so a
+     * secret can still be cleared.
+     */
+    private void putSecretIfChanged(java.util.Dictionary<String, Object> props, String key, String value) {
+        if (value != null && !SecurityUtils.isMaskedPlaceholder(value)) {
             props.put(key, value);
         }
     }

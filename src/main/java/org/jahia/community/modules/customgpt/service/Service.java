@@ -588,6 +588,10 @@ public class Service implements EventHandler {
                         .cookieJar(cookieJar)
                         .build();
                 customGptClient = new OkHttpClient.Builder()
+                        // Do not follow redirects: every request carries the Bearer token, and a redirect to another
+                        // host could forward the Authorization header to an attacker-controlled endpoint.
+                        .followRedirects(false)
+                        .followSslRedirects(false)
                         .authenticator((route, response) -> {
                             if (response.request().header(HEADER_AUTHORIZATION) != null) {
                                 return null;

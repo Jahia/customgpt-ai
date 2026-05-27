@@ -30,6 +30,7 @@ import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.community.modules.customgpt.util.HttpServletRequestMock;
 import org.jahia.community.modules.customgpt.util.HttpServletResponseMock;
+import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.community.modules.customgpt.util.Utils;
 import org.jahia.services.content.JCRCallback;
 import org.jahia.services.content.JCRNodeWrapper;
@@ -339,8 +340,14 @@ final class CustomGptIndexerNodeHandler {
                 .addHeader(HEADER_CONTENT_TYPE, "text/html;charset=UTF-8");
 
         if (StringUtils.isNotEmpty(config.getJahiaUsername()) && StringUtils.isNotEmpty(config.getJahiaPassword())) {
-            String credential = Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8);
-            requestBuilder.addHeader("Authorization", credential);
+            // Only attach Basic auth over HTTPS — the URL host comes from the site's sitemapIndexURL property, which
+            // may be http://; sending the Jahia password over cleartext would expose it on the wire.
+            if (SecurityUtils.isHttpsUrl(url)) {
+                String credential = Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8);
+                requestBuilder.addHeader("Authorization", credential);
+            } else {
+                LOGGER.warn("Skipping Basic authentication for non-https rendering URL to avoid sending credentials in cleartext: {}", url);
+            }
         }
 
         final Request request = requestBuilder.build();
