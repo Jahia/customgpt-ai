@@ -99,7 +99,7 @@ public class Service implements EventHandler {
     private ServiceRegistration<EventHandler> eventHandlerServiceRegistration;
     private SettingsBean settingsBean;
     private String journalEventReaderKey;
-    private boolean initialized;
+    private volatile boolean initialized;
     private boolean journalEventReaderEnabled;
     private int retryOnConflict;
     private OkHttpClient customGptClient;
@@ -108,10 +108,6 @@ public class Service implements EventHandler {
     @Activate
     public void activate(BundleContext bundleContext) {
         this.bundleContext = bundleContext;
-        @SuppressWarnings("java:S1149")
-        final Dictionary<String, Object> topics = new Hashtable<>();
-        topics.put(EventConstants.EVENT_TOPIC, new String[]{CustomGptConstants.EVENT_TOPIC});
-        bundleContext.registerService(EventHandler.class.getName(), this, topics);
         start();
     }
     
@@ -309,7 +305,11 @@ public class Service implements EventHandler {
         for (IndexOperations operation : operations) {
             completableFuture[i++] = CompletableFuture.supplyAsync(getPerformIndexationSupplier(operation), executor);
         }
-        CompletableFuture.allOf(completableFuture);
+        CompletableFuture.allOf(completableFuture).whenCompleteAsync((unused, throwable) -> {
+            if (throwable != null) {
+                LOGGER.error("One or more asynchronous indexation operations failed: {}", throwable.getMessage(), throwable);
+            }
+        });
     }
     
     public void produceSiteAsynchronousIndexations(String sitePath, IndexOperations... operations) {
@@ -586,6 +586,9 @@ public class Service implements EventHandler {
                 };
                 jahiaClient = new OkHttpClient.Builder()
                         .cookieJar(cookieJar)
+                        // Do not follow redirects: the session cookie must not be forwarded to redirect destinations.
+                        .followRedirects(false)
+                        .followSslRedirects(false)
                         .build();
                 customGptClient = new OkHttpClient.Builder()
                         // Do not follow redirects: every request carries the Bearer token, and a redirect to another
@@ -909,16 +912,24 @@ public class Service implements EventHandler {
         int totalDeleted = 0;
         int round = 1;
 
-        while (true) {
-            LOGGER.info("[purgeAllPages] Round {}: fetching first result page from CustomGPT", round);
-            final List<Long> pageIds = fetchOnePage(firstPageUrl);
-            if (pageIds.isEmpty()) {
-                break;
+        // Cap threads to the rate limit so we never create more concurrent callers than tokens-per-second.
+        // A single executor is reused across all purge rounds to avoid repeated thread-pool creation/teardown.
+        final int threadCount = Math.min(batchSize, customGptConfig.getRateLimitRequestsPerSecond());
+        final ExecutorService batchExecutor = Executors.newFixedThreadPool(threadCount);
+        try {
+            while (true) {
+                LOGGER.info("[purgeAllPages] Round {}: fetching first result page from CustomGPT", round);
+                final List<Long> pageIds = fetchOnePage(firstPageUrl);
+                if (pageIds.isEmpty()) {
+                    break;
+                }
+                LOGGER.info("[purgeAllPages] Round {}: {} page(s) to delete (batch size {})", round, pageIds.size(), batchSize);
+                totalDeleted += deleteAllPages(pageIds, baseUrl, projectId, batchSize, batchExecutor);
+                LOGGER.info("[purgeAllPages] Round {} complete — {} page(s) deleted so far", round, totalDeleted);
+                round++;
             }
-            LOGGER.info("[purgeAllPages] Round {}: {} page(s) to delete (batch size {})", round, pageIds.size(), batchSize);
-            totalDeleted += deleteAllPages(pageIds, baseUrl, projectId, batchSize);
-            LOGGER.info("[purgeAllPages] Round {} complete — {} page(s) deleted so far", round, totalDeleted);
-            round++;
+        } finally {
+            shutdownAndAwaitTermination(batchExecutor);
         }
 
         LOGGER.info("[purgeAllPages] Purge complete — deleted {} page(s) from project {}", totalDeleted, projectId);
@@ -959,30 +970,23 @@ public class Service implements EventHandler {
         }
     }
 
-    private int deleteAllPages(List<Long> pageIds, String baseUrl, String projectId, int batchSize) {
+    private int deleteAllPages(List<Long> pageIds, String baseUrl, String projectId, int batchSize, ExecutorService batchExecutor) {
         final int total = pageIds.size();
         final AtomicInteger deleted = new AtomicInteger(0);
-        // Cap threads to the rate limit so we never create more concurrent callers than tokens-per-second
-        final int threadCount = Math.min(batchSize, customGptConfig.getRateLimitRequestsPerSecond());
-        final ExecutorService batchExecutor = Executors.newFixedThreadPool(threadCount);
-        try {
-            for (int batchStart = 0; batchStart < total; batchStart += batchSize) {
-                final int batchEnd = Math.min(batchStart + batchSize, total);
-                final List<Long> batch = pageIds.subList(batchStart, batchEnd);
-                final int batchNumber = batchStart / batchSize + 1;
-                LOGGER.info("[purgeAllPages] Starting batch {} — pages {}-{} of {}",
-                        batchNumber, batchStart + 1, batchEnd, total);
-                final List<CompletableFuture<Void>> futures = new ArrayList<>();
-                for (Long pageId : batch) {
-                    futures.add(CompletableFuture.runAsync(
-                            () -> deleteOnePage(pageId, baseUrl, projectId, deleted), batchExecutor));
-                }
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                LOGGER.info("[purgeAllPages] Batch {} complete — {}/{} page(s) deleted so far",
-                        batchNumber, deleted.get(), total);
+        for (int batchStart = 0; batchStart < total; batchStart += batchSize) {
+            final int batchEnd = Math.min(batchStart + batchSize, total);
+            final List<Long> batch = pageIds.subList(batchStart, batchEnd);
+            final int batchNumber = batchStart / batchSize + 1;
+            LOGGER.info("[purgeAllPages] Starting batch {} — pages {}-{} of {}",
+                    batchNumber, batchStart + 1, batchEnd, total);
+            final List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (Long pageId : batch) {
+                futures.add(CompletableFuture.runAsync(
+                        () -> deleteOnePage(pageId, baseUrl, projectId, deleted), batchExecutor));
             }
-        } finally {
-            shutdownAndAwaitTermination(batchExecutor);
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            LOGGER.info("[purgeAllPages] Batch {} complete — {}/{} page(s) deleted so far",
+                    batchNumber, deleted.get(), total);
         }
         return deleted.get();
     }

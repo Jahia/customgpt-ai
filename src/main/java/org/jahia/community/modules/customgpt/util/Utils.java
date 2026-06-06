@@ -73,10 +73,10 @@ public final class Utils {
         final String hostName;
         try {
             final String sitemapIndexURL = siteNode.getPropertyAsString("sitemapIndexURL");
-            final URL serverUrl = new URL(sitemapIndexURL);
+            final URL serverUrl = URI.create(sitemapIndexURL).toURL();
             hostName = StringUtils.substringBeforeLast(sitemapIndexURL, serverUrl.getPath());
             return hostName;
-        } catch (MalformedURLException e) {
+        } catch (MalformedURLException | IllegalArgumentException e) {
             LOGGER.error("Something wrong happen while retrieving the hostname for the site {}, Sitemap generation won't happen", siteNode.getPath());
             LOGGER.debug("Detailed message", e);
         }
