@@ -3,6 +3,7 @@ package org.jahia.community.modules.customgpt.indexer;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -133,8 +134,8 @@ final class CustomGptIndexerNodeHandler {
         }
         final URL serverUrl;
         try {
-            serverUrl = new URL(hostName);
-        } catch (MalformedURLException e) {
+            serverUrl = URI.create(hostName).toURL();
+        } catch (MalformedURLException | IllegalArgumentException e) {
             LOGGER.warn("The property sitemapIndexURL does not match an URL pattern, Sitemap generation won't happen");
             return;
         }
@@ -184,6 +185,10 @@ final class CustomGptIndexerNodeHandler {
                 return;
             }
             LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
+            if (jahiaResponse.body() == null) {
+                LOGGER.warn("Jahia page response body is null for {}", url);
+                return;
+            }
             final String output = jahiaResponse.body().string();
             final String title = liveNode.hasProperty(Constants.JCR_TITLE)
                     ? liveNode.getPropertyAsString(Constants.JCR_TITLE)
