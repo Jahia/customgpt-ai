@@ -1,95 +1,155 @@
 package org.jahia.community.modules.customgpt.util;
 
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Unit tests for {@link SecurityUtils} — the write-only-secret masking contract and the HTTPS gate that protects
- * credentials in transit. These three behaviours back the security fixes: secrets are never echoed back
- * ({@code maskSecretForDisplay}), an echoed/blank secret is never persisted over the stored one
- * ({@code isUnchangedSecret}), and credential-bearing URLs must be HTTPS ({@code isHttpsUrl}).
+ * Unit tests for {@link SecurityUtils} — the write-only-secret masking contract, the HTTPS gate that protects
+ * credentials in transit, the shared base-URL resolver, and log-injection sanitisation.
+ *
+ * <p>Written with JUnit 4 ({@code org.junit.Test}) because the jahia-modules parent pins the
+ * {@code surefire-junit4} provider; JUnit 5 (jupiter) test methods are silently <em>not discovered</em> and report
+ * "Tests run: 0".
  */
-class SecurityUtilsTest {
+public class SecurityUtilsTest {
 
-    @Nested
-    @DisplayName("maskSecretForDisplay")
-    class MaskSecretForDisplay {
+    // ---- maskSecretForDisplay ----
 
-        @ParameterizedTest
-        @NullAndEmptySource
-        @DisplayName("returns empty string when no secret is stored")
-        void emptyWhenNotSet(String stored) {
-            assertThat(SecurityUtils.maskSecretForDisplay(stored)).isEmpty();
-        }
-
-        @Test
-        @DisplayName("returns the placeholder (never the real value) when a secret is stored")
-        void placeholderWhenSet() {
-            assertThat(SecurityUtils.maskSecretForDisplay("sk-super-secret-token"))
-                    .isEqualTo(SecurityUtils.SECRET_PLACEHOLDER)
-                    .doesNotContain("secret");
-        }
+    @Test
+    public void maskSecretForDisplay_returnsEmptyWhenNull() {
+        assertThat(SecurityUtils.maskSecretForDisplay(null)).isEmpty();
     }
 
-    @Nested
-    @DisplayName("isMaskedPlaceholder")
-    class IsMaskedPlaceholder {
-
-        @Test
-        @DisplayName("recognises the placeholder echoed back by the UI (must not be persisted)")
-        void placeholderIsRecognised() {
-            assertThat(SecurityUtils.isMaskedPlaceholder(SecurityUtils.SECRET_PLACEHOLDER)).isTrue();
-        }
-
-        @ParameterizedTest
-        @NullAndEmptySource
-        @DisplayName("null and empty are NOT the placeholder (empty still means 'clear the secret')")
-        void blankIsNotPlaceholder(String incoming) {
-            assertThat(SecurityUtils.isMaskedPlaceholder(incoming)).isFalse();
-        }
-
-        @Test
-        @DisplayName("a genuinely new value is not the placeholder (persist it)")
-        void newValueIsNotPlaceholder() {
-            assertThat(SecurityUtils.isMaskedPlaceholder("a-brand-new-token")).isFalse();
-        }
+    @Test
+    public void maskSecretForDisplay_returnsEmptyWhenBlank() {
+        assertThat(SecurityUtils.maskSecretForDisplay("")).isEmpty();
     }
 
-    @Nested
-    @DisplayName("isHttpsUrl")
-    class IsHttpsUrl {
+    @Test
+    public void maskSecretForDisplay_returnsPlaceholderNeverRealValueWhenSet() {
+        assertThat(SecurityUtils.maskSecretForDisplay("sk-super-secret-token"))
+                .isEqualTo(SecurityUtils.SECRET_PLACEHOLDER)
+                .doesNotContain("secret");
+    }
 
-        @Test
-        @DisplayName("accepts a well-formed https URL with a host")
-        void acceptsHttps() {
-            assertThat(SecurityUtils.isHttpsUrl("https://app.customgpt.ai/api/v1")).isTrue();
-        }
+    // ---- isMaskedPlaceholder ----
 
-        @Test
-        @DisplayName("is case-insensitive on the scheme and tolerates surrounding whitespace")
-        void acceptsHttpsCaseAndTrim() {
-            assertThat(SecurityUtils.isHttpsUrl("  HTTPS://app.customgpt.ai/api/v1  ")).isTrue();
-        }
+    @Test
+    public void isMaskedPlaceholder_recognisesPlaceholderEchoedBack() {
+        assertThat(SecurityUtils.isMaskedPlaceholder(SecurityUtils.SECRET_PLACEHOLDER)).isTrue();
+    }
 
-        @ParameterizedTest
-        @NullAndEmptySource
-        @ValueSource(strings = {
-            "http://app.customgpt.ai/api/v1", // cleartext — token would leak on the wire
-            "ftp://app.customgpt.ai",
-            "https://",                       // no host
-            "app.customgpt.ai/api/v1",        // no scheme
-            "not a url",
-            "file:///etc/passwd"
-        })
-        @DisplayName("rejects non-https, host-less, scheme-less and malformed URLs")
-        void rejectsEverythingElse(String url) {
-            assertThat(SecurityUtils.isHttpsUrl(url)).isFalse();
-        }
+    @Test
+    public void isMaskedPlaceholder_nullIsNotPlaceholder() {
+        assertThat(SecurityUtils.isMaskedPlaceholder(null)).isFalse();
+    }
+
+    @Test
+    public void isMaskedPlaceholder_emptyStillMeansClearTheSecret() {
+        assertThat(SecurityUtils.isMaskedPlaceholder("")).isFalse();
+    }
+
+    @Test
+    public void isMaskedPlaceholder_genuinelyNewValueIsNotPlaceholder() {
+        assertThat(SecurityUtils.isMaskedPlaceholder("a-brand-new-token")).isFalse();
+    }
+
+    // ---- isHttpsUrl ----
+
+    @Test
+    public void isHttpsUrl_acceptsWellFormedHttpsWithHost() {
+        assertThat(SecurityUtils.isHttpsUrl("https://app.customgpt.ai/api/v1")).isTrue();
+    }
+
+    @Test
+    public void isHttpsUrl_isCaseInsensitiveAndTrimsWhitespace() {
+        assertThat(SecurityUtils.isHttpsUrl("  HTTPS://app.customgpt.ai/api/v1  ")).isTrue();
+    }
+
+    @Test
+    public void isHttpsUrl_rejectsCleartextHttp() {
+        assertThat(SecurityUtils.isHttpsUrl("http://app.customgpt.ai/api/v1")).isFalse();
+    }
+
+    @Test
+    public void isHttpsUrl_rejectsNonHttpScheme() {
+        assertThat(SecurityUtils.isHttpsUrl("ftp://app.customgpt.ai")).isFalse();
+        assertThat(SecurityUtils.isHttpsUrl("file:///etc/passwd")).isFalse();
+    }
+
+    @Test
+    public void isHttpsUrl_rejectsHostlessSchemelessAndMalformed() {
+        assertThat(SecurityUtils.isHttpsUrl("https://")).isFalse();
+        assertThat(SecurityUtils.isHttpsUrl("app.customgpt.ai/api/v1")).isFalse();
+        assertThat(SecurityUtils.isHttpsUrl("not a url")).isFalse();
+    }
+
+    @Test
+    public void isHttpsUrl_rejectsNullAndEmpty() {
+        assertThat(SecurityUtils.isHttpsUrl(null)).isFalse();
+        assertThat(SecurityUtils.isHttpsUrl("")).isFalse();
+    }
+
+    // ---- resolveHttpsBaseUrl ----
+
+    private static final String DEFAULT_BASE = "https://app.customgpt.ai/api/v1";
+
+    @Test
+    public void resolveHttpsBaseUrl_fallsBackToDefaultWhenBlank() {
+        assertThat(SecurityUtils.resolveHttpsBaseUrl("", DEFAULT_BASE)).isEqualTo(DEFAULT_BASE);
+        assertThat(SecurityUtils.resolveHttpsBaseUrl(null, DEFAULT_BASE)).isEqualTo(DEFAULT_BASE);
+    }
+
+    @Test
+    public void resolveHttpsBaseUrl_stripsSingleTrailingSlash() {
+        assertThat(SecurityUtils.resolveHttpsBaseUrl("https://host/api/v1/", DEFAULT_BASE))
+                .isEqualTo("https://host/api/v1");
+    }
+
+    @Test
+    public void resolveHttpsBaseUrl_keepsWellFormedHttps() {
+        assertThat(SecurityUtils.resolveHttpsBaseUrl("https://host/api/v1", DEFAULT_BASE))
+                .isEqualTo("https://host/api/v1");
+    }
+
+    @Test
+    public void resolveHttpsBaseUrl_rejectsHttpSoTokenCannotLeakOverCleartext() {
+        assertThatThrownBy(() -> SecurityUtils.resolveHttpsBaseUrl("http://evil.example/api", DEFAULT_BASE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("https");
+    }
+
+    @Test
+    public void resolveHttpsBaseUrl_rejectsSchemelessOrMalformed() {
+        assertThatThrownBy(() -> SecurityUtils.resolveHttpsBaseUrl("app.customgpt.ai/api", DEFAULT_BASE))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    // ---- sanitizeForLog ----
+
+    @Test
+    public void sanitizeForLog_returnsNullUnchanged() {
+        assertThat(SecurityUtils.sanitizeForLog(null)).isNull();
+    }
+
+    @Test
+    public void sanitizeForLog_leavesCleanValueUntouched() {
+        assertThat(SecurityUtils.sanitizeForLog("project-123")).isEqualTo("project-123");
+    }
+
+    @Test
+    public void sanitizeForLog_stripsCrLfToPreventLogForging() {
+        final String forged = "real\r\nINFO admin granted access";
+        assertThat(SecurityUtils.sanitizeForLog(forged))
+                .doesNotContain("\r")
+                .doesNotContain("\n")
+                .isEqualTo("real__INFO admin granted access");
+    }
+
+    @Test
+    public void sanitizeForLog_replacesOtherIsoControlChars() {
+        assertThat(SecurityUtils.sanitizeForLog("a\tb")).isEqualTo("a_b");
     }
 }

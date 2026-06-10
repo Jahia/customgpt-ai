@@ -63,6 +63,7 @@ final class CustomGptIndexerNodeHandler {
     private static final String HEADER_CONTENT_TYPE = "content-type";
     private static final String MEDIA_TYPE_JSON = "application/json";
     private static final String VALUE_FALSE = "false";
+    private static final long RETRY_DELAY_MS = 500L;
 
     private CustomGptIndexerNodeHandler() {
         throw new IllegalStateException("Utility class");
@@ -206,6 +207,9 @@ final class CustomGptIndexerNodeHandler {
         try (Response addDocResponse = addPage(customGptClient, projectId, title, output, apiBaseUrl)) {
             if (!addDocResponse.isSuccessful()) {
                 throw new IOException("Impossible to add the page for the URL " + url + ", following response received, " + addDocResponse);
+            }
+            if (addDocResponse.body() == null) {
+                throw new IOException("Empty response body when adding the page for the URL " + url);
             }
             LOGGER.debug("Adding page in customGPT is successful, retrieving response body");
             final JSONObject document = new JSONObject(addDocResponse.body().string());
@@ -356,24 +360,28 @@ final class CustomGptIndexerNodeHandler {
         }
 
         final Request request = requestBuilder.build();
-        boolean success = false;
-        int attempts = 0;
         Response response = null;
-        while(!success && attempts < CustomGptConstants.MAX_RETRIES){
+        for (int attempts = 0; attempts < CustomGptConstants.MAX_RETRIES; attempts++) {
             response = jahiaClient.newCall(request).execute();
-            success = response.isSuccessful();
-            attempts++;
-            Thread.sleep(500L);
+            if (response.isSuccessful()) {
+                return response;
+            }
+            // Close the failed response before retrying so its body/connection is not leaked; the last
+            // (still unsuccessful) response is returned for the caller to inspect and close.
+            if (attempts < CustomGptConstants.MAX_RETRIES - 1) {
+                response.close();
+                Thread.sleep(RETRY_DELAY_MS);
+            }
         }
         return response;
     }
 
     private static String getApiBaseUrl(Indexer customGptIndexer) {
-        String baseUrl = customGptIndexer.getCustomGptConfig().getCustomGptApiBaseUrl();
-        if (StringUtils.isEmpty(baseUrl)) {
-            baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
-        }
-        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        // Every request built from this base URL carries the CustomGPT Bearer token; the shared helper refuses a
+        // non-https base URL (which could be set directly in the .cfg, bypassing the saveSettings gate).
+        return SecurityUtils.resolveHttpsBaseUrl(
+                customGptIndexer.getCustomGptConfig().getCustomGptApiBaseUrl(),
+                CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
     }
 
     private static String extractPageId(JSONObject document) {
