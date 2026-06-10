@@ -25,14 +25,17 @@ import org.slf4j.LoggerFactory;
 /**
  * GraphQL mutation resolver for the {@code admin.customGpt} namespace.
  * Contains mutations for site management, indexation triggering, settings persistence,
- * and the danger-zone purge operation. All mutations enforce the {@code admin} permission.
+ * and the danger-zone purge operation. All mutations enforce the {@code customGptAdmin} permission
+ * on the root path, matching the field-level {@code @GraphQLRequiresPermission("customGptAdmin")}
+ * annotation so the fine-grained admin role works end-to-end. Per-site operations additionally
+ * enforce the site-scoped {@code site-admin} permission.
  */
 @GraphQLName("CustomGptAdminMutations")
 @GraphQLDescription("Generic object with admin mutation results")
 public class GqlCustomGptAdminMutationResult {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GqlCustomGptAdminMutationResult.class);
-    private static final String ADMIN = "admin";
+    private static final String CUSTOM_GPT_ADMIN = "customGptAdmin";
     private static final String CONFIG_PID = "org.jahia.community.modules.customgpt";
 
     @GraphQLName("Status")
@@ -74,7 +77,7 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLDefaultValue(DefaultForce.class) boolean force
     ) throws RepositoryException {
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }
@@ -106,7 +109,7 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLDescription("Re-index descendants (Optional; default=false)") Boolean inclDescendants
     ) throws RepositoryException {
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }
@@ -146,7 +149,7 @@ public class GqlCustomGptAdminMutationResult {
     public String addSite(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey) {
 
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
             return JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
                 if ("".equals(siteKey)) {
                     throw new RepositoryException("Site '/sites/' does not exist. Provide a valid site key.");
@@ -188,7 +191,7 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl,
             @GraphQLName("rateLimitRequestsPerSecond") @GraphQLDescription("Maximum API requests per second (token-bucket rate limit)") Integer rateLimitRequestsPerSecond) {
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }
@@ -245,7 +248,7 @@ public class GqlCustomGptAdminMutationResult {
     @GraphQLDescription("Delete all pages from the CustomGPT project and return the number of pages deleted")
     public Integer purgeAllPages() {
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }
