@@ -38,6 +38,7 @@ import org.jahia.community.modules.customgpt.service.models.Site;
 import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.community.modules.customgpt.util.RateLimitInterceptor;
+import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.osgi.FrameworkService;
 import org.jahia.services.content.*;
 import org.jahia.services.events.JournalEventReader;
@@ -84,6 +85,7 @@ public class Service implements EventHandler {
     private static final String PROP_INDEXATION_START = "customGptIndexationStart";
     private static final String RECREATE_LOG = "Recreate Log";
     private static final int N_THREADS = 2;
+    private static final int DEFAULT_BATCH_SIZE = 10;
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String HEADER_ACCEPT = "accept";
@@ -846,17 +848,33 @@ public class Service implements EventHandler {
      * Calls {@code GET /projects/{projectId}} and returns the {@code project_name} field.
      * Returns {@code null} if the project ID is empty, the client is null, or the API call fails.
      */
+    /**
+     * Resolves the configured CustomGPT API base URL, applying the default when unset and stripping a trailing
+     * slash. Every request built from the result carries the Bearer token, so the URL is validated as https://
+     * here (a {@code .cfg} edit bypasses the {@code saveSettings} gate) to keep the token off cleartext channels.
+     *
+     * @throws IllegalStateException when the resolved base URL is not a valid {@code https://} URL
+     */
+    private String resolveValidatedApiBaseUrl() {
+        return SecurityUtils.resolveHttpsBaseUrl(
+                customGptConfig.getCustomGptApiBaseUrl(), CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
+    }
+
     public String getProjectName() {
         final String projectId = customGptConfig.getCustomGptProjectId();
         if (projectId == null || projectId.isEmpty()) {
             return null;
         }
-        String baseUrl = customGptConfig.getCustomGptApiBaseUrl();
-        if (baseUrl == null || baseUrl.isEmpty()) {
-            baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
+        if (customGptClient == null) {
+            LOGGER.warn("CustomGPT HTTP client is not initialised; cannot fetch project name");
+            return null;
         }
-        if (baseUrl.endsWith("/")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        final String baseUrl;
+        try {
+            baseUrl = resolveValidatedApiBaseUrl();
+        } catch (IllegalStateException e) {
+            LOGGER.warn("Cannot fetch CustomGPT project name: {}", e.getMessage());
+            return null;
         }
         final Request request = new Request.Builder()
                 .url(String.format("%s/projects/%s", baseUrl, projectId))
@@ -867,6 +885,10 @@ public class Service implements EventHandler {
         try (Response response = customGptClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 LOGGER.warn("Failed to fetch CustomGPT project name for project {}: {}", projectId, response.code());
+                return null;
+            }
+            if (response.body() == null) {
+                LOGGER.warn("Empty response body fetching CustomGPT project name for project {}", projectId);
                 return null;
             }
             final JSONObject body = new JSONObject(response.body().string());
@@ -891,21 +913,24 @@ public class Service implements EventHandler {
      */
     public int purgeAllPages() throws IOException {
         final String projectId = customGptConfig.getCustomGptProjectId();
-        LOGGER.info("[purgeAllPages] Starting purge for project {}", projectId);
+        // projectId is free-form admin config; strip CR/LF before logging to prevent log forging.
+        final String safeProjectId = SecurityUtils.sanitizeForLog(projectId);
+        LOGGER.info("[purgeAllPages] Starting purge for project {}", safeProjectId);
 
-        String baseUrl = customGptConfig.getCustomGptApiBaseUrl();
-        if (baseUrl == null || baseUrl.isEmpty()) {
-            baseUrl = CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL;
+        if (customGptClient == null) {
+            throw new IOException("CustomGPT HTTP client is not initialised; cannot purge pages");
         }
-        if (baseUrl.endsWith("/")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-        }
+        final String baseUrl = resolveValidatedApiBaseUrl();
 
         int batchSize;
         try {
             batchSize = customGptConfig.getBulkOperationsBatchSize();
-        } catch (Exception e) {
-            batchSize = 10;
+        } catch (NotConfiguredException e) {
+            LOGGER.warn("[purgeAllPages] Batch size unavailable, falling back to {}: {}", DEFAULT_BATCH_SIZE, e.getMessage());
+            batchSize = DEFAULT_BATCH_SIZE;
+        }
+        if (batchSize <= 0) {
+            batchSize = DEFAULT_BATCH_SIZE;
         }
 
         final String firstPageUrl = String.format("%s/projects/%s/pages", baseUrl, projectId);
@@ -914,7 +939,8 @@ public class Service implements EventHandler {
 
         // Cap threads to the rate limit so we never create more concurrent callers than tokens-per-second.
         // A single executor is reused across all purge rounds to avoid repeated thread-pool creation/teardown.
-        final int threadCount = Math.min(batchSize, customGptConfig.getRateLimitRequestsPerSecond());
+        // Guard against a zero/negative rate limit, which would make newFixedThreadPool throw.
+        final int threadCount = Math.max(1, Math.min(batchSize, customGptConfig.getRateLimitRequestsPerSecond()));
         final ExecutorService batchExecutor = Executors.newFixedThreadPool(threadCount);
         try {
             while (true) {
@@ -932,7 +958,7 @@ public class Service implements EventHandler {
             shutdownAndAwaitTermination(batchExecutor);
         }
 
-        LOGGER.info("[purgeAllPages] Purge complete — deleted {} page(s) from project {}", totalDeleted, projectId);
+        LOGGER.info("[purgeAllPages] Purge complete — deleted {} page(s) from project {}", totalDeleted, safeProjectId);
         return totalDeleted;
     }
 
@@ -946,6 +972,10 @@ public class Service implements EventHandler {
         try (Response listResponse = customGptClient.newCall(listRequest).execute()) {
             if (!listResponse.isSuccessful()) {
                 LOGGER.error("[purgeAllPages] Failed to list CustomGPT pages (HTTP {}), stopping", listResponse.code());
+                return Collections.emptyList();
+            }
+            if (listResponse.body() == null) {
+                LOGGER.error("[purgeAllPages] Empty response body when listing CustomGPT pages, stopping");
                 return Collections.emptyList();
             }
             final JSONObject body = new JSONObject(listResponse.body().string());

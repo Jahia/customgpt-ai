@@ -79,6 +79,9 @@ public class GqlCustomGptAdminMutationResult {
             throw new DataFetchingException(e);
         }
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
+        if (customGptService == null) {
+            throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
+        }
         if (siteKeys != null) {
             final Collection<Site> sites = customGptService.getIndexedSites().values();
             for (String siteKey : siteKeys) {
@@ -114,6 +117,12 @@ public class GqlCustomGptAdminMutationResult {
     private List<JobDetail> getJobDetailList(List<String> siteKeys,
             Service customGptService, boolean force) {
         final List<JobDetail> jobDetailList = new ArrayList<>();
+        // No site keys supplied: trigger a full re-index of every indexable site (documented behaviour),
+        // rather than dereferencing a null list.
+        if (siteKeys == null) {
+            customGptService.reIndexUsingJob();
+            return jobDetailList;
+        }
         try {
             for (String siteKey : siteKeys) {
                 checkAdminPermission(CustomGptConstants.PATH_SITES + siteKey, CustomGptConstants.PERM_SITE_ADMIN);

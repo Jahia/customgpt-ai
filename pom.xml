@@ -76,9 +76,11 @@
             <version>1.11.8</version>
         </dependency>
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>5.10.2</version>
+            <!-- JUnit 4: the jahia-modules parent pins the surefire-junit4 provider, so JUnit 5 (jupiter)
+                 tests are silently not discovered ("Tests run: 0"). Use JUnit 4 so the tests actually run. -->
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>
