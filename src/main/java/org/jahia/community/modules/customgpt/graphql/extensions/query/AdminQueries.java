@@ -20,20 +20,22 @@ import org.jahia.services.content.JCRSessionFactory;
 /**
  * GraphQL query resolver for the {@code admin.customGpt} namespace.
  * Provides access to indexed-site listing and configuration settings.
- * All methods check for the {@code admin} permission on the root path before returning data.
+ * All methods check for the {@code customGptAdmin} permission on the root path before returning data,
+ * matching the field-level {@code @GraphQLRequiresPermission("customGptAdmin")} annotation so the
+ * fine-grained admin role works end-to-end.
  */
 @GraphQLName("CustomGptAdminQueries")
 @GraphQLDescription("List of indexed sites entry point")
 public class AdminQueries {
 
-    private static final String ADMIN = "admin";
+    private static final String CUSTOM_GPT_ADMIN = "customGptAdmin";
 
     @GraphQLField
     @GraphQLName("listSites")
     @GraphQLDescription("List sites configured for CustomGpt")
     public GqlSiteListModel getListSites() {
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }
@@ -46,7 +48,7 @@ public class AdminQueries {
     @GraphQLDescription("Returns the current CustomGPT configuration settings")
     public GqlSettings getSettings() {
         try {
-            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
             throw new DataFetchingException(e);
         }

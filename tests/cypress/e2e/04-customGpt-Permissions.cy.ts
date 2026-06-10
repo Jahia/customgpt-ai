@@ -17,15 +17,14 @@ import {createUser, deleteUser, grantRoles} from '@jahia/cypress';
  * The allow path uses the read-only `getSettings` query (no secrets are returned in cleartext;
  * token / passwords / cookie value are masked to `********`), so it is a safe gated op.
  *
- * NOTE on the allow assertion: every `admin.customGpt` resolver currently performs a *second*,
- * hardcoded `node("/").hasPermission("admin")` check on top of the field-level
- * `@GraphQLRequiresPermission("customGptAdmin")` annotation (see AdminQueries.getSettings /
- * GqlCustomGptAdminMutationResult). A user holding ONLY `customGptAdmin` therefore clears the
- * annotation gate but is still rejected by the inner global-`admin` check. So the allow test
- * asserts the user is NOT blocked by the fine-grained annotation gate (no "Permission denied"
- * GqlAccessDeniedException) — that annotation is exactly what the assignable role unlocks. The
- * inner global-`admin` check is a separate, broader gate and is intentionally not what this role
- * targets.
+ * NOTE on the allow assertion: the role works END-TO-END. Both gates resolve `customGptAdmin`:
+ *  - the field-level `@GraphQLRequiresPermission("customGptAdmin")` annotation, and
+ *  - the inner server-level resolver check (`AdminQueries.getSettings` /
+ *    `GqlCustomGptAdminMutationResult`), which now checks `customGptAdmin` on the root path
+ *    instead of the broader global `admin` permission.
+ * So a user holding ONLY `customGptAdmin` clears both gates: the allow test asserts FULL success —
+ * the gated query returns data with NO GraphQL errors at all. (Per-site operations still enforce the
+ * separate site-scoped `site-admin` permission, which is out of scope for this server-role.)
  */
 describe('CustomGPT.ai — permission enforcement', () => {
     const ROLE_NAME = 'customgpt-ai-administrator';
@@ -70,15 +69,16 @@ describe('CustomGPT.ai — permission enforcement', () => {
             });
         });
 
-        it('clears the customGptAdmin annotation gate for a user granted only the module permission', () => {
-            querySettingsAs(ALLOWED_USER).then((result: never) => {
-                // The field-level @GraphQLRequiresPermission("customGptAdmin") gate must let this
-                // user through: it must NOT raise the "Permission denied" GqlAccessDeniedException
-                // that the denied user receives. (A subsequent inner global-`admin` check may still
-                // reject the resolver body — that is a separate, broader gate, asserted against here.)
-                const messages = errorsOf(result).map((e: {message: string}) => e.message).join(' ');
-                expect(messages, 'must not be blocked by the customGptAdmin annotation gate')
-                    .to.not.contain('Permission denied');
+        it('allows the gated query end-to-end for a user granted only the module permission', () => {
+            querySettingsAs(ALLOWED_USER).then((result: {data?: {admin?: {customGpt?: {settings?: unknown}}}}) => {
+                // The role works end-to-end: both the field-level
+                // @GraphQLRequiresPermission("customGptAdmin") annotation AND the inner server-level
+                // resolver check now resolve `customGptAdmin`, so the query must succeed fully —
+                // no GraphQL errors at all, and the gated `settings` payload must be returned.
+                const errs = errorsOf(result);
+                expect(errs.map((e: {message: string}) => e.message).join(' '), 'no GraphQL errors').to.equal('');
+                expect(errs, 'no GraphQL errors').to.have.length(0);
+                expect(result.data?.admin?.customGpt?.settings, 'gated settings payload returned').to.not.be.undefined;
             });
         });
     });
