@@ -6,7 +6,7 @@ export default () => {
     console.debug('%c customgpt-ai: activation in progress', 'color: #006633');
     registry.add('adminRoute', 'customgptAiSettings', {
         targets: ['administration-server-configuration:25'],
-        requiredPermission: 'admin',
+        requiredPermission: 'customGptAdmin',
         label: 'customgpt-ai:label.menu_entry',
         isSelectable: true,
         render: () => React.createElement(CustomGptSettingsAdmin)

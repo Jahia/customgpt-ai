@@ -5,6 +5,7 @@ import graphql.annotations.annotationTypes.GraphQLField;
 import graphql.annotations.annotationTypes.GraphQLName;
 import graphql.annotations.annotationTypes.GraphQLTypeExtension;
 import org.jahia.community.modules.customgpt.graphql.extensions.query.AdminQueries;
+import org.jahia.modules.graphql.provider.dxm.security.GraphQLRequiresPermission;
 
 /**
  * GraphQL type extension that injects the {@code customGpt} query field under {@code admin}.
@@ -19,6 +20,7 @@ public final class GqlAdminQuery {
     @GraphQLField
     @GraphQLName("customGpt")
     @GraphQLDescription("CustomGPT administrative queries")
+    @GraphQLRequiresPermission("customGptAdmin")
     public static AdminQueries customGpt() {
         return new AdminQueries();
     }

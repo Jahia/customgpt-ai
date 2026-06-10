@@ -6,6 +6,7 @@ import graphql.annotations.annotationTypes.GraphQLName;
 import graphql.annotations.annotationTypes.GraphQLTypeExtension;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlCustomGptAdminMutationResult;
 import org.jahia.modules.graphql.provider.dxm.admin.GqlAdminMutation;
+import org.jahia.modules.graphql.provider.dxm.security.GraphQLRequiresPermission;
 
 
 /**
@@ -21,6 +22,7 @@ public final class GqlCustomGptAdminMutation {
     @GraphQLField
     @GraphQLName("customGpt")
     @GraphQLDescription("CustomGPT administrative mutations")
+    @GraphQLRequiresPermission("customGptAdmin")
     public static GqlCustomGptAdminMutationResult customGpt() {
         return new GqlCustomGptAdminMutationResult();
     }
