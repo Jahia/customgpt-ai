@@ -2,8 +2,10 @@ package org.jahia.community.modules.customgpt.indexer;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -12,6 +14,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 import javax.jcr.RepositoryException;
+import javax.servlet.ServletException;
 import okhttp3.Credentials;
 import okhttp3.FormBody;
 import okhttp3.MediaType;
@@ -33,7 +36,6 @@ import org.jahia.community.modules.customgpt.util.HttpServletRequestMock;
 import org.jahia.community.modules.customgpt.util.HttpServletResponseMock;
 import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.community.modules.customgpt.util.Utils;
-import org.jahia.services.content.JCRCallback;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.content.JCRTemplate;
@@ -153,7 +155,7 @@ final class CustomGptIndexerNodeHandler {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             LOGGER.error("Issue:", ex);
-        } catch (Exception ex) {
+        } catch (RepositoryException | IOException | ServletException | InvocationTargetException | URISyntaxException ex) {
             LOGGER.error("Issue:", ex);
         }
     }
@@ -232,30 +234,24 @@ final class CustomGptIndexerNodeHandler {
     }
 
     private static String getExistingPageId(JahiaUser rootUser, String nodePath) throws RepositoryException {
-        return JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.EDIT_WORKSPACE, null, new JCRCallback<String>() {
-            @Override
-            public String doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
-                if (session.nodeExists(mappingPath)) {
-                    final JCRNodeWrapper node = session.getNode(mappingPath);
-                    if (node.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
-                        return node.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
-                    }
+        return JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.EDIT_WORKSPACE, null, session -> {
+            final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
+            if (session.nodeExists(mappingPath)) {
+                final JCRNodeWrapper node = session.getNode(mappingPath);
+                if (node.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
+                    return node.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
                 }
-                return null;
             }
+            return null;
         });
     }
 
     private static void writeMappingNode(JahiaUser rootUser, String nodePath, String pageId) throws RepositoryException {
-        JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.EDIT_WORKSPACE, null, new JCRCallback<Void>() {
-            @Override
-            public Void doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                final JCRNodeWrapper mappingNode = getOrCreateMappingNode(session, nodePath);
-                mappingNode.setProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID, pageId);
-                session.save();
-                return null;
-            }
+        JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.EDIT_WORKSPACE, null, session -> {
+            final JCRNodeWrapper mappingNode = getOrCreateMappingNode(session, nodePath);
+            mappingNode.setProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID, pageId);
+            session.save();
+            return null;
         });
     }
 

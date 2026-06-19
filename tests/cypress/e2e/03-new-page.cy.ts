@@ -84,11 +84,13 @@ describe('CustomGPT.ai new page indexing', function () {
                 variables: {nodePaths: [testPagePath()]}
             });
 
-            cy.wait(10000)
-
-            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}}).then(result => {
-                return Boolean(result.data.jcr.nodeByPath?.property?.value);
-            });
+            cy.waitUntil(
+                () =>
+                    cy
+                        .apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
+                        .then(result => Boolean(result.data.jcr.nodeByPath?.property?.value)),
+                {timeout: 60000, interval: 1000, errorMsg: 'Timed out waiting for customGptPageId to be set on the new page'}
+            );
 
             cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
                 .its('data.jcr.nodeByPath')

@@ -16,6 +16,8 @@ import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRSessionFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * GraphQL query resolver for the {@code admin.customGpt} namespace.
@@ -28,7 +30,10 @@ import org.jahia.services.content.JCRSessionFactory;
 @GraphQLDescription("List of indexed sites entry point")
 public class AdminQueries {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdminQueries.class);
     private static final String CUSTOM_GPT_ADMIN = "customGptAdmin";
+    private static final String ERR_PERMISSION = "Access denied or unable to verify permissions";
+    private static final String ERR_SETTINGS = "Unable to load CustomGPT settings";
 
     @GraphQLField
     @GraphQLName("listSites")
@@ -37,7 +42,9 @@ public class AdminQueries {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            // Log the detail server-side; return a generic message so internal paths/JCR detail are not leaked.
+            LOGGER.warn("Permission check failed for listSites", e);
+            throw new DataFetchingException(ERR_PERMISSION);
         }
         final Collection<Site> indexedSites = BundleUtils.getOsgiService(Service.class, null).getIndexedSites().values();
         return new GqlSiteListModel(indexedSites);
@@ -50,7 +57,8 @@ public class AdminQueries {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("Permission check failed for settings", e);
+            throw new DataFetchingException(ERR_PERMISSION);
         }
         final Config config = BundleUtils.getOsgiService(Config.class, null);
         if (config == null || !config.isConfigured()) {
@@ -86,7 +94,8 @@ public class AdminQueries {
                     .rateLimitRequestsPerSecond(config.getRateLimitRequestsPerSecond())
                     .build();
         } catch (org.jahia.community.modules.customgpt.settings.NotConfiguredException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("Unable to read CustomGPT settings", e);
+            throw new DataFetchingException(ERR_SETTINGS);
         }
     }
 

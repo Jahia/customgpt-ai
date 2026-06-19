@@ -83,8 +83,8 @@ describe('CustomGPT.ai Settings', () => {
                     contentIndexedSubNodeTypes: 'jmix:droppableContent',
                     contentIndexedFileExtensions: 'pdf,docx',
                     operationsBatchSize: 100,
-                    projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
-                    token: Cypress.env('CUSTOMGPT_TOKEN'),
+                    projectId: 'roundtrip-project',
+                    token: 'roundtrip-token',
                     jahiaUsername: 'root',
                     jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
                     jahiaServerCookieName: 'roundtrip-cookie',
@@ -102,10 +102,10 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.contentIndexedSubNodeTypes).to.eq('jmix:droppableContent');
                     expect(s.contentIndexedFileExtensions).to.eq('pdf,docx');
                     expect(s.operationsBatchSize).to.eq(100);
-                    expect(s.projectId).to.eq(Cypress.env('CUSTOMGPT_PROJECT_ID'));
+                    expect(s.projectId).to.eq('roundtrip-project');
                     // Secrets are write-only: a stored value is masked, never echoed back in cleartext (SECURITY-746).
                     expect(s.token).to.eq('********');
-                    expect(s.token).to.not.eq(Cypress.env('CUSTOMGPT_TOKEN'));
+                    expect(s.token).to.not.eq('roundtrip-token');
                     expect(s.jahiaUsername).to.eq('root');
                     expect(s.jahiaPassword).to.eq('********');
                     expect(s.jahiaPassword).to.not.eq(Cypress.env('SUPER_USER_PASSWORD'));

@@ -30,6 +30,7 @@
     "saveSuccess": "Einstellungen erfolgreich gespeichert.",
     "saveError": "Fehler beim Speichern der Einstellungen.",
     "dangerZoneTitle": "Gefahrenbereich",
+    "loading": "Einstellungen werden geladen…",
     "purgeAllPages": "Alle Seiten löschen",
     "purgeConfirm": "Alle Seiten aus Ihrem CustomGPT-Projekt werden unwiderruflich gelöscht. Sind Sie sicher?",
     "purgeSuccess": "{{count}} Seite(n) erfolgreich aus CustomGPT gelöscht.",
@@ -37,6 +38,9 @@
     "purgeConfirmTitle": "Löschen bestätigen",
     "confirmPurge": "Ja, alles löschen",
     "cancel": "Abbrechen",
-    "requiredFieldsNote": "Mit * markierte Felder sind Pflichtfelder"
+    "requiredFieldsNote": "Mit * markierte Felder sind Pflichtfelder",
+    "validationProjectIdRequired": "Projekt-ID ist erforderlich.",
+    "validationTokenRequired": "API-Token ist erforderlich.",
+    "purging": "Wird gelöscht…"
   }
 }

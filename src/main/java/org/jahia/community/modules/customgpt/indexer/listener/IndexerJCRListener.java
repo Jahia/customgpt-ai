@@ -91,7 +91,7 @@ public class IndexerJCRListener extends DefaultEventListener {
     }
 
     private static String computeNodePath(String path, int type) {
-        final boolean isPropertyEvent = (type | PROPERTY_EVENTS) == PROPERTY_EVENTS;
+        final boolean isPropertyEvent = (type & PROPERTY_EVENTS) != 0;
         if (isPropertyEvent) {
             final int endIndex = path.lastIndexOf(CustomGptConstants.PATH_DELIMITER);
             return path.substring(0, endIndex);
@@ -116,7 +116,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                     } else if (isSubNodeType(nodeWrapper)) {
                         processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
                     }
-                } catch (Exception e) {
+                } catch (RepositoryException | NotConfiguredException e) {
                     LOGGER.warn("Error processing JCR event for skip-index mixin on node {}", identifier, e);
                 }
                 return null;
@@ -143,7 +143,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                     } else if (isSubNodeType(nodeWrapper)) {
                         processEvent(new CustomEvent(Event.NODE_REMOVED, identifier, nodePath), nodePath, customGptIndexOperations);
                     }
-                } catch (Exception e) {
+                } catch (RepositoryException | NotConfiguredException e) {
                     LOGGER.warn("Error processing trash JCR event for node {}", identifier, e);
                 }
                 return null;
@@ -164,7 +164,7 @@ public class IndexerJCRListener extends DefaultEventListener {
                     } else if (isSubNodeType(nodeWrapper)) {
                         queueIndexationForSubNodeParents(event, nodeWrapper, mainResourceTypes, customGptIndexOperations);
                     }
-                } catch (Exception e) {
+                } catch (RepositoryException | NotConfiguredException e) {
                     LOGGER.error("Error processing events in the customGpt listener", e);
                 }
                 return null;
@@ -215,10 +215,6 @@ public class IndexerJCRListener extends DefaultEventListener {
                 customGptIndexOperations.addOperation(operation);
                 break;
             case Event.PROPERTY_ADDED:
-                if (event.getPath().endsWith("/j:lastPublished")) {
-                    addIndexOperation(nodePath, customGptIndexOperations);
-                }
-                break;
             case Event.PROPERTY_CHANGED:
                 if (event.getPath().endsWith("/j:lastPublished")) {
                     addIndexOperation(nodePath, customGptIndexOperations);
@@ -235,21 +231,18 @@ public class IndexerJCRListener extends DefaultEventListener {
 
     private void findAndQueueMappingRemoval(String nodePath, IndexOperations operations) {
         try {
-            JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.EDIT_WORKSPACE, null, new JCRCallback<Void>() {
-                @Override
-                public Void doInJCR(JCRSessionWrapper editSession) throws RepositoryException {
-                    final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
-                    if (editSession.nodeExists(mappingPath)) {
-                        final JCRNodeWrapper mappingNode = editSession.getNode(mappingPath);
-                        if (mappingNode.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
-                            final String pageId = mappingNode.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
-                            processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, pageId), null, operations);
-                        }
-                        mappingNode.remove();
-                        editSession.save();
+            JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(null, Constants.EDIT_WORKSPACE, null, editSession -> {
+                final String mappingPath = CustomGptConstants.buildMappingPath(nodePath);
+                if (editSession.nodeExists(mappingPath)) {
+                    final JCRNodeWrapper mappingNode = editSession.getNode(mappingPath);
+                    if (mappingNode.hasProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID)) {
+                        final String pageId = mappingNode.getProperty(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID).getString();
+                        processEvent(new CustomEvent(Event.NODE_REMOVED, null, null, pageId), null, operations);
                     }
-                    return null;
+                    mappingNode.remove();
+                    editSession.save();
                 }
+                return null;
             });
         } catch (RepositoryException e) {
             LOGGER.warn("Error accessing CustomGPT mapping node for node path {}", nodePath, e);
@@ -259,7 +252,7 @@ public class IndexerJCRListener extends DefaultEventListener {
     private void tryQueueMappingRemoval(JCRNodeWrapper node, String identifier, IndexOperations ops) {
         try {
             findAndQueueMappingRemoval(node.getPath(), ops);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOGGER.warn("Cannot resolve path for node {}, skipping CustomGPT cleanup", identifier, e);
         }
     }

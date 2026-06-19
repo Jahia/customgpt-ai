@@ -30,6 +30,7 @@
     "saveSuccess": "Paramètres enregistrés avec succès.",
     "saveError": "Échec de l'enregistrement des paramètres.",
     "dangerZoneTitle": "Zone dangereuse",
+    "loading": "Chargement des paramètres…",
     "purgeAllPages": "Supprimer toutes les pages",
     "purgeConfirm": "Cette action supprimera définitivement toutes les pages de votre projet CustomGPT. Cette action est irréversible. Êtes-vous sûr ?",
     "purgeSuccess": "Suppression réussie de {{count}} page(s) de CustomGPT.",
@@ -37,6 +38,9 @@
     "purgeConfirmTitle": "Confirmer la suppression",
     "confirmPurge": "Oui, tout supprimer",
     "cancel": "Annuler",
-    "requiredFieldsNote": "Les champs marqués d'un * sont obligatoires"
+    "requiredFieldsNote": "Les champs marqués d'un * sont obligatoires",
+    "validationProjectIdRequired": "L'ID du projet est obligatoire.",
+    "validationTokenRequired": "Le jeton API est obligatoire.",
+    "purging": "Suppression en cours…"
   }
 }

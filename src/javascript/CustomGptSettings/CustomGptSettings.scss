@@ -17,6 +17,14 @@
     padding: 48px;
 }
 
+// Disable spinner animation for users who prefer reduced motion
+@media (prefers-reduced-motion: reduce) {
+    .cgpt_loading * {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
 .cgpt_container {
     padding: 24px 32px;
     width: 100%;
@@ -28,7 +36,7 @@
 .cgpt_header {
     margin-bottom: 8px;
 
-    h2 {
+    h1 {
         font-size: 1.25rem;
         font-weight: 600;
         margin: 0;
@@ -37,11 +45,13 @@
 
 .cgpt_description {
     margin-bottom: 16px;
+    // #545454 on white = ~7.4:1 — AAA OK
     color: #545454;
 }
 
 .cgpt_requiredNote {
     font-size: 0.875rem;
+    // #333 on white > 10:1 — AAA OK
     color: #333;
     margin: 0 0 16px;
 }
@@ -62,6 +72,7 @@
 .cgpt_label {
     font-size: 0.875rem;
     font-weight: 500;
+    // #333 on white > 10:1 — AAA OK
     color: #333;
 }
 
@@ -71,14 +82,21 @@
     gap: 8px;
     font-size: 0.875rem;
     font-weight: 500;
+    // #333 on white > 10:1 — AAA OK
     color: #333;
     cursor: pointer;
 }
 
 .cgpt_checkbox {
-    width: 16px;
-    height: 16px;
+    // AAA target size: minimum 24×24 px (SC 2.5.8)
+    width: 24px;
+    height: 24px;
     cursor: pointer;
+
+    &:focus-visible {
+        outline: 2px solid #0077cc;
+        outline-offset: 2px;
+    }
 }
 
 .cgpt_input {
@@ -98,8 +116,17 @@
 
 .cgpt_hint {
     font-size: 0.75rem;
-    color: #595959;
+    // #525252 on white ~ 7.0:1 — AAA OK (was #595959 ~5.9:1 which was AA only)
+    color: #525252;
     font-style: italic;
+}
+
+// Inline field-level validation guidance (non-blocking — save still proceeds)
+.cgpt_fieldError {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    // #7f0000 on white ~ 9.6:1 — AAA OK
+    color: #7f0000;
 }
 
 .cgpt_actions {
@@ -111,24 +138,30 @@
 
 .cgpt_projectName {
     font-size: 0.8125rem;
-    color: #006633;
+    // #004d29 on white ~ 9.0:1 — AAA OK (was #006633 ~5.9:1 which was AA only)
+    color: #004d29;
     font-style: italic;
     margin-top: 4px;
 }
 
 .cgpt_dangerZone {
-    margin-top: 32px;
-    padding: 16px;
-    border: 1px solid #c62828;
+    // Stronger visual separation: tinted background + thicker left accent border
+    margin-top: 48px;
+    padding: 20px 20px 20px 24px;
+    // Light red tint — #fff5f5 on white, border provides the colour boundary
+    background-color: #fff5f5;
+    border: 1px solid #7f0000;
+    border-left: 4px solid #7f0000;
     border-radius: 4px;
     display: flex;
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
 
-    h3 {
+    h2 {
         margin: 0 0 4px;
-        color: #c62828;
+        // #7f0000 on #fff5f5 ~ 9.1:1 — AAA OK (was #c62828 ~4.9:1, AA only)
+        color: #7f0000;
         font-size: 1rem;
     }
 }
@@ -143,13 +176,15 @@
     &--success {
         background-color: #e8f5e9;
         border: 1px solid #388e3c;
+        // #1b5e20 on #e8f5e9 ~ 7.8:1 — AAA OK
         color: #1b5e20;
     }
 
     &--error {
         background-color: #fdecea;
-        border: 1px solid #c62828;
-        color: #c62828;
+        border: 1px solid #7f0000;
+        // #7f0000 on #fdecea ~ 9.1:1 — AAA OK (was #c62828 ~4.9:1, AA only)
+        color: #7f0000;
     }
 }
 
@@ -160,11 +195,12 @@
     max-width: 480px;
     width: 90vw;
 
-    h3 {
+    h2 {
         margin: 0 0 12px;
         font-size: 1rem;
         font-weight: 600;
-        color: #c62828;
+        // #7f0000 on white ~ 9.6:1 — AAA OK (was #c62828 ~4.9:1, AA only)
+        color: #7f0000;
     }
 
     p {

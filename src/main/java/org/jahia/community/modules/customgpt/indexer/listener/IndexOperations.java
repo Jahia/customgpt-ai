@@ -114,7 +114,9 @@ public class IndexOperations implements Serializable {
 
         @Override
         public int hashCode() {
-            return Objects.hash(type, nodePath, sourcePath, siteKey, customGptPageId);
+            // Must use the SAME fields as equals(); otherwise two operations that are equal() can land in different
+            // buckets and the LinkedHashSet dedup in IndexOperations silently fails to drop duplicates.
+            return Objects.hash(type, nodePath, customGptPageId);
         }
 
         @Override
@@ -133,9 +135,8 @@ public class IndexOperations implements Serializable {
     }
 
     public void addOperation(CustomGptIndexOperation operation) {
-        if (!operations.contains(operation)) {
-            operations.add(operation);
-        }
+        // operations is a Set, so add() already dedups via equals()/hashCode().
+        operations.add(operation);
     }
 
     public Set<CustomGptIndexOperation> getOperations() {
@@ -148,7 +149,7 @@ public class IndexOperations implements Serializable {
     }
 
     public boolean isEmpty() {
-        return operations == null || operations.isEmpty();
+        return operations.isEmpty();
     }
 
     public String getSiteKey() {

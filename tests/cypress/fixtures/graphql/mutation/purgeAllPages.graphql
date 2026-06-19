@@ -1,0 +1,7 @@
+mutation purgeAllPages {
+    admin {
+        customGpt {
+            purgeAllPages
+        }
+    }
+}

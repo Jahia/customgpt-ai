@@ -151,10 +151,12 @@ describe('CustomGPT.ai Indexing', function () {
     });
 
     after(() => {
-        // cy.apollo({
-        //     mutation: saveSettings,
-        //     variables: {dryRun: true, scheduleJobASAP: false}
-        // });
+        // Always reset the dry-run / scheduling state, even when a test above fails —
+        // Cypress runs `after` hooks unconditionally, so this keeps the module config clean.
+        cy.apollo({
+            mutation: saveSettings,
+            variables: {dryRun: true, scheduleJobASAP: false}
+        });
     });
 
     // ─── Site indexing ───────────────────────────────────────────────────────────

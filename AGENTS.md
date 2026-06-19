@@ -6,10 +6,10 @@ This document captures the contracts, patterns, and pitfalls needed to generate 
 
 ## Project overview
 
-`customgpt-ai` is an OSGi/Jahia module (Java 11, OSGi DS, Blueprint). It:
+`customgpt-ai` is an OSGi/Jahia module (Java 11, OSGi Declarative Services). It:
 1. Integrates with the CustomGPT.ai REST API (`https://app.customgpt.ai/api/v1/`) via OkHttp3.
 2. Exposes a GraphQL API through `graphql-dxm-provider` (annotation-driven, not SDL).
-3. Provides a React 17 admin settings panel registered as a Jahia `systemComponent`.
+3. Provides a React 18 admin settings panel registered as a Jahia `systemComponent`.
 
 ---
 
@@ -21,7 +21,7 @@ This document captures the contracts, patterns, and pitfalls needed to generate 
 | Backend | Java 11, OSGi DS (`@Component`, `@Reference`), Jahia 8.2+ |
 | HTTP client | OkHttp3 4.12 (`customGptClient` with Bearer `Authenticator` + `RateLimitInterceptor`) |
 | GraphQL | `graphql-dxm-provider` 3.4 — annotation-driven (`@GraphQLField`, `@GraphQLName`, etc.) |
-| Frontend | React 17, i18next, CSS Modules (SCSS), Apollo Client |
+| Frontend | React 18, i18next, CSS Modules (SCSS), Apollo Client |
 | Testing | Cypress + TypeScript |
 
 ---

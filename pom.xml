@@ -33,6 +33,10 @@
             org.jahia.modules.graphql.provider.dxm.security;version="[2.8,4)"
         </import-package>
         <require-capability>osgi.extender;filter:="(osgi.extender=org.jahia.bundles.blueprint.extender.config)"</require-capability>
+        <sonar.projectKey>org.jahia.modules.community:customgpt-ai</sonar.projectKey>
+        <sonar.sources>pom.xml,src/javascript,src/main</sonar.sources>
+        <sonar.tests>src/test</sonar.tests>
+        <sonar.exclusions>src/main/resources/javascript/apps/**,**/*.test.jsx,**/*.test.js,src/javascript/index.js,src/main/resources/resources/**</sonar.exclusions>
     </properties>
     <scm>
         <connection>scm:git:git@github.com:Jahia/customgpt-ai.git</connection>
@@ -88,6 +92,12 @@
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
             <version>3.27.7</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.14.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

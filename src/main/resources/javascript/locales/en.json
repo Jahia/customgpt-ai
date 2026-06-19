@@ -38,6 +38,9 @@
     "purgeConfirmTitle": "Confirm Purge",
     "confirmPurge": "Yes, Purge All",
     "cancel": "Cancel",
-    "requiredFieldsNote": "Fields marked with * are required"
+    "requiredFieldsNote": "Fields marked with * are required",
+    "validationProjectIdRequired": "Project ID is required.",
+    "validationTokenRequired": "API Token is required.",
+    "purging": "Purging…"
   }
 }
