@@ -120,6 +120,40 @@ public class SecurityUtilsAdditionalTest {
         assertThat(SecurityUtils.isHttpsUrl("https://[::1]/api")).isFalse();
     }
 
+    // ---- isHttpsUrl: dotless / decimal IPv4 SSRF bypass (regression) ----
+
+    @Test
+    public void isHttpsUrl_dotlessDecimalLoopback_rejected() {
+        // 2130706433 == 127.0.0.1; Java's resolver collapses it to loopback, so it MUST be rejected
+        // even though the host string contains no dot. Previously treated as a hostname → SSRF bypass.
+        assertThat(SecurityUtils.isHttpsUrl("https://2130706433/api")).isFalse();
+    }
+
+    @Test
+    public void isHttpsUrl_dotlessZeroAnyAddress_rejected() {
+        // 0 == 0.0.0.0 (the wildcard / any-local address); must be rejected as internal.
+        assertThat(SecurityUtils.isHttpsUrl("https://0/api")).isFalse();
+    }
+
+    @Test
+    public void isInternalHost_dotlessDecimalLoopback_returnsTrue() {
+        assertThat(SecurityUtils.isInternalHost("2130706433")).isTrue();
+    }
+
+    @Test
+    public void isInternalHost_dotlessZeroAnyAddress_returnsTrue() {
+        assertThat(SecurityUtils.isInternalHost("0")).isTrue();
+        assertThat(SecurityUtils.isInternalHost("0.0.0.0")).isTrue();
+    }
+
+    @Test
+    public void resolveHttpsBaseUrl_dotlessDecimalLoopback_throwsIllegalState() {
+        assertThatThrownBy(() ->
+                SecurityUtils.resolveHttpsBaseUrl("https://2130706433/api", "https://app.customgpt.ai/api/v1"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("https");
+    }
+
     @Test
     public void isHttpsUrl_publicIpLiteral_accepted() {
         // A public IP literal (not in any private range) should be accepted

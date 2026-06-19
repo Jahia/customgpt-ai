@@ -11,6 +11,7 @@
     "contentIndexedFileExtensionsPlaceholder": "pdf,docx",
     "commaSeparatedHint": "Kommagetrennte Liste",
     "operationsBatchSize": "Stapelgröße",
+    "operationsBatchSizeHint": "Ganzzahl zwischen 1 und 10000",
     "projectId": "Projekt-ID",
     "token": "API-Token",
     "apiBaseUrl": "API-Basis-URL",

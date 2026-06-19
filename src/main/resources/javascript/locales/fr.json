@@ -11,6 +11,7 @@
     "contentIndexedFileExtensionsPlaceholder": "pdf,docx",
     "commaSeparatedHint": "Liste séparée par des virgules",
     "operationsBatchSize": "Taille du lot",
+    "operationsBatchSizeHint": "Entier compris entre 1 et 10000",
     "projectId": "ID du projet",
     "token": "Jeton API",
     "apiBaseUrl": "URL de base de l'API",

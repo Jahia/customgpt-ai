@@ -113,21 +113,32 @@ public final class SecurityUtils {
     }
 
     /**
-     * Returns {@code true} only when {@code value} is a numeric IPv4 (dotted-quad) or IPv6 literal, so that
-     * {@link InetAddress#getByName(String)} resolves it locally without a DNS round-trip.
+     * Returns {@code true} only when {@code value} is a numeric IP literal that {@link InetAddress#getByName(String)}
+     * resolves locally without a DNS round-trip: an IPv6 literal (contains a colon), a dotted IPv4 literal, OR a
+     * dotless numeric form (decimal/integer, e.g. {@code 2130706433} for {@code 127.0.0.1} or {@code 0} for
+     * {@code 0.0.0.0}). Java's resolver — and therefore OkHttp — collapses these dotless forms to real loopback/any
+     * addresses, so they MUST be range-checked rather than treated as opaque hostnames (SSRF bypass). An all-digits
+     * string can never be a registrable DNS hostname, so accepting it here introduces no DNS lookup of a real host.
      */
     private static boolean isIpLiteral(String value) {
-        // IPv6 literals contain a colon; an IPv4 literal is digits-and-dots only.
+        // IPv6 literals contain a colon.
         if (value.indexOf(':') >= 0) {
             return true;
         }
+        boolean hasDigit = false;
         for (int i = 0; i < value.length(); i++) {
             final char c = value.charAt(i);
-            if (c != '.' && (c < '0' || c > '9')) {
+            if (c == '.') {
+                continue;
+            }
+            if (c < '0' || c > '9') {
+                // A real hostname (contains a non-digit, non-dot character) — not an IP literal.
                 return false;
             }
+            hasDigit = true;
         }
-        return value.indexOf('.') >= 0;
+        // All-digits (dotless decimal/integer) or dotted-numeric: a numeric IP literal.
+        return hasDigit;
     }
 
     /** Returns {@code true} for IPv6 unique-local addresses ({@code fc00::/7}), which Java does not flag directly. */

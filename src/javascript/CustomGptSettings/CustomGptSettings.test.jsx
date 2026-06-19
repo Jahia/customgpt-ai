@@ -11,10 +11,11 @@ jest.mock('react-i18next', () => ({
 jest.mock('@jahia/moonstone', () => {
     const React = require('react');
     return {
-        // Forward id/onClick/disabled so role/label queries and focus work. Type is fixed
-        // to "button" so clicks fire onClick without an implicit form submit double-firing.
-        Button: ({label, id, isDisabled, onClick}) =>
-            React.createElement('button', {id, type: 'button', disabled: isDisabled, onClick}, label),
+        // Forward id/type/onClick/disabled so role/label queries, focus, and native form
+        // submission work. The Save button is type="submit" and relies solely on the form's
+        // onSubmit (no onClick) — clicking it submits the form once via jsdom.
+        Button: ({label, id, type, isDisabled, onClick}) =>
+            React.createElement('button', {id, type: type === 'submit' ? 'submit' : 'button', disabled: isDisabled, onClick}, label),
         Loader: () => React.createElement('div', {'data-testid': 'loader'}),
         Typography: ({children}) => React.createElement('div', null, children)
     };

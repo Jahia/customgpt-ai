@@ -108,9 +108,6 @@ export const CustomGptSettingsAdmin = () => {
             purgeDialogRef.current?.close();
             setShowPurgeDialog(false);
             setPurgeStatus({type: 'error'});
-        } finally {
-            // Return focus to the purge trigger button after dialog closes
-            document.getElementById('cgpt-purge-button')?.focus();
         }
     };
 
@@ -156,7 +153,7 @@ export const CustomGptSettingsAdmin = () => {
     const tokenDescribedBy = fieldErrors.token ? 'cgpt-token-error' : undefined;
 
     return (
-        <main className={styles.cgpt_container}>
+        <section className={styles.cgpt_container} aria-labelledby="cgpt-settings-title">
             {/* Save status live regions — always in DOM so AT registers them at mount */}
             <output
                 id="cgpt-save-status"
@@ -196,7 +193,7 @@ export const CustomGptSettingsAdmin = () => {
             </div>
 
             <div className={styles.cgpt_header}>
-                <h1>{t('label.settingsTitle')}</h1>
+                <h1 id="cgpt-settings-title">{t('label.settingsTitle')}</h1>
             </div>
 
             <div className={styles.cgpt_description}>
@@ -279,8 +276,12 @@ export const CustomGptSettingsAdmin = () => {
                             min="1"
                             max="10000"
                             value={formState.operationsBatchSize}
+                            aria-describedby="cgpt-batch-size-hint"
                             onChange={handleNumberChange('operationsBatchSize')}
                         />
+                        <span id="cgpt-batch-size-hint" className={styles.cgpt_hint}>
+                            {t('label.operationsBatchSizeHint')}
+                        </span>
                     </div>
 
                     <div className={styles.cgpt_fieldGroup}>
@@ -328,6 +329,7 @@ export const CustomGptSettingsAdmin = () => {
                         {projectName && (
                             <output
                                 id="cgpt-project-name"
+                                htmlFor="cgpt-project-id"
                                 className={styles.cgpt_projectName}
                             >
                                 {projectName}
@@ -499,7 +501,6 @@ export const CustomGptSettingsAdmin = () => {
                         label={t('label.save')}
                         variant="primary"
                         isDisabled={saving}
-                        onClick={handleSave}
                     />
                 </div>
             </form>
@@ -558,7 +559,7 @@ export const CustomGptSettingsAdmin = () => {
                     />
                 </div>
             </dialog>
-        </main>
+        </section>
     );
 };
 
