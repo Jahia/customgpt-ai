@@ -50,6 +50,9 @@ public final class Utils {
     public static Set<String> getPropertyValuesAsSet(JCRNodeWrapper node, String property) {
         final Set<String> result = new HashSet<>();
         try {
+            if (!node.hasProperty(property)) {
+                return result;
+            }
             final Value[] values = node.getProperty(property).getValues();
             for (Value value : values) {
                 result.add(value.getString());
@@ -74,6 +77,12 @@ public final class Utils {
         try {
             final String sitemapIndexURL = siteNode.getPropertyAsString("sitemapIndexURL");
             final URL serverUrl = URI.create(sitemapIndexURL).toURL();
+            // The rendering request built from this host carries Jahia Basic-auth credentials; reject a host that is a
+            // literal private/loopback/link-local IP so credentials cannot be sent to an internal SSRF target.
+            if (SecurityUtils.isInternalHost(serverUrl.getHost())) {
+                LOGGER.error("Refusing to render site {}: sitemapIndexURL host resolves to an internal/private address", siteNode.getPath());
+                return "";
+            }
             hostName = StringUtils.substringBeforeLast(sitemapIndexURL, serverUrl.getPath());
             return hostName;
         } catch (MalformedURLException | IllegalArgumentException e) {

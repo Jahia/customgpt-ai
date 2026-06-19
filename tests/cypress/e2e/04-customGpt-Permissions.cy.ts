@@ -35,6 +35,10 @@ describe('CustomGPT.ai — permission enforcement', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getSettings.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const purgeAllPages: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/purgeAllPages.graphql');
 
     const errorsOf = (result: {graphQLErrors?: Array<{message: string}>; errors?: Array<{message: string}>}) =>
         result.graphQLErrors ?? result.errors ?? [];
@@ -42,6 +46,16 @@ describe('CustomGPT.ai — permission enforcement', () => {
     const querySettingsAs = (username: string) => {
         cy.apolloClient({username, password: PASSWORD});
         return cy.apollo({query: getSettings});
+    };
+
+    const saveSettingsAs = (username: string) => {
+        cy.apolloClient({username, password: PASSWORD});
+        return cy.apollo({mutation: saveSettings, variables: {dryRun: true, scheduleJobASAP: false}});
+    };
+
+    const purgeAllPagesAs = (username: string) => {
+        cy.apolloClient({username, password: PASSWORD});
+        return cy.apollo({mutation: purgeAllPages});
     };
 
     before(() => {
@@ -63,6 +77,22 @@ describe('CustomGPT.ai — permission enforcement', () => {
     describe('GraphQL API authorization', () => {
         it('denies the gated query for a user without the permission', () => {
             querySettingsAs(DENIED_USER).then((result: never) => {
+                const errs = errorsOf(result);
+                expect(errs, 'denial errors').to.have.length.greaterThan(0);
+                expect(errs.map((e: {message: string}) => e.message).join(' ')).to.contain('Permission denied');
+            });
+        });
+
+        it('denies the state-changing saveSettings mutation for a user without the permission', () => {
+            saveSettingsAs(DENIED_USER).then((result: never) => {
+                const errs = errorsOf(result);
+                expect(errs, 'denial errors').to.have.length.greaterThan(0);
+                expect(errs.map((e: {message: string}) => e.message).join(' ')).to.contain('Permission denied');
+            });
+        });
+
+        it('denies the destructive purgeAllPages mutation for a user without the permission', () => {
+            purgeAllPagesAs(DENIED_USER).then((result: never) => {
                 const errs = errorsOf(result);
                 expect(errs, 'denial errors').to.have.length.greaterThan(0);
                 expect(errs.map((e: {message: string}) => e.message).join(' ')).to.contain('Permission denied');

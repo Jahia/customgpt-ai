@@ -5,6 +5,7 @@ import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NoSuchNodeTypeException;
 import org.apache.commons.lang.StringUtils;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
+import org.jahia.community.modules.customgpt.util.SecurityUtils;
 import org.jahia.osgi.FrameworkService;
 import org.jahia.services.content.nodetypes.NodeTypeRegistry;
 import org.osgi.service.cm.ConfigurationException;
@@ -28,13 +29,13 @@ public class Config implements ManagedService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Config.class);
     private static final String JMIX_MAIN_RESOURCE = "jmix:mainResource";
-    private static final int FIVE_HUNDRED = 500;
+    private static final int DEFAULT_BULK_OPERATIONS_BATCH_SIZE = 500;
 
     private static final String CONFIG_NAMESPACE_PREFIX = "org.jahia.community.modules.customgpt";
     private static final String PROP_CONTENT_INDEXED_SUB_NODE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedSubNodeTypes";
     private static final String PROP_CONTENT_INDEXED_MAIN_RESOURCE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedMainResourceTypes";
-    private static final String PROP_GUSTOM_GPT_PROJECT_ID = CONFIG_NAMESPACE_PREFIX + ".projectId";
-    private static final String PROP_GUSTOM_GPT_TOKEN = CONFIG_NAMESPACE_PREFIX + ".token";
+    private static final String PROP_CUSTOM_GPT_PROJECT_ID = CONFIG_NAMESPACE_PREFIX + ".projectId";
+    private static final String PROP_CUSTOM_GPT_TOKEN = CONFIG_NAMESPACE_PREFIX + ".token";
     private static final String PROP_JAHIA_USERNAME = CONFIG_NAMESPACE_PREFIX + ".jahia.username";
     private static final String PROP_JAHIA_PASSWORD = CONFIG_NAMESPACE_PREFIX + ".jahia.password";
     private static final String PROP_JAHIA_SERVER_COOKIE_NAME = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.name";
@@ -75,6 +76,14 @@ public class Config implements ManagedService {
             return;
         }
         parse(properties);
+        // The apiBaseUrl travels with the Bearer token on every API call. A .cfg edit bypasses the saveSettings UI
+        // gate, so re-validate here: reject anything that is not a public https:// URL and refuse to mark the
+        // service configured, rather than letting the token be sent over cleartext or to an internal SSRF target.
+        if (StringUtils.isNotEmpty(customGptApiBaseUrl) && !SecurityUtils.isHttpsUrl(customGptApiBaseUrl)) {
+            LOGGER.error("CustomGpt apiBaseUrl is not a valid public https:// URL; configuration rejected");
+            configured = false;
+            return;
+        }
         configured = true;
         final String eventType = scheduleJobASAP
                 ? CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX
@@ -115,15 +124,15 @@ public class Config implements ManagedService {
         contentIndexedSubNodes = splitNodeTypeByComma((String) properties.get(PROP_CONTENT_INDEXED_SUB_NODE_TYPES));
         contentIndexedMainResources = splitNodeTypeByComma((String) properties.get(PROP_CONTENT_INDEXED_MAIN_RESOURCE_TYPES));
         updateSetToExcludeMainResourceType(contentIndexedMainResources);
-        bulkOperationsBatchSize = getInt(properties, BULK_OPERATIONS_BATCH_SIZE, FIVE_HUNDRED);
+        bulkOperationsBatchSize = getInt(properties, BULK_OPERATIONS_BATCH_SIZE, DEFAULT_BULK_OPERATIONS_BATCH_SIZE);
 
         final String indexedFiles = (String) properties.get(CONTENT_INDEXED_FILE_EXTENSIONS);
         if (StringUtils.isEmpty(StringUtils.trim(indexedFiles))) {
             indexedFileExtensions = Collections.emptySet();
         } else {
+            // indexedFiles is non-blank here (the isEmpty branch above handles null/blank), so no null guard needed.
             indexedFileExtensions = new LinkedHashSet<>();
-            String[] parts = (indexedFiles == null ? "*" : indexedFiles).split(",");
-            for (String part : parts) {
+            for (String part : indexedFiles.split(",")) {
                 String trimmed = part.trim();
                 if (!trimmed.isEmpty()) {
                     indexedFileExtensions.add(trimmed);
@@ -136,8 +145,8 @@ public class Config implements ManagedService {
         customGptApiBaseUrl = getString(properties, PROP_CUSTOM_GPT_API_BASE_URL, CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL);
         rateLimitRequestsPerSecond = getInt(properties, PROP_RATE_LIMIT_REQUESTS_PER_SECOND, 10);
 
-        customGptProjectId = getString(properties, PROP_GUSTOM_GPT_PROJECT_ID, "");
-        customGptToken = getString(properties, PROP_GUSTOM_GPT_TOKEN, "");
+        customGptProjectId = getString(properties, PROP_CUSTOM_GPT_PROJECT_ID, "");
+        customGptToken = getString(properties, PROP_CUSTOM_GPT_TOKEN, "");
         jahiaUsername = getString(properties, PROP_JAHIA_USERNAME, "");
         jahiaPassword = getString(properties, PROP_JAHIA_PASSWORD, "");
         jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
@@ -167,37 +176,30 @@ public class Config implements ManagedService {
     }
 
     private int getInt(Dictionary<String, ?> properties, String key, int def) {
-        if (properties.get(key) != null) {
-            final Object val = properties.get(key);
-            if (val instanceof Number) {
-                return ((Number) val).intValue();
-            } else if (val != null) {
-                return Integer.parseInt(val.toString());
-            }
+        final Object val = properties.get(key);
+        if (val == null) {
+            return def;
         }
-        return def;
+        if (val instanceof Number) {
+            return ((Number) val).intValue();
+        }
+        return Integer.parseInt(val.toString());
     }
 
     private boolean getBoolean(Dictionary<String, ?> properties, String key, boolean def) {
-        if (properties.get(key) != null) {
-            final Object val = properties.get(key);
-            if (val instanceof Boolean) {
-                return (Boolean) val;
-            } else if (val != null) {
-                return Boolean.parseBoolean(val.toString());
-            }
+        final Object val = properties.get(key);
+        if (val == null) {
+            return def;
         }
-        return def;
+        if (val instanceof Boolean) {
+            return (Boolean) val;
+        }
+        return Boolean.parseBoolean(val.toString());
     }
 
     private String getString(Dictionary<String, ?> properties, String key, String def) {
-        if (properties.get(key) != null) {
-            final Object val = properties.get(key);
-            if (val != null) {
-                return val.toString();
-            }
-        }
-        return def;
+        final Object val = properties.get(key);
+        return val != null ? val.toString() : def;
     }
 
     public boolean isConfigured() {

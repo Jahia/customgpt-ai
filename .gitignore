@@ -28,3 +28,5 @@ src/main/resources/javascript/apps/.well-known/
 
 # Test artifact JARs
 tests/artifacts/*.jar
+# Jest coverage output
+coverage

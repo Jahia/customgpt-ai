@@ -2,8 +2,6 @@ package org.jahia.community.modules.customgpt.indexer;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.jcr.NodeIterator;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
@@ -36,7 +34,6 @@ import org.slf4j.LoggerFactory;
 public class Indexer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Indexer.class);
-    private static final Map<String, AtomicInteger> nodeToReindex = new ConcurrentHashMap<>();
     private final Map<String, String> nodePathsToMove = new LinkedHashMap<>();
     private final Set<String> customGptPageToRemove = new LinkedHashSet<>();
     private final Set<String> nodePathsToAddOrReIndex = new LinkedHashSet<>();
@@ -159,9 +156,6 @@ public class Indexer {
                 || nodeWrapper.isNodeType(Constants.JAHIANT_CONDITION)) {
             return getContentNode(nodeWrapper.getParent());
         }
-        if (nodeWrapper.isNodeType(Constants.JAHIANT_ACE)) {
-            return getContentNode(nodeWrapper.getParent());
-        }
         return nodeWrapper;
     }
 
@@ -175,8 +169,6 @@ public class Indexer {
             final JCRSiteNode siteNode = (JCRSiteNode) node;
             if (siteNode.getPath().startsWith(CustomGptConstants.PATH_SITES)) {
                 LOGGER.info("Indexing site {}...", siteNode.getPath());
-                clearNodeToReindex();
-                LOGGER.info("We cleared all blocked nodes from before reindexation.");
                 addNodesToIndex(customGptClient, jahiaClient, siteNode);
                 LOGGER.info("Finished indexing site {}", siteNode.getPath());
             }
@@ -317,9 +309,5 @@ public class Indexer {
         protected Void getResult() {
             return null;
         }
-    }
-
-    private static void clearNodeToReindex() {
-        nodeToReindex.clear();
     }
 }

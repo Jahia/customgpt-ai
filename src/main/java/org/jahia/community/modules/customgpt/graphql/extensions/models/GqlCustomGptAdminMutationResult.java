@@ -37,6 +37,23 @@ public class GqlCustomGptAdminMutationResult {
     private static final Logger LOGGER = LoggerFactory.getLogger(GqlCustomGptAdminMutationResult.class);
     private static final String CUSTOM_GPT_ADMIN = "customGptAdmin";
     private static final String CONFIG_PID = "org.jahia.community.modules.customgpt";
+    // Generic client-facing message; the underlying exception detail is logged server-side, never returned.
+    private static final String ERR_OPERATION_FAILED = "The CustomGPT operation could not be completed";
+    // Site keys are admin-supplied JCR node names; restrict to word chars and hyphen to avoid path traversal/injection.
+    private static final java.util.regex.Pattern SITE_KEY_PATTERN = java.util.regex.Pattern.compile("^[\\w-]+$");
+
+    /**
+     * Returns the acting user's name, sanitised for log output (CR/LF stripped). Used to attribute privileged
+     * admin mutations (purge, saveSettings, addSite, startIndex) in the server audit log.
+     */
+    private static String currentUserForAudit() {
+        try {
+            final org.jahia.services.usermanager.JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+            return SecurityUtils.sanitizeForLog(user != null ? user.getUsername() : "<unknown>");
+        } catch (RuntimeException e) {
+            return "<unknown>";
+        }
+    }
 
     @GraphQLName("Status")
     @GraphQLDescription("Status of the site added successfully to customGPT or already added")
@@ -79,7 +96,12 @@ public class GqlCustomGptAdminMutationResult {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("Permission check failed for startIndex", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info("[audit] startIndex requested by user {} for siteKeys {}", currentUserForAudit(),
+                    SecurityUtils.sanitizeForLog(String.valueOf(siteKeys)));
         }
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
         if (customGptService == null) {
@@ -111,7 +133,12 @@ public class GqlCustomGptAdminMutationResult {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("Permission check failed for startNodeIndex", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info("[audit] startNodeIndex requested by user {} for nodePaths {}", currentUserForAudit(),
+                    SecurityUtils.sanitizeForLog(String.valueOf(nodePaths)));
         }
         final GqlIndexingJob job = NodeReindexAsyncJob.triggerJob(nodePaths, inclDescendants != null && inclDescendants);
         return new GqlIndexMutationResult(Collections.singletonList(job));
@@ -147,14 +174,17 @@ public class GqlCustomGptAdminMutationResult {
     @GraphQLName("addSite")
     @GraphQLDescription("Add site to the list of indexed sites")
     public String addSite(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey) {
-
+        // Validate the admin-supplied site key before building a JCR path to prevent path traversal / injection.
+        if (siteKey == null || !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+            throw new DataFetchingException(new IllegalArgumentException("Invalid site key; expected ^[\\w-]+$"));
+        }
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info("[audit] addSite requested by user {} for siteKey {}", currentUserForAudit(),
+                    SecurityUtils.sanitizeForLog(siteKey));
+        }
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
             return JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
-                if ("".equals(siteKey)) {
-                    throw new RepositoryException("Site '/sites/' does not exist. Provide a valid site key.");
-                }
-
                 final String path = CustomGptConstants.PATH_SITES + siteKey;
                 checkAdminPermission(path, CustomGptConstants.PERM_SITE_ADMIN);
                 final JCRNodeWrapper site = session.getNode(path);
@@ -166,7 +196,8 @@ public class GqlCustomGptAdminMutationResult {
                 return Status.EXISTALREADY.getValue();
             });
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("addSite failed for siteKey {}", SecurityUtils.sanitizeForLog(siteKey), e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
         }
     }
 
@@ -193,7 +224,11 @@ public class GqlCustomGptAdminMutationResult {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("Permission check failed for saveSettings", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info("[audit] saveSettings requested by user {}", currentUserForAudit());
         }
         // The base URL travels with the Bearer token on every API call; reject anything that is not https to
         // prevent the token from being exfiltrated over cleartext or to a non-HTTP scheme.
@@ -237,7 +272,7 @@ public class GqlCustomGptAdminMutationResult {
             }
             config.update(props);
             return Boolean.TRUE;
-        } catch (Exception e) {
+        } catch (java.io.IOException e) {
             LOGGER.error("Failed to save CustomGPT settings", e);
             return Boolean.FALSE;
         }
@@ -250,7 +285,11 @@ public class GqlCustomGptAdminMutationResult {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
-            throw new DataFetchingException(e);
+            LOGGER.warn("Permission check failed for purgeAllPages", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+        if (LOGGER.isWarnEnabled()) {
+            LOGGER.warn("[audit] purgeAllPages (danger zone) requested by user {}", currentUserForAudit());
         }
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
         if (customGptService == null) {
@@ -258,8 +297,9 @@ public class GqlCustomGptAdminMutationResult {
         }
         try {
             return customGptService.purgeAllPages();
-        } catch (Exception e) {
-            throw new DataFetchingException(e);
+        } catch (java.io.IOException e) {
+            LOGGER.error("purgeAllPages failed", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
         }
     }
 

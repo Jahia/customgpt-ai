@@ -2,8 +2,7 @@ import {registry} from '@jahia/ui-extender';
 import {CustomGptSettingsAdmin} from './CustomGptSettings';
 import React from 'react';
 
-export default () => {
-    console.debug('%c customgpt-ai: activation in progress', 'color: #006633');
+export default function registerAdminRoute() {
     registry.add('adminRoute', 'customgptAiSettings', {
         targets: ['administration-server-configuration:25'],
         requiredPermission: 'customGptAdmin',
@@ -11,4 +10,4 @@ export default () => {
         isSelectable: true,
         render: () => React.createElement(CustomGptSettingsAdmin)
     });
-};
+}

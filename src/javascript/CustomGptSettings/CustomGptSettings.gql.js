@@ -1,7 +1,7 @@
 import {gql} from '@apollo/client';
 
 export const GET_SETTINGS = gql`
-    query {
+    query CustomGptGetSettings {
         admin {
             customGpt {
                 settings {

@@ -11,6 +11,7 @@
     "contentIndexedFileExtensionsPlaceholder": "pdf,docx",
     "commaSeparatedHint": "Comma-separated list",
     "operationsBatchSize": "Batch Size",
+    "operationsBatchSizeHint": "Integer between 1 and 10000",
     "projectId": "Project ID",
     "token": "API Token",
     "apiBaseUrl": "API Base URL",
@@ -38,6 +39,9 @@
     "purgeConfirmTitle": "Confirm Purge",
     "confirmPurge": "Yes, Purge All",
     "cancel": "Cancel",
-    "requiredFieldsNote": "Fields marked with * are required"
+    "requiredFieldsNote": "Fields marked with * are required",
+    "validationProjectIdRequired": "Project ID is required.",
+    "validationTokenRequired": "API Token is required.",
+    "purging": "Purging…"
   }
 }

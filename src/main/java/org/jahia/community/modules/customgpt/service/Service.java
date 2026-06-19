@@ -86,6 +86,11 @@ public class Service implements EventHandler {
     private static final String RECREATE_LOG = "Recreate Log";
     private static final int N_THREADS = 2;
     private static final int DEFAULT_BATCH_SIZE = 10;
+    // OkHttp timeouts: bound every outbound CustomGPT/Jahia call so a stalled peer cannot pin a worker thread forever.
+    private static final int CONNECT_TIMEOUT_SECONDS = 10;
+    private static final int READ_TIMEOUT_SECONDS = 30;
+    private static final int WRITE_TIMEOUT_SECONDS = 30;
+    private static final int CALL_TIMEOUT_SECONDS = 60;
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String HEADER_ACCEPT = "accept";
@@ -103,9 +108,18 @@ public class Service implements EventHandler {
     private String journalEventReaderKey;
     private volatile boolean initialized;
     private boolean journalEventReaderEnabled;
-    private int retryOnConflict;
     private OkHttpClient customGptClient;
     private OkHttpClient jahiaClient;
+    // Executors are restarted on demand by the synchronized restartExecutor* guards; volatile so a fresh pool
+    // published by one thread is visible to the producers reading the field. The volatile reference is only ever
+    // swapped inside synchronized restartExecutor* methods, so volatile (not AtomicReference) is the intended
+    // design here.
+    @SuppressWarnings("java:S3077")
+    private volatile ExecutorService executor = Executors.newFixedThreadPool(1);
+    @SuppressWarnings("java:S3077")
+    private volatile ExecutorService executorFullIndexation = Executors.newFixedThreadPool(1);
+    @SuppressWarnings("java:S3077")
+    private volatile ExecutorService executorNThreads = Executors.newFixedThreadPool(N_THREADS);
     
     @Activate
     public void activate(BundleContext bundleContext) {
@@ -269,37 +283,34 @@ public class Service implements EventHandler {
         CompletableFuture.runAsync(() -> {
             try {
                 performIndexation(operations);
-            } catch (Exception e) {
+            } catch (RepositoryException | IOException e) {
                 LOGGER.error("Indexation failed due to: {}", e.getMessage(), e);
             }
         }, executorFullIndexation);
     }
     
-    private void restartExecutor() {
+    // Guarded so concurrent producers cannot race the shutdown/terminated check and lose tasks to a dead pool.
+    private synchronized void restartExecutor() {
         if (executor.isShutdown() || executor.isTerminated()) {
             LOGGER.warn("Executor is shutdown or terminated, starting a new one");
             executor = Executors.newFixedThreadPool(1);
         }
     }
-    
-    private void restartExecutorFullIndexation() {
+
+    private synchronized void restartExecutorFullIndexation() {
         if (executorFullIndexation.isShutdown() || executorFullIndexation.isTerminated()) {
             LOGGER.warn("ExecutorFullIndexation is shutdown or terminated, starting a new one");
             executorFullIndexation = Executors.newFixedThreadPool(1);
         }
     }
-    
-    private void restartExecutorNThreads() {
+
+    private synchronized void restartExecutorNThreads() {
         if (executorNThreads.isShutdown() || executorNThreads.isTerminated()) {
             LOGGER.warn("Executor with {} threads is shutdown or terminated, starting a new one", N_THREADS);
             executorNThreads = Executors.newFixedThreadPool(N_THREADS);
         }
     }
-    
-    private ExecutorService executor = Executors.newFixedThreadPool(1);
-    private ExecutorService executorFullIndexation = Executors.newFixedThreadPool(1);
-    private ExecutorService executorNThreads = Executors.newFixedThreadPool(N_THREADS);
-    
+
     public void produceAsynchronousOperations(IndexOperations... operations) {
         restartExecutor();
         final CompletableFuture<Void>[] completableFuture = new CompletableFuture[operations.length];
@@ -339,7 +350,7 @@ public class Service implements EventHandler {
         return () -> {
             try {
                 performIndexation(operations);
-            } catch (Exception e) {
+            } catch (RepositoryException | IOException e) {
                 LOGGER.error("Indexation failed due to: {}", e.getMessage(), e);
             }
             return null;
@@ -558,7 +569,7 @@ public class Service implements EventHandler {
         this.jahiaTemplateManagerService = jahiaTemplateManagerService;
     }
     
-    private void init() {
+    private synchronized void init() {
         if (!initialized) {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
@@ -591,12 +602,20 @@ public class Service implements EventHandler {
                         // Do not follow redirects: the session cookie must not be forwarded to redirect destinations.
                         .followRedirects(false)
                         .followSslRedirects(false)
+                        .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                         .build();
                 customGptClient = new OkHttpClient.Builder()
                         // Do not follow redirects: every request carries the Bearer token, and a redirect to another
                         // host could forward the Authorization header to an attacker-controlled endpoint.
                         .followRedirects(false)
                         .followSslRedirects(false)
+                        .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                         .authenticator((route, response) -> {
                             if (response.request().header(HEADER_AUTHORIZATION) != null) {
                                 return null;
@@ -674,15 +693,7 @@ public class Service implements EventHandler {
     public void setJournalEventReaderEnabled(boolean journalEventReaderEnabled) {
         this.journalEventReaderEnabled = journalEventReaderEnabled;
     }
-    
-    public int getRetryOnConflict() {
-        return retryOnConflict;
-    }
-    
-    public void setRetryOnConflict(int retryOnConflict) {
-        this.retryOnConflict = retryOnConflict;
-    }
-    
+
     /**
      * Receives OSGi events from {@link CustomGptConstants#EVENT_TOPIC}.
      * On {@link CustomGptConstants#EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX} it re-initialises the HTTP clients,
@@ -718,14 +729,14 @@ public class Service implements EventHandler {
                 return;
             }
             final org.osgi.service.cm.Configuration config = configAdmin.getConfiguration("org.jahia.community.modules.customgpt", null);
-            java.util.Dictionary<String, Object> props = config.getProperties();
+            Dictionary<String, Object> props = config.getProperties();
             if (props == null) {
-                props = new java.util.Hashtable<>();
+                props = new Hashtable<>();
             }
             props.put("org.jahia.community.modules.customgpt.scheduleJobASAP", Boolean.FALSE);
             config.update(props);
             LOGGER.info("Reset scheduleJobASAP to false after scheduling indexation jobs");
-        } catch (Exception e) {
+        } catch (IOException e) {
             LOGGER.warn("Failed to reset scheduleJobASAP property: {}", e.getMessage());
         }
     }
@@ -809,15 +820,12 @@ public class Service implements EventHandler {
     }
     
     private void updateIndexationTime(String path, String property, Calendar date) throws RepositoryException {
-        JCRTemplate.getInstance().doExecuteWithSystemSession(new JCRCallback<Object>() {
-            @Override
-            public Object doInJCR(JCRSessionWrapper session) throws RepositoryException {
-                final JCRNodeWrapper node = session.getNode(path);
-                node.setProperty(property, date);
-                session.save();
-                LOGGER.info("Site {} indexation has {} at {}", path, (property.equals(PROP_INDEXATION_START) ? "started" : "ended"), date.toInstant());
-                return null;
-            }
+        JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
+            final JCRNodeWrapper node = session.getNode(path);
+            node.setProperty(property, date);
+            session.save();
+            LOGGER.info("Site {} indexation has {} at {}", path, (property.equals(PROP_INDEXATION_START) ? "started" : "ended"), date.toInstant());
+            return null;
         });
     }
     
@@ -830,6 +838,11 @@ public class Service implements EventHandler {
     }
     
     public JCRSessionWrapper getSystemSession(JahiaUser user, String workspace, Locale locale) throws RepositoryException {
+        // NOTE: setCurrentUser mutates the thread-local JCRSessionFactory current user as a side effect, which is a
+        // shared-state concern when indexer tasks run on pooled executor threads. It is left in place deliberately:
+        // the index pipeline relies on the current-user being the root/system user for permission resolution, and a
+        // safe behaviour-preserving fix would require threading the user through the call chain. Do not "fix" by
+        // removing the guard without also passing the user explicitly to every downstream JCR call.
         final JCRSessionWrapper systemSession = JCRTemplate.getInstance().getSessionFactory().getCurrentSystemSession(workspace, locale, null);
         if (JCRSessionFactory.getInstance().getCurrentUser() == null) {
             JCRSessionFactory.getInstance().setCurrentUser(user);
