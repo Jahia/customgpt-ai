@@ -136,6 +136,20 @@ public class SecurityUtilsAdditionalTest {
     }
 
     @Test
+    public void isHttpsUrl_hexLoopback_rejected() {
+        // 0x7f000001 == 127.0.0.1 in hex notation; the 'x' previously made isIpLiteral skip the range
+        // check, treating it as a hostname → SSRF bypass. It must now be classified as an IP literal
+        // and rejected (range-checked, or fail-safe on UnknownHostException).
+        assertThat(SecurityUtils.isHttpsUrl("https://0x7f000001/api")).isFalse();
+        assertThat(SecurityUtils.isHttpsUrl("https://0x7f.0.0.1/api")).isFalse();
+    }
+
+    @Test
+    public void isInternalHost_hexLoopback_returnsTrue() {
+        assertThat(SecurityUtils.isInternalHost("0x7f000001")).isTrue();
+    }
+
+    @Test
     public void isInternalHost_dotlessDecimalLoopback_returnsTrue() {
         assertThat(SecurityUtils.isInternalHost("2130706433")).isTrue();
     }

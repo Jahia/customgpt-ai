@@ -125,6 +125,14 @@ public final class SecurityUtils {
         if (value.indexOf(':') >= 0) {
             return true;
         }
+        // Hex IPv4 forms (e.g. 0x7f000001 or 0x7f.0.0.1): every numeric segment is prefixed with "0x"/"0X".
+        // Real hostnames never start with "0x", so classifying these as IP literals routes them through the
+        // range check (or InetAddress's UnknownHostException -> fail-safe) and closes the hex SSRF bypass
+        // without resolving any genuine hostname.
+        final String lower = value.toLowerCase(java.util.Locale.ROOT);
+        if (lower.startsWith("0x") || lower.contains(".0x")) {
+            return true;
+        }
         boolean hasDigit = false;
         for (int i = 0; i < value.length(); i++) {
             final char c = value.charAt(i);
