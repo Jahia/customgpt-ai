@@ -118,6 +118,16 @@
             <version>4.12.0</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- SLF4J provider for tests only: several gap-list specs (U2, U5, F14, D4) require attaching
+                 a Logback ListAppender to assert log content (audit lines, security warnings). Without a
+                 bound provider, LoggerFactory.getLogger(...) returns a no-op logger and nothing could be
+                 asserted. Version matches the already-resolved slf4j-api 2.0.x transitive from jahia-impl. -->
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.4.14</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <repositories>
         <repository>
