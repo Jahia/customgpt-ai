@@ -76,17 +76,22 @@ public class ServiceGetProjectNameTest {
     }
 
     /**
-     * Characterization test, NOT the spec-as-written behavior: {@code getProjectName()}'s
+     * Fixed in Stage 7 (formerly a characterization test documenting a bug): {@code getProjectName()}'s
      * {@code response.body() == null} guard is effectively unreachable in practice - OkHttp always returns a
-     * non-null (possibly empty) {@link okhttp3.ResponseBody} for a completed HTTP response, so a genuinely
-     * empty body reaches {@code new JSONObject(response.body().string())} instead and throws
-     * {@link org.json.JSONException}, uncaught by {@code getProjectName()}'s
-     * {@code catch (IOException e)} (JSONException is a {@link RuntimeException}, not an IOException). This
-     * is a minor, previously-unflagged error-handling gap distinct from the 29 scoped gap-list items -
-     * documented here rather than silently asserted away or hidden.
+     * non-null (possibly empty) {@link okhttp3.ResponseBody} for a completed HTTP response. A genuinely empty
+     * body used to reach {@code new JSONObject(response.body().string())} and throw
+     * {@link org.json.JSONException}, uncaught by {@code getProjectName()}'s {@code catch (IOException e)}
+     * (JSONException is a {@link RuntimeException}, not an IOException) - a real, if minor, gap in the
+     * method's documented "returns null, never throws" contract for a plausible failure mode (a
+     * gateway/proxy returning 200 with no content).
+     *
+     * <p>{@code getProjectName()} now explicitly checks for an empty response body string (in addition to
+     * the pre-existing, effectively-dead {@code response.body() == null} check) and wraps the
+     * {@code JSONObject} parse in a try/catch for {@link org.json.JSONException}, so both a genuinely empty
+     * body and any other malformed/non-JSON body gracefully return {@code null} instead of throwing.
      */
     @Test
-    public void getProjectName_genuinelyEmptyBody_currentlyThrowsJsonExceptionRatherThanReturningNull() throws Exception {
+    public void getProjectName_genuinelyEmptyBody_returnsNullNotException() throws Exception {
         fixture = HttpsMockWebServerSupport.start();
         fixture.server.enqueue(new MockResponse().setResponseCode(200));
 
@@ -97,8 +102,28 @@ public class ServiceGetProjectNameTest {
 
         final Service service = newServiceFor(config, fixture.trustingClientBuilder.build());
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(service::getProjectName)
-                .isInstanceOf(org.json.JSONException.class);
+        assertThat(service.getProjectName()).isNull();
+    }
+
+    /**
+     * Companion to the empty-body fix above: a non-empty but syntactically invalid JSON body (a malformed
+     * response, distinct from the "well-formed JSON without a usable 'data' field" case already covered by
+     * {@code getProjectName_responseBodyPresentButNotAnObject_returnsNullNotException()}) must also return
+     * {@code null} rather than propagate {@link org.json.JSONException}.
+     */
+    @Test
+    public void getProjectName_malformedJsonBody_returnsNullNotException() throws Exception {
+        fixture = HttpsMockWebServerSupport.start();
+        fixture.server.enqueue(new MockResponse().setResponseCode(200).setBody("{not valid json"));
+
+        final Config config = mock(Config.class);
+        when(config.getCustomGptProjectId()).thenReturn("proj1");
+        when(config.getCustomGptToken()).thenReturn("tok");
+        when(config.getCustomGptApiBaseUrl()).thenReturn(fixture.baseUrl());
+
+        final Service service = newServiceFor(config, fixture.trustingClientBuilder.build());
+
+        assertThat(service.getProjectName()).isNull();
     }
 
     @Test

@@ -937,7 +937,21 @@ public class Service implements EventHandler {
                 LOGGER.warn("Empty response body fetching CustomGPT project name for project {}", projectId);
                 return null;
             }
-            final JSONObject body = new JSONObject(response.body().string());
+            final String responseBody = response.body().string();
+            // OkHttp never returns a null ResponseBody for a completed response - a genuinely empty body
+            // (e.g. a gateway/proxy returning 200 with no content) reaches here as an empty string rather
+            // than tripping the `response.body() == null` guard above, so it must be checked explicitly.
+            if (responseBody.isEmpty()) {
+                LOGGER.warn("Empty response body fetching CustomGPT project name for project {}", projectId);
+                return null;
+            }
+            final JSONObject body;
+            try {
+                body = new JSONObject(responseBody);
+            } catch (org.json.JSONException e) {
+                LOGGER.warn("Malformed response body fetching CustomGPT project name for project {}: {}", projectId, e.getMessage());
+                return null;
+            }
             final JSONObject data = body.optJSONObject("data");
             return data != null ? data.optString("project_name", null) : null;
         } catch (IOException e) {
