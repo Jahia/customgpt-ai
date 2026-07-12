@@ -100,6 +100,46 @@
             <version>5.14.2</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- MockWebServer: backs the Tier-3 JUnit specs (D1/D2/D4/F6/F7/F14/F15/F19/U10/U12/U14).
+                 Version matches the okhttp version already pinned above. -->
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>mockwebserver</artifactId>
+            <version>4.12.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Makes the MockWebServer HTTPS/self-signed-cert setup low-boilerplate. Several Tier-3
+                 specs MUST serve MockWebServer over HTTPS with hostname "localhost" (never a loopback
+                 IP literal) because SecurityUtils.resolveHttpsBaseUrl()/isHttpsUrl() reject any literal
+                 private/loopback IP host as an SSRF guard - see AGENTS.md / 04-gaps.md Tier 3 note. -->
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-tls</artifactId>
+            <version>4.12.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Guava is a real (compile-scope) dependency of jahia-impl but is not resolved transitively
+                 here (excluded somewhere up the dependency-management chain). Several Jahia decorator classes
+                 (e.g. JCRUserNode) reference Guava types on their method signatures, and Mockito's bytecode
+                 generation fails to redefine/subclass them without Guava on the classpath
+                 ("NoClassDefFoundError: com/google/common/base/Predicate"). Test scope only; version matches
+                 jahia-modules parent's ${guava.osgi.version}. -->
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.0.0-jre</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- SLF4J provider for tests only: several gap-list specs (U2, U5, F14, D4) require attaching
+                 a Logback ListAppender to assert log content (audit lines, security warnings). Without a
+                 bound provider, LoggerFactory.getLogger(...) returns a no-op logger and nothing could be
+                 asserted. Version matches the already-resolved slf4j-api 2.0.x transitive from jahia-impl. -->
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>1.4.14</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <repositories>
         <repository>

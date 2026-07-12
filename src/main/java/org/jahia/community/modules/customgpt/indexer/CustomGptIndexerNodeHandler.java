@@ -92,8 +92,13 @@ final class CustomGptIndexerNodeHandler {
                 LOGGER.warn("Cannot index node : {}, {}", path, e.getMessage());
             }
         }
-        for (String customGptPageToRemove : customGptIndexer.getCustomGptPageToRemove()) {
-            delete(customGptClient, customGptPageToRemove, customGptIndexer);
+        if (customGptIndexer.getCustomGptConfig().isDryRun()) {
+            LOGGER.info("Dry-run enabled — skipping deletion of {} queued CustomGPT page(s)",
+                    customGptIndexer.getCustomGptPageToRemove().size());
+        } else {
+            for (String customGptPageToRemove : customGptIndexer.getCustomGptPageToRemove()) {
+                delete(customGptClient, customGptPageToRemove, customGptIndexer);
+            }
         }
 
         for (CustomGptRequest request : requests) {

@@ -574,62 +574,95 @@ public class Service implements EventHandler {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
                 registerJcrListeners();
-                final CookieJar cookieJar = new CookieJar() {
-                    @Override
-                    public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
-                        // cookies are not persisted; session auth is handled by the Bearer authenticator
-                    }
-                    
-                    @Override
-                    public List<Cookie> loadForRequest(HttpUrl arg0) {
-                        if (customGptConfig.getJahiaServerCookieName() != null && !customGptConfig.getJahiaServerCookieName().isEmpty()
-                                && customGptConfig.getJahiaServerCookieValue() != null && !customGptConfig.getJahiaServerCookieValue().isEmpty()) {
-                            final Cookie cookie = new Cookie.Builder()
-                                    .httpOnly()
-                                    .secure()
-                                    .name(customGptConfig.getJahiaServerCookieName())
-                                    .value(customGptConfig.getJahiaServerCookieValue())
-                                    .domain(customGptConfig.getJahiaServerCookieDomain())
-                                    .build();
-                            return Arrays.asList(cookie);
-                        } else {
-                            return Collections.emptyList();
-                        }
-                    }
-                };
-                jahiaClient = new OkHttpClient.Builder()
-                        .cookieJar(cookieJar)
-                        // Do not follow redirects: the session cookie must not be forwarded to redirect destinations.
-                        .followRedirects(false)
-                        .followSslRedirects(false)
-                        .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .build();
-                customGptClient = new OkHttpClient.Builder()
-                        // Do not follow redirects: every request carries the Bearer token, and a redirect to another
-                        // host could forward the Authorization header to an attacker-controlled endpoint.
-                        .followRedirects(false)
-                        .followSslRedirects(false)
-                        .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                        .authenticator((route, response) -> {
-                            if (response.request().header(HEADER_AUTHORIZATION) != null) {
-                                return null;
-                            }
-                            return response.request().newBuilder()
-                                    .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
-                                    .build();
-                        })
-                        .addInterceptor(new RateLimitInterceptor(customGptConfig.getRateLimitRequestsPerSecond()))
-                        .build();
+                jahiaClient = buildJahiaClient(customGptConfig);
+                customGptClient = buildCustomGptClient(customGptConfig);
             }
             initialized = true;
             LOGGER.info("...service started");
         }
+    }
+
+    /**
+     * Builds the {@link CookieJar} injecting the single statically-configured {@code jahia.serverCookie.*}
+     * cookie into every Jahia page-rendering request. {@code saveFromResponse()} is deliberately a no-op:
+     * session auth for the Jahia-rendering client is handled by the Basic-auth header (see F14), not by
+     * persisting any cookie the Jahia server happens to set on a response.
+     *
+     * <p>Extracted out of {@link #init()} (package-visible, static) purely for unit-testability (U10) - this
+     * is a behavior-preserving refactor, not a functional change.
+     */
+    static CookieJar buildJahiaCookieJar(Config customGptConfig) {
+        return new CookieJar() {
+            @Override
+            public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
+                // cookies are not persisted; session auth is handled by the Bearer authenticator
+            }
+
+            @Override
+            public List<Cookie> loadForRequest(HttpUrl arg0) {
+                if (customGptConfig.getJahiaServerCookieName() != null && !customGptConfig.getJahiaServerCookieName().isEmpty()
+                        && customGptConfig.getJahiaServerCookieValue() != null && !customGptConfig.getJahiaServerCookieValue().isEmpty()) {
+                    final Cookie cookie = new Cookie.Builder()
+                            .httpOnly()
+                            .secure()
+                            .name(customGptConfig.getJahiaServerCookieName())
+                            .value(customGptConfig.getJahiaServerCookieValue())
+                            .domain(customGptConfig.getJahiaServerCookieDomain())
+                            .build();
+                    return Arrays.asList(cookie);
+                } else {
+                    return Collections.emptyList();
+                }
+            }
+        };
+    }
+
+    /**
+     * Builds the OkHttp client used for Basic-auth/cookie-bearing Jahia page-rendering requests.
+     * Redirect-following is disabled (U14/invariant (c)): the session cookie / Basic-auth header must not be
+     * forwarded to a redirect destination. Extracted out of {@link #init()} (package-visible, static) purely
+     * for unit-testability - a behavior-preserving refactor, not a functional change.
+     */
+    static OkHttpClient buildJahiaClient(Config customGptConfig) {
+        return new OkHttpClient.Builder()
+                .cookieJar(buildJahiaCookieJar(customGptConfig))
+                // Do not follow redirects: the session cookie must not be forwarded to redirect destinations.
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .build();
+    }
+
+    /**
+     * Builds the OkHttp client used for CustomGPT API requests: a Bearer-token authenticator plus the
+     * {@link RateLimitInterceptor} token-bucket. Redirect-following is disabled (F15): every request carries
+     * the Bearer token, and a redirect to another host could forward the {@code Authorization} header to an
+     * attacker-controlled endpoint. Extracted out of {@link #init()} (package-visible, static) purely for
+     * unit-testability - a behavior-preserving refactor, not a functional change.
+     */
+    static OkHttpClient buildCustomGptClient(Config customGptConfig) {
+        return new OkHttpClient.Builder()
+                // Do not follow redirects: every request carries the Bearer token, and a redirect to another
+                // host could forward the Authorization header to an attacker-controlled endpoint.
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .authenticator((route, response) -> {
+                    if (response.request().header(HEADER_AUTHORIZATION) != null) {
+                        return null;
+                    }
+                    return response.request().newBuilder()
+                            .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
+                            .build();
+                })
+                .addInterceptor(new RateLimitInterceptor(customGptConfig.getRateLimitRequestsPerSecond()))
+                .build();
     }
     
     public void start() {
@@ -904,7 +937,21 @@ public class Service implements EventHandler {
                 LOGGER.warn("Empty response body fetching CustomGPT project name for project {}", projectId);
                 return null;
             }
-            final JSONObject body = new JSONObject(response.body().string());
+            final String responseBody = response.body().string();
+            // OkHttp never returns a null ResponseBody for a completed response - a genuinely empty body
+            // (e.g. a gateway/proxy returning 200 with no content) reaches here as an empty string rather
+            // than tripping the `response.body() == null` guard above, so it must be checked explicitly.
+            if (responseBody.isEmpty()) {
+                LOGGER.warn("Empty response body fetching CustomGPT project name for project {}", projectId);
+                return null;
+            }
+            final JSONObject body;
+            try {
+                body = new JSONObject(responseBody);
+            } catch (org.json.JSONException e) {
+                LOGGER.warn("Malformed response body fetching CustomGPT project name for project {}: {}", projectId, e.getMessage());
+                return null;
+            }
             final JSONObject data = body.optJSONObject("data");
             return data != null ? data.optString("project_name", null) : null;
         } catch (IOException e) {
@@ -928,6 +975,13 @@ public class Service implements EventHandler {
         final String projectId = customGptConfig.getCustomGptProjectId();
         // projectId is free-form admin config; strip CR/LF before logging to prevent log forging.
         final String safeProjectId = SecurityUtils.sanitizeForLog(projectId);
+
+        if (customGptConfig.isDryRun()) {
+            LOGGER.info("[purgeAllPages] Dry-run enabled — skipping purge for project {}: no GET/DELETE "
+                    + "request will be issued, 0 page(s) deleted", safeProjectId);
+            return 0;
+        }
+
         LOGGER.info("[purgeAllPages] Starting purge for project {}", safeProjectId);
 
         if (customGptClient == null) {

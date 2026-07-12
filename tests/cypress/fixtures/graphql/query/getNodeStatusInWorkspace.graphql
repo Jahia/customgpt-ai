@@ -1,0 +1,9 @@
+query getNodeStatusInWorkspace($path: String!, $workspace: Workspace!) {
+    jcr(workspace: $workspace) {
+        nodeByPath(path: $path) {
+            property(name: "customGptPageId") {
+                value
+            }
+        }
+    }
+}
