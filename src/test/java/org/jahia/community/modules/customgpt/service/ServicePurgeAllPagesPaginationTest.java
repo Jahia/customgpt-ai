@@ -52,6 +52,10 @@ public class ServicePurgeAllPagesPaginationTest {
                 .setBody("{\"data\":{\"pages\":{\"data\":[]}}}"));
 
         final Config config = mock(Config.class);
+        // Explicit dryRun=false (rather than relying on Mockito's implicit boolean default): this test doubles
+        // as the companion proof that the isDryRun() guard added to purgeAllPages() is dry-run-specific, not an
+        // accidental universal short-circuit — real GET/DELETE calls must still reach the mock server below.
+        when(config.isDryRun()).thenReturn(false);
         when(config.getCustomGptProjectId()).thenReturn("proj1");
         when(config.getCustomGptToken()).thenReturn("tok");
         when(config.getCustomGptApiBaseUrl()).thenReturn(fixture.baseUrl());

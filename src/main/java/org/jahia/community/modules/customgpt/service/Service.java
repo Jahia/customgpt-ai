@@ -961,6 +961,13 @@ public class Service implements EventHandler {
         final String projectId = customGptConfig.getCustomGptProjectId();
         // projectId is free-form admin config; strip CR/LF before logging to prevent log forging.
         final String safeProjectId = SecurityUtils.sanitizeForLog(projectId);
+
+        if (customGptConfig.isDryRun()) {
+            LOGGER.info("[purgeAllPages] Dry-run enabled — skipping purge for project {}: no GET/DELETE "
+                    + "request will be issued, 0 page(s) deleted", safeProjectId);
+            return 0;
+        }
+
         LOGGER.info("[purgeAllPages] Starting purge for project {}", safeProjectId);
 
         if (customGptClient == null) {

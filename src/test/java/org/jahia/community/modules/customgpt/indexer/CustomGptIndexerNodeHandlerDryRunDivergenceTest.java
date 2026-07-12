@@ -2,8 +2,6 @@ package org.jahia.community.modules.customgpt.indexer;
 
 import java.util.Collections;
 import okhttp3.OkHttpClient;
-import okhttp3.mockwebserver.MockResponse;
-import okhttp3.mockwebserver.RecordedRequest;
 import org.jahia.api.Constants;
 import org.jahia.community.modules.customgpt.CustomGptRequest;
 import org.jahia.community.modules.customgpt.IndexRequest;
@@ -34,15 +32,20 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 /**
- * D2 — {@code dryRun} does NOT gate node-removal-triggered CustomGPT page deletions during normal indexing.
+ * D2 — {@code dryRun} now correctly gates node-removal-triggered CustomGPT page deletions during normal
+ * indexing, paired with D1's {@code purgeAllPages} fix.
  *
- * <p>This is a <b>characterization test that currently passes and documents a bug</b> (paired with D1's
- * {@code purgeAllPages} divergence), not a "this is correct" assertion. {@code
- * CustomGptIndexerNodeHandler.handleNodeToReindex()}'s {@code customGptPageToRemove} deletion loop
- * (lines 95-97) runs unconditionally, before the only {@code isDryRun()} check in the file (inside
- * {@code indexInSession()}, which wraps the add/update path only). If Stage 7 adds a {@code dryRun} guard
- * around the deletion loop, THIS TEST'S FIRST ASSERTION MUST BE INVERTED to "zero DELETE requests received",
- * while the second assertion (add/update suppressed) must remain unchanged.
+ * <p><b>Formerly a characterization test documenting a bug</b> (see the Stage 6/7 execution reports for the
+ * original {@code handleNodeToReindex_dryRunTrue_stillDeletesQueuedPages_butSuppressesAddUpdate_documentsCurrentDivergence()}
+ * test this class used to contain): {@code CustomGptIndexerNodeHandler.handleNodeToReindex()}'s
+ * {@code customGptPageToRemove} deletion loop used to run unconditionally, ahead of the only
+ * {@code isDryRun()} check in the file (inside {@code indexInSession()}, which only ever covered the
+ * add/update path).
+ *
+ * <p><b>Fixed in Stage 7:</b> the deletion loop is now guarded by the same
+ * {@code customGptIndexer.getCustomGptConfig().isDryRun()} check, so when {@code dryRun=true} both the
+ * node-removal deletion path <em>and</em> the add/update path are suppressed - zero HTTP requests reach the
+ * mock server for either sub-case.
  *
  * <p>Per the Tier-3 HTTPS/localhost note: the add/update sub-case's {@code apiBaseUrl} must clear
  * {@code SecurityUtils.resolveHttpsBaseUrl()}'s SSRF gate, so the MockWebServer is configured for HTTPS with
@@ -68,12 +71,11 @@ public class CustomGptIndexerNodeHandlerDryRunDivergenceTest {
     }
 
     @Test
-    public void handleNodeToReindex_dryRunTrue_stillDeletesQueuedPages_butSuppressesAddUpdate_documentsCurrentDivergence()
-            throws Exception {
+    public void handleNodeToReindex_dryRunTrue_suppressesBothDeletionAndAddUpdate() throws Exception {
         fixture = HttpsMockWebServerSupport.start();
-        // Round 1: the DELETE for the queued customGptPageToRemove id. The add/update path must issue
-        // *zero* HTTP calls (suppressed by isDryRun()), so only one response is ever consumed.
-        fixture.server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
+        // Deliberately zero responses enqueued: neither the queued-page-removal DELETE nor the add/update
+        // POST/PUT should ever be issued while isDryRun()==true, so any unexpected request would fail with a
+        // connection/response error instead of silently succeeding.
 
         final Config config = mock(Config.class);
         when(config.isDryRun()).thenReturn(true);
@@ -141,22 +143,18 @@ public class CustomGptIndexerNodeHandlerDryRunDivergenceTest {
         jcrTemplateStatic.when(JCRTemplate::getInstance).thenReturn(template);
 
         // ---- Act ---- (handleNodeToReindex is package-private; called directly, no reflection needed)
-        // Both clients must trust the fixture's self-signed certificate, or the DELETE call fails the SSL
-        // handshake before ever reaching the mock server.
+        // Both clients must trust the fixture's self-signed certificate, or a DELETE/POST call (if the fix
+        // regressed) would fail the SSL handshake before ever reaching the mock server.
         final OkHttpClient customGptClient = fixture.trustingClientBuilder.build();
         final OkHttpClient jahiaClient = fixture.trustingClientBuilder.build();
         CustomGptIndexerNodeHandler.handleNodeToReindex(customGptClient, jahiaClient, indexer);
 
-        // ---- Assert 1 (proves the bug exists today): the queued page-removal DELETE fires unconditionally ----
-        final RecordedRequest deleteRequest = fixture.server.takeRequest();
-        assertThat(deleteRequest.getMethod()).isEqualTo("DELETE");
-        assertThat(deleteRequest.getPath()).contains("/projects/proj1/pages/customgpt-page-99");
-
-        // ---- Assert 2: the add/update path is correctly suppressed by isDryRun() — no further request ----
+        // ---- Assert: the dry-run guard now suppresses BOTH the queued page-removal DELETE and the
+        // add/update POST/PUT — zero requests should ever reach the mock server. ----
         assertThat(fixture.server.getRequestCount())
-                .as("only the unconditional deletion DELETE should have reached the mock server; the "
-                        + "add/update POST must be suppressed by isDryRun()")
-                .isEqualTo(1);
+                .as("neither the queued-page-removal DELETE nor the add/update POST/PUT should reach the "
+                        + "mock server when isDryRun()==true")
+                .isEqualTo(0);
     }
 
     private static void stubOneLanguage(JCRSiteNode siteNode, String language) throws Exception {
