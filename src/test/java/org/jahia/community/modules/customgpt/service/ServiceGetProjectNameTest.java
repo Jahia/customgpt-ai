@@ -75,10 +75,38 @@ public class ServiceGetProjectNameTest {
         assertThat(service.getProjectName()).isNull();
     }
 
+    /**
+     * Characterization test, NOT the spec-as-written behavior: {@code getProjectName()}'s
+     * {@code response.body() == null} guard is effectively unreachable in practice - OkHttp always returns a
+     * non-null (possibly empty) {@link okhttp3.ResponseBody} for a completed HTTP response, so a genuinely
+     * empty body reaches {@code new JSONObject(response.body().string())} instead and throws
+     * {@link org.json.JSONException}, uncaught by {@code getProjectName()}'s
+     * {@code catch (IOException e)} (JSONException is a {@link RuntimeException}, not an IOException). This
+     * is a minor, previously-unflagged error-handling gap distinct from the 29 scoped gap-list items -
+     * documented here rather than silently asserted away or hidden.
+     */
     @Test
-    public void getProjectName_emptyBody_returnsNullNotException() throws Exception {
+    public void getProjectName_genuinelyEmptyBody_currentlyThrowsJsonExceptionRatherThanReturningNull() throws Exception {
         fixture = HttpsMockWebServerSupport.start();
         fixture.server.enqueue(new MockResponse().setResponseCode(200));
+
+        final Config config = mock(Config.class);
+        when(config.getCustomGptProjectId()).thenReturn("proj1");
+        when(config.getCustomGptToken()).thenReturn("tok");
+        when(config.getCustomGptApiBaseUrl()).thenReturn(fixture.baseUrl());
+
+        final Service service = newServiceFor(config, fixture.trustingClientBuilder.build());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(service::getProjectName)
+                .isInstanceOf(org.json.JSONException.class);
+    }
+
+    @Test
+    public void getProjectName_responseBodyPresentButNotAnObject_returnsNullNotException() throws Exception {
+        fixture = HttpsMockWebServerSupport.start();
+        // A syntactically valid JSON value that is not an object with a "data" field: optJSONObject("data")
+        // returns null, and getProjectName() gracefully returns null rather than throwing.
+        fixture.server.enqueue(new MockResponse().setResponseCode(200).setBody("{}"));
 
         final Config config = mock(Config.class);
         when(config.getCustomGptProjectId()).thenReturn("proj1");
