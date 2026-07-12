@@ -119,6 +119,18 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Guava is a real (compile-scope) dependency of jahia-impl but is not resolved transitively
+                 here (excluded somewhere up the dependency-management chain). Several Jahia decorator classes
+                 (e.g. JCRUserNode) reference Guava types on their method signatures, and Mockito's bytecode
+                 generation fails to redefine/subclass them without Guava on the classpath
+                 ("NoClassDefFoundError: com/google/common/base/Predicate"). Test scope only; version matches
+                 jahia-modules parent's ${guava.osgi.version}. -->
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.0.0-jre</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- SLF4J provider for tests only: several gap-list specs (U2, U5, F14, D4) require attaching
                  a Logback ListAppender to assert log content (audit lines, security warnings). Without a
                  bound provider, LoggerFactory.getLogger(...) returns a no-op logger and nothing could be
