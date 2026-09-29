@@ -14,9 +14,21 @@
 # administration UI that hosts this module's settings panel.
 #
 # addMavenRepository cannot fix this: it appends, leaving the snapshot source in place. The
-# repository list has to be REPLACED, which is what this does. jahia-public-app-store is
-# releases-only and is where community modules (including customgpt-ai) are published.
+# repository list has to be REPLACED, which is what this does.
+#
+# ONE repository, deliberately. jahia-releases is releases-only, so LATEST/RELEASE can never
+# resolve to a snapshot, and it carries everything this harness resolves:
+#   - digitall 3.0.0 AND its site export digitall-3.0.0-import.zip, which
+#     assets/provisioning.yml imports via importSite. The app-store does NOT carry that zip
+#     (404), so using the app-store here leaves /sites/digitall uncreated and 02-indexing /
+#     03-new-page fail on PathNotFoundException.
+#   - serverSettings 9.10.0, which requires Jahia 8.2.0.0 and so suits the pinned image.
+#   - graphql-dxm-provider 3.9.1 and sitemap 5.5.0, this module's Jahia-Depends.
+# customgpt-ai itself is installed from the local build in artifacts/, not resolved here.
+#
+# Listing several repositories does NOT work: the comma-separated value is not honoured as
+# multiple repositories, and resolution ends up against a single one whichever order is used.
 - editConfiguration: 'org.ops4j.pax.url.mvn'
   properties:
-    org.ops4j.pax.url.mvn.repositories: 'https://devtools.jahia.com/nexus/content/repositories/jahia-public-app-store@id=jahia-public-app-store'
+    org.ops4j.pax.url.mvn.repositories: 'https://devtools.jahia.com/nexus/content/repositories/jahia-releases@id=jahia-releases'
 - include: 'provisioning.yml'
