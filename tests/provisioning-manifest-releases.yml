@@ -1,0 +1,22 @@
+# Provisioning manifest for running the suite against a RELEASED Jahia.
+#
+# Used by default via MANIFEST in .env.example. To run explicitly:
+#   JAHIA_IMAGE=ghcr.io/jahia/jahia-ee-dev:8.2.3.2 \
+#   MANIFEST=provisioning-manifest-releases.yml docker-compose up --abort-on-container-exit
+#
+# Make LATEST resolve to releases, by making the app-store the ONLY Maven repository.
+#
+# Jahia auto-installs a module's Jahia-Depends at version LATEST. The stock image resolves
+# that against an aggregate repository group that also carries snapshots, so LATEST returns
+# e.g. serverSettings 10.0.0-SNAPSHOT. That build declares a newer Jahia than the one under
+# test, so it never resolves - and Jahia has already STOPPED the working serverSettings to
+# make way for it. The result is no serverSettings at all, which takes down the server
+# administration UI that hosts this module's settings panel.
+#
+# addMavenRepository cannot fix this: it appends, leaving the snapshot source in place. The
+# repository list has to be REPLACED, which is what this does. jahia-public-app-store is
+# releases-only and is where community modules (including customgpt-ai) are published.
+- editConfiguration: 'org.ops4j.pax.url.mvn'
+  properties:
+    org.ops4j.pax.url.mvn.repositories: 'https://devtools.jahia.com/nexus/content/repositories/jahia-public-app-store@id=jahia-public-app-store'
+- include: 'provisioning.yml'
