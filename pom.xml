@@ -18,9 +18,12 @@
         <jahia-deploy-on-site>system</jahia-deploy-on-site>
         <jahia-module-type>system</jahia-module-type>
         <jahia.plugin.version>6.10</jahia.plugin.version>
-        <export-package>
-            org.jahia.community.modules.customgpt.indexer.listener.*
-        </export-package>
+        <!-- Export nothing: every package in this module is an internal implementation detail with no consumer
+             outside the bundle. Exporting them put them in the OSGi wiring graph, which keeps the revision of a
+             replaced bundle pinned as "removal pending" and makes the module's lifecycle sensitive to refresh
+             ordering. The parent pom substitutes this property into the Export-Package bnd instruction, so it must
+             stay declared (empty) rather than be deleted. -->
+        <export-package/>
         <import-package>
             graphql.annotations.annotationTypes;version="[7.2,99)",
             graphql.annotations.connection;version="[7.2,99)",

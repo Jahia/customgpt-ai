@@ -91,6 +91,10 @@ public class Service implements EventHandler {
     private static final int READ_TIMEOUT_SECONDS = 30;
     private static final int WRITE_TIMEOUT_SECONDS = 30;
     private static final int CALL_TIMEOUT_SECONDS = 60;
+    // Executor shutdown budget. Kept short on purpose: shutdownAndAwaitTermination runs on the SCR deactivation
+    // thread, so every second spent here delays the module update/uninstall that triggered it.
+    private static final int POOL_GRACEFUL_SHUTDOWN_SECONDS = 10;
+    private static final int POOL_FORCED_SHUTDOWN_SECONDS = 5;
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String HEADER_ACCEPT = "accept";
@@ -637,20 +641,52 @@ public class Service implements EventHandler {
         init();
     }
     
+    /**
+     * Releases every resource held by this component. Invoked from {@link #deactivate()}.
+     *
+     * <p>Ordering and failure handling are deliberate, and both matter for correctness:
+     *
+     * <p><b>1. The JCR listener is detached first.</b> {@code JCRObservationManager} keeps its listeners in a
+     * JVM-wide {@code static} list, and both its {@code removeEventListener} (reference identity) and
+     * {@code TemplatePackageRegistry}'s de-duplication ({@code getListenerClass()}, i.e. {@code Class} identity)
+     * can only match the exact instance registered by <em>this</em> bundle generation. If this step is skipped,
+     * the listener survives the bundle: it keeps receiving publication events from a classloader that is no
+     * longer valid, and neither a redeploy nor a wiring refresh can evict it - only a JVM restart can.
+     * Everything else here merely leaks within this JVM run, so nothing slower or more failure-prone may
+     * be allowed to run before it.
+     *
+     * <p><b>2. Every step is isolated.</b> A failure in one cleanup must never skip the others; in particular an
+     * already-unregistered OSGi service used to throw {@link IllegalStateException} out of {@code stop()} and
+     * abort the listener de-registration.
+     */
     public void stop() {
-        shutdownAndAwaitTermination(executorFullIndexation);
-        shutdownAndAwaitTermination(executor);
-        shutdownAndAwaitTermination(executorNThreads);
-        unregisterEventHandler();
-        if (settingsBean.isProcessingServer()) {
-            unregisterJcrListeners();
+        if (settingsBean != null && settingsBean.isProcessingServer()) {
+            runQuietly("unregister JCR listeners", this::unregisterJcrListeners);
             if (journalEventReaderEnabled) {
-                journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey);
+                runQuietly("remember last processed journal revision",
+                        () -> journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey));
             }
         }
-        closeHttpClient(customGptClient);
-        closeHttpClient(jahiaClient);
+        runQuietly("unregister event handler", this::unregisterEventHandler);
+        runQuietly("shut down full indexation executor", () -> shutdownAndAwaitTermination(executorFullIndexation));
+        runQuietly("shut down indexation executor", () -> shutdownAndAwaitTermination(executor));
+        runQuietly("shut down multi-threaded indexation executor", () -> shutdownAndAwaitTermination(executorNThreads));
+        runQuietly("close the CustomGPT HTTP client", () -> closeHttpClient(customGptClient));
+        runQuietly("close the Jahia HTTP client", () -> closeHttpClient(jahiaClient));
         initialized = false;
+    }
+
+    /**
+     * Runs one shutdown step, logging and swallowing any {@link RuntimeException} so that a single failing step
+     * cannot prevent the remaining ones from running. Shutdown is best-effort by nature: there is no caller left
+     * that could act on the failure, and propagating it would only strand the resources cleaned up afterwards.
+     */
+    private void runQuietly(String what, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+            LOGGER.error("Failed to {} while stopping the CustomGPT service", what, e);
+        }
     }
     
     private void closeHttpClient(OkHttpClient httpClient) {
@@ -670,11 +706,11 @@ public class Service implements EventHandler {
     private void shutdownAndAwaitTermination(ExecutorService pool) {
         pool.shutdown();
         try {
-            if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
+            if (!pool.awaitTermination(POOL_GRACEFUL_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
                 pool.shutdownNow();
             }
             // Wait a while for tasks to respond to being cancelled
-            if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
+            if (!pool.awaitTermination(POOL_FORCED_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
                 LOGGER.error("Pool did not terminate {}", pool);
             }
         } catch (InterruptedException e) {
@@ -752,10 +788,21 @@ public class Service implements EventHandler {
         eventHandlerServiceRegistration = bundleContext.registerService(EventHandler.class, this, new MapToDictionary(props));
     }
     
+    /**
+     * Unregisters the OSGi event handler. Idempotent: the registration is cleared before the call, and an
+     * {@link IllegalStateException} from a service the framework already unregistered while the bundle was
+     * stopping is expected rather than exceptional.
+     */
     private void unregisterEventHandler() {
-        if (eventHandlerServiceRegistration != null) {
+        final ServiceRegistration<EventHandler> registration = eventHandlerServiceRegistration;
+        eventHandlerServiceRegistration = null;
+        if (registration != null) {
             LOGGER.info("Unregistering Event Handler");
-            eventHandlerServiceRegistration.unregister();
+            try {
+                registration.unregister();
+            } catch (IllegalStateException e) {
+                LOGGER.debug("Event handler service was already unregistered by the framework", e);
+            }
         }
     }
     

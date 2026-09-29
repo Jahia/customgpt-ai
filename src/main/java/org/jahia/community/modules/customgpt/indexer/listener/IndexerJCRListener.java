@@ -28,6 +28,14 @@ public class IndexerJCRListener extends DefaultEventListener {
     private static final int PROPERTY_EVENTS = Event.PROPERTY_CHANGED + Event.PROPERTY_ADDED + Event.PROPERTY_REMOVED;
     private final Config customGptConfig;
     private final Service service;
+    /**
+     * Set once this listener has proven it can no longer load its own classes, which in an OSGi container means the
+     * instance has outlived the bundle classloader that created it. Such an instance can never recover: the JCR
+     * observation registry holds it in a JVM-wide static list and matches on instance identity, so only a restart
+     * of the node can evict it. Going inert is the next best thing - it stops a stale listener from failing every
+     * publication that happens to touch a watched node type.
+     */
+    private volatile boolean stale;
 
     public IndexerJCRListener(boolean availableDuringPublish, Service customGptService, Config customGptConfig) {
         super();
@@ -57,8 +65,18 @@ public class IndexerJCRListener extends DefaultEventListener {
         return Event.NODE_ADDED + Event.NODE_REMOVED + PROPERTY_EVENTS;
     }
 
+    /**
+     * Entry point called by {@code JCRObservationManager.consume}, which runs listeners inline inside
+     * {@code JCRSessionWrapper.save()} and does not isolate them from each other. Anything thrown from here
+     * therefore aborts the caller's save - a publication, an import, an editor's content change - for a failure
+     * that has nothing to do with the content being saved. Indexing is a side effect and must never be able to do
+     * that, so every failure is contained and logged instead of propagated.
+     */
     @Override
     public void onEvent(EventIterator events) {
+        if (stale) {
+            return;
+        }
         try {
             final IndexOperations customGptIndexOperations = new IndexOperations();
             while (events.hasNext()) {
@@ -74,6 +92,16 @@ public class IndexerJCRListener extends DefaultEventListener {
             }
         } catch (RepositoryException ex) {
             LOGGER.error("Error processing events in the customGpt listener", ex);
+        } catch (RuntimeException ex) {
+            LOGGER.error("Unexpected error processing events in the customGpt listener", ex);
+        } catch (LinkageError err) {
+            // A listener that cannot load its own classes has outlived its bundle: disable it rather than let it
+            // fail every subsequent publication.
+            stale = true;
+            LOGGER.error("The CustomGPT JCR listener could not load one of its own classes and has been disabled."
+                    + " This listener instance has outlived its bundle classloader, which happens when the"
+                    + " customgpt-ai module is updated, refreshed or uninstalled without the listener being"
+                    + " unregistered. Indexing will not run until this node is restarted.", err);
         }
     }
 
