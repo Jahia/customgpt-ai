@@ -28,12 +28,21 @@ public class IndexerJCRListener extends DefaultEventListener {
     private static final int PROPERTY_EVENTS = Event.PROPERTY_CHANGED + Event.PROPERTY_ADDED + Event.PROPERTY_REMOVED;
     private final Config customGptConfig;
     private final Service service;
+    /** Package prefix of the classes this bundle owns; see {@link #stale}. */
+    private static final String OWN_PACKAGE_PATH = "org/jahia/community/modules/customgpt";
     /**
-     * Set once this listener has proven it can no longer load its own classes, which in an OSGi container means the
-     * instance has outlived the bundle classloader that created it. Such an instance can never recover: the JCR
-     * observation registry holds it in a JVM-wide static list and matches on instance identity, so only a restart
-     * of the node can evict it. Going inert is the next best thing - it stops a stale listener from failing every
-     * publication that happens to touch a watched node type.
+     * Set once this listener has failed to load a class <em>this bundle owns</em>, which in an OSGi container means
+     * the instance has most likely outlived the bundle classloader that created it. Such an instance cannot
+     * recover: the JCR observation registry holds it in a JVM-wide static list and matches on instance identity,
+     * so only a restart of the node can evict it.
+     *
+     * <p>Going inert is not about protecting the caller's save - the {@code catch} already does that. It is about
+     * a stale listener that fails <em>partway</em> through: {@link #findAndQueueMappingRemoval} removes mapping
+     * nodes and saves the session, so a half-executing zombie can delete CustomGPT mappings it will never recreate.
+     *
+     * <p>The trigger is deliberately narrow. A {@code LinkageError} naming someone else's class (a failed static
+     * initialiser in a collaborator, say) is a different problem and must not permanently disable a healthy,
+     * correctly-wired listener.
      */
     private volatile boolean stale;
 
@@ -55,7 +64,11 @@ public class IndexerJCRListener extends DefaultEventListener {
             nodeTypes.addAll(service.getIndexedMainResourceNodeTypes());
             nodeTypes.addAll(service.getIndexedSubNodeTypes());
         } catch (NotConfiguredException ex) {
-            LOGGER.error("Issue retrieving node types", ex);
+            // Returning an empty array here is not harmless: Jahia snapshots this value at registration and then
+            // matches no event at all against it. Service.registerJcrListeners() refuses to register in that case
+            // rather than install a permanently deaf listener.
+            LOGGER.error("Cannot determine the node types to index because the module is not configured yet;"
+                    + " the CustomGPT JCR listener cannot be registered until it is", ex);
         }
         return nodeTypes.toArray(new String[0]);
     }
@@ -67,10 +80,16 @@ public class IndexerJCRListener extends DefaultEventListener {
 
     /**
      * Entry point called by {@code JCRObservationManager.consume}, which runs listeners inline inside
-     * {@code JCRSessionWrapper.save()} and does not isolate them from each other. Anything thrown from here
-     * therefore aborts the caller's save - a publication, an import, an editor's content change - for a failure
-     * that has nothing to do with the content being saved. Indexing is a side effect and must never be able to do
-     * that, so every failure is contained and logged instead of propagated.
+     * {@code JCRSessionWrapper.save()}.
+     *
+     * <p>Jahia wraps this call in {@code catch (Exception)} and logs a WARN, so an ordinary exception is already
+     * contained by the platform. An {@link Error} is <em>not</em>: it propagates out of {@code consume} and aborts
+     * the caller's save - a publication, an import, an editor's content change - for a failure that has nothing to
+     * do with the content being saved. That is how a {@link NoClassDefFoundError} from a stale listener killed a
+     * {@code PublicationJob} in JAHIACOM-1675, and it is why {@link LinkageError} is caught below.
+     *
+     * <p>The {@link RuntimeException} arm is not load-bearing for the save - the platform would have swallowed it
+     * anyway - but it lets this module log the failure with its own context instead of a context-free core WARN.
      */
     @Override
     public void onEvent(EventIterator events) {
@@ -95,13 +114,19 @@ public class IndexerJCRListener extends DefaultEventListener {
         } catch (RuntimeException ex) {
             LOGGER.error("Unexpected error processing events in the customGpt listener", ex);
         } catch (LinkageError err) {
-            // A listener that cannot load its own classes has outlived its bundle: disable it rather than let it
-            // fail every subsequent publication.
-            stale = true;
-            LOGGER.error("The CustomGPT JCR listener could not load one of its own classes and has been disabled."
-                    + " This listener instance has outlived its bundle classloader, which happens when the"
-                    + " customgpt-ai module is updated, refreshed or uninstalled without the listener being"
-                    + " unregistered. Indexing will not run until this node is restarted.", err);
+            if (namesOwnClass(err)) {
+                // Only a class this bundle owns implies a dead classloader. Disable this instance so a zombie
+                // cannot keep half-executing - findAndQueueMappingRemoval() deletes JCR mapping nodes.
+                stale = true;
+                LOGGER.error("The CustomGPT JCR listener failed to load {}, a class from its own bundle, and has"
+                        + " been disabled. The most likely cause is that this listener instance has outlived its"
+                        + " bundle classloader - which happens when the customgpt-ai module is updated, refreshed"
+                        + " or uninstalled without the listener being unregistered. Indexing on this node will not"
+                        + " resume until the node is restarted.", err.getMessage(), err);
+            } else {
+                LOGGER.error("Error processing events in the customGpt listener while loading {}; the listener"
+                        + " stays enabled because that class does not belong to this module", err.getMessage(), err);
+            }
         }
     }
 
@@ -285,8 +310,23 @@ public class IndexerJCRListener extends DefaultEventListener {
         }
     }
 
+    /**
+     * Whether the failed class named by {@code err} belongs to this bundle. The message of a
+     * {@link NoClassDefFoundError} is the internal name of the class that could not be resolved.
+     */
+    private static boolean namesOwnClass(LinkageError err) {
+        final String failedClass = err.getMessage();
+        return failedClass != null && failedClass.replace('.', '/').startsWith(OWN_PACKAGE_PATH);
+    }
+
+    /** Whether this listener has disabled itself; see {@link #stale}. */
+    public boolean isStale() {
+        return stale;
+    }
+
     @Override
     public String toString() {
-        return IndexerJCRListener.class.getName() + "[workspace: " + getWorkspace() + "]";
+        // Jahia prints listeners in its registry logs, so surface the disabled state where an operator will see it.
+        return IndexerJCRListener.class.getName() + "[workspace: " + getWorkspace() + (stale ? ", DISABLED]" : "]");
     }
 }

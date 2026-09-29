@@ -11,6 +11,7 @@ import org.junit.Test;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -19,10 +20,12 @@ import static org.mockito.Mockito.when;
  * Regression tests for failure containment in {@link IndexerJCRListener#onEvent}.
  *
  * <p>Context (JAHIACOM-1675): {@code JCRObservationManager.consume} runs listeners inline inside
- * {@code JCRSessionWrapper.save()} and does not isolate them, so anything thrown from {@code onEvent} aborts the
- * caller's save. In the reported incident a listener left over from an uninstalled bundle threw
- * {@code NoClassDefFoundError} while loading its own {@code IndexOperations$CustomGptOperationType}, which killed
- * an unrelated {@code PublicationJob}. Indexing is a side effect and must never be able to do that.
+ * {@code JCRSessionWrapper.save()}. It wraps the call in {@code catch (Exception)}, so ordinary exceptions are
+ * already contained by the platform - but an {@link Error} propagates and aborts the caller's save. In the
+ * reported incident a listener left over from an uninstalled bundle threw {@code NoClassDefFoundError} while
+ * loading its own {@code IndexOperations$CustomGptOperationType}, which killed an unrelated
+ * {@code PublicationJob}. The {@code LinkageError} arm is therefore the load-bearing one; the
+ * {@code RuntimeException} arm only buys a better log line.
  */
 public class IndexerJCRListenerResilienceTest {
 
@@ -67,8 +70,11 @@ public class IndexerJCRListenerResilienceTest {
      */
     @Test
     public void onEvent_becomesInert_afterItsOwnClassCannotBeLoaded() throws Exception {
+        // A real NoClassDefFoundError carries the internal name of the class that failed to resolve; the listener
+        // only latches itself off for classes its own bundle owns.
         listener.onEvent(singleEventFailingInService(
-                new NoClassDefFoundError("IndexOperations$CustomGptOperationType")));
+                new NoClassDefFoundError("org/jahia/community/modules/customgpt/indexer/listener/"
+                        + "IndexOperations$CustomGptOperationType")));
         clearInvocations(service);
 
         final EventIterator laterEvents = mock(EventIterator.class);
@@ -85,6 +91,50 @@ public class IndexerJCRListenerResilienceTest {
         final EventIterator events = singleEventFailingInService(new IllegalStateException("transient glitch"));
 
         assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
+    }
+
+    /**
+     * The incident's failure was raised by the JVM resolving a class this bundle owns, which can happen at the
+     * very first statement of the method - before any collaborator is reached. Injecting the error mid-loop would
+     * leave that path uncovered, so this case throws from the first thing {@code onEvent} touches.
+     */
+    @Test
+    public void onEvent_doesNotPropagate_whenTheErrorIsRaisedAtTheStartOfTheMethod() {
+        final EventIterator events = mock(EventIterator.class);
+        when(events.hasNext()).thenThrow(
+                new NoClassDefFoundError("org/jahia/community/modules/customgpt/indexer/listener/IndexOperations"));
+
+        assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
+    }
+
+    /**
+     * A {@code LinkageError} naming someone else's class is a different problem - a failed static initialiser in a
+     * collaborator, say - and must not permanently disable a healthy, correctly-wired listener.
+     */
+    @Test
+    public void onEvent_staysEnabled_whenTheFailedClassBelongsToAnotherBundle() throws Exception {
+        listener.onEvent(singleEventFailingInService(new NoClassDefFoundError("com/example/other/Thing")));
+        clearInvocations(service);
+
+        final EventWrapper event = mock(EventWrapper.class);
+        when(event.getPath()).thenReturn("/sites/acme/home");
+        listener.onEvent(singleEvent(event));
+
+        // Still processing: the listener reached the service rather than short-circuiting.
+        verify(service).acceptablePathToIndex("/sites/acme/home");
+    }
+
+    /** An ordinary runtime failure must not latch the listener off either. */
+    @Test
+    public void onEvent_staysEnabled_afterRuntimeException() throws Exception {
+        listener.onEvent(singleEventFailingInService(new IllegalStateException("transient glitch")));
+        clearInvocations(service);
+
+        final EventWrapper event = mock(EventWrapper.class);
+        when(event.getPath()).thenReturn("/sites/acme/home");
+        listener.onEvent(singleEvent(event));
+
+        verify(service).acceptablePathToIndex("/sites/acme/home");
     }
 
     /** A repository failure is contained, as it already was before this change. */

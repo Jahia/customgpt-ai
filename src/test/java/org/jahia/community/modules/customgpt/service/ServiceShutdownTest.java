@@ -1,6 +1,7 @@
 package org.jahia.community.modules.customgpt.service;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.concurrent.ExecutorService;
 import org.jahia.api.settings.SettingsBean;
 import org.jahia.api.templates.JahiaTemplateManagerService;
@@ -12,9 +13,11 @@ import org.mockito.InOrder;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.service.event.EventHandler;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -87,21 +90,23 @@ public class ServiceShutdownTest {
         return field.get(service);
     }
 
-    /** The listener must leave the JVM-static observation registry before anything slower can fail or block. */
+    /**
+     * The event handler is withdrawn first so no OSGi event can re-enter {@code init()} mid-teardown, and the
+     * listener leaves the JVM-static observation registry before anything slower can fail or block.
+     */
     @Test
-    public void stop_unregistersJcrListenerBeforeShuttingDownExecutors() {
+    public void stop_withdrawsEventHandlerThenListenerBeforeShuttingDownExecutors() {
         service.stop();
 
-        final InOrder order = inOrder(templatePackageRegistry, executorFullIndexation, executor, executorNThreads);
+        final InOrder order = inOrder(eventHandlerRegistration, templatePackageRegistry, executor);
+        order.verify(eventHandlerRegistration).unregister();
         order.verify(templatePackageRegistry).handleJCREventListener(listener, false);
-        order.verify(executorFullIndexation).shutdown();
         order.verify(executor).shutdown();
-        order.verify(executorNThreads).shutdown();
     }
 
     /**
-     * The framework unregisters a bundle's services while it is stopping, so the event handler registration is
-     * frequently already gone by the time {@code stop()} runs. That must not cost us the listener de-registration.
+     * The framework unregisters a bundle's services while it is stopping, so the event handler registration may
+     * already be gone by the time {@code stop()} runs. That must not cost us the listener de-registration.
      */
     @Test
     public void stop_unregistersJcrListener_evenWhenEventHandlerUnregistrationThrows() {
@@ -111,6 +116,36 @@ public class ServiceShutdownTest {
         assertThatCode(() -> service.stop()).doesNotThrowAnyException();
 
         verify(templatePackageRegistry).handleJCREventListener(listener, false);
+    }
+
+    /**
+     * The listener de-registration is itself wrapped, so a failure there must not strand the executors and HTTP
+     * clients cleaned up after it. This is the one {@code runQuietly} wrapper that ordering alone cannot cover.
+     */
+    @Test
+    public void stop_continuesCleanup_whenListenerDeregistrationThrows() {
+        doThrow(new IllegalStateException("registry unavailable"))
+                .when(templatePackageRegistry).handleJCREventListener(any(), eq(false));
+
+        assertThatCode(() -> service.stop()).doesNotThrowAnyException();
+
+        verify(executor).shutdown();
+        verify(executorNThreads).shutdown();
+    }
+
+    /**
+     * A {@code LinkageError} is as likely as a {@code RuntimeException} while the bundle is going down, and must
+     * not abort the remaining cleanup either.
+     */
+    @Test
+    public void stop_continuesCleanup_whenAStepThrowsLinkageError() {
+        doThrow(new NoClassDefFoundError("org/jahia/community/modules/customgpt/Whatever"))
+                .when(eventHandlerRegistration).unregister();
+
+        assertThatCode(() -> service.stop()).doesNotThrowAnyException();
+
+        verify(templatePackageRegistry).handleJCREventListener(listener, false);
+        verify(executor).shutdown();
     }
 
     /** A failure while shutting down one pool must not strand the pools and clients cleaned up after it. */
@@ -135,17 +170,42 @@ public class ServiceShutdownTest {
         verify(eventHandlerRegistration, times(1)).unregister();
         // Likewise the listener: unregisterJcrListeners() nulls the field once it has detached it.
         verify(templatePackageRegistry, times(1)).handleJCREventListener(any(), eq(false));
-        assertThatCode(() -> get("jcrListenerLive")).doesNotThrowAnyException();
+        assertThat(get("jcrListenerLive")).isNull();
     }
 
-    /** On a browsing (non-processing) node no listener was ever registered, so none must be de-registered. */
+    /**
+     * Regression guard for the shape of this very fix: de-registration must not be conditional on anything other
+     * than "a listener is registered". A guard on {@code settingsBean} would silently skip the one step that,
+     * if missed, strands the listener for the life of the JVM.
+     */
     @Test
-    public void stop_doesNotTouchJcrListeners_onNonProcessingNode() {
-        when(settingsBean.isProcessingServer()).thenReturn(false);
+    public void stop_unregistersJcrListener_evenWhenSettingsBeanIsUnavailable() throws Exception {
+        set("settingsBean", null);
 
+        assertThatCode(() -> service.stop()).doesNotThrowAnyException();
+
+        verify(templatePackageRegistry).handleJCREventListener(listener, false);
+        assertThat(get("jcrListenerLive")).isNull();
+    }
+
+    /**
+     * An OSGi event still in flight when the component is deactivated must not be able to register a fresh
+     * listener from a bundle on its way out - that is the same leak by another door.
+     */
+    @Test
+    public void init_afterStop_doesNotRegisterAnotherListener() throws Exception {
         service.stop();
+        clearInvocations(templatePackageRegistry);
 
-        verify(templatePackageRegistry, never()).handleJCREventListener(any(), eq(false));
-        verify(executor).shutdown();
+        invokeInit();
+
+        verify(templatePackageRegistry, never()).handleJCREventListener(any(), eq(true));
+        assertThat(get("jcrListenerLive")).isNull();
+    }
+
+    private void invokeInit() throws Exception {
+        final Method init = Service.class.getDeclaredMethod("init");
+        init.setAccessible(true);
+        init.invoke(service);
     }
 }
