@@ -115,7 +115,7 @@ describe('CustomGPT.ai Indexing', function () {
         cy.apollo({
             mutation: saveSettings,
             variables: {
-                contentIndexedMainResourceTypes:'jnt:page,jmix:mainResource',
+                contentIndexedMainResourceTypes: 'jnt:page,jmix:mainResource',
                 projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
                 token: Cypress.env('CUSTOMGPT_TOKEN'),
                 jahiaUsername: 'root',

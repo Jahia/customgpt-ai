@@ -40,5 +40,5 @@ export default defineConfig({
         CUSTOMGPT_TOKEN: process.env.CUSTOMGPT_TOKEN,
         CUSTOMGPT_API_BASE_URL: process.env.CUSTOMGPT_API_BASE_URL || 'https://app.customgpt.ai/api/v1',
         JAHIA_SITE_KEY: process.env.JAHIA_SITE_KEY || 'digitall'
-    },
+    }
 });

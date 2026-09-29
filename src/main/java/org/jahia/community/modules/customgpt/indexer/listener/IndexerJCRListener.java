@@ -28,23 +28,6 @@ public class IndexerJCRListener extends DefaultEventListener {
     private static final int PROPERTY_EVENTS = Event.PROPERTY_CHANGED + Event.PROPERTY_ADDED + Event.PROPERTY_REMOVED;
     private final Config customGptConfig;
     private final Service service;
-    /** Package prefix of the classes this bundle owns; see {@link #stale}. */
-    private static final String OWN_PACKAGE_PATH = "org/jahia/community/modules/customgpt";
-    /**
-     * Set once this listener has failed to load a class <em>this bundle owns</em>, which in an OSGi container means
-     * the instance has most likely outlived the bundle classloader that created it. Such an instance cannot
-     * recover: the JCR observation registry holds it in a JVM-wide static list and matches on instance identity,
-     * so only a restart of the node can evict it.
-     *
-     * <p>Going inert is not about protecting the caller's save - the {@code catch} already does that. It is about
-     * a stale listener that fails <em>partway</em> through: {@link #findAndQueueMappingRemoval} removes mapping
-     * nodes and saves the session, so a half-executing zombie can delete CustomGPT mappings it will never recreate.
-     *
-     * <p>The trigger is deliberately narrow. A {@code LinkageError} naming someone else's class (a failed static
-     * initialiser in a collaborator, say) is a different problem and must not permanently disable a healthy,
-     * correctly-wired listener.
-     */
-    private volatile boolean stale;
 
     public IndexerJCRListener(boolean availableDuringPublish, Service customGptService, Config customGptConfig) {
         super();
@@ -64,11 +47,7 @@ public class IndexerJCRListener extends DefaultEventListener {
             nodeTypes.addAll(service.getIndexedMainResourceNodeTypes());
             nodeTypes.addAll(service.getIndexedSubNodeTypes());
         } catch (NotConfiguredException ex) {
-            // Returning an empty array here is not harmless: Jahia snapshots this value at registration and then
-            // matches no event at all against it. Service.registerJcrListeners() refuses to register in that case
-            // rather than install a permanently deaf listener.
-            LOGGER.error("Cannot determine the node types to index because the module is not configured yet;"
-                    + " the CustomGPT JCR listener cannot be registered until it is", ex);
+            LOGGER.error("Issue retrieving node types", ex);
         }
         return nodeTypes.toArray(new String[0]);
     }
@@ -93,9 +72,6 @@ public class IndexerJCRListener extends DefaultEventListener {
      */
     @Override
     public void onEvent(EventIterator events) {
-        if (stale) {
-            return;
-        }
         try {
             final IndexOperations customGptIndexOperations = new IndexOperations();
             while (events.hasNext()) {
@@ -114,19 +90,16 @@ public class IndexerJCRListener extends DefaultEventListener {
         } catch (RuntimeException ex) {
             LOGGER.error("Unexpected error processing events in the customGpt listener", ex);
         } catch (LinkageError err) {
-            if (namesOwnClass(err)) {
-                // Only a class this bundle owns implies a dead classloader. Disable this instance so a zombie
-                // cannot keep half-executing - findAndQueueMappingRemoval() deletes JCR mapping nodes.
-                stale = true;
-                LOGGER.error("The CustomGPT JCR listener failed to load {}, a class from its own bundle, and has"
-                        + " been disabled. The most likely cause is that this listener instance has outlived its"
-                        + " bundle classloader - which happens when the customgpt-ai module is updated, refreshed"
-                        + " or uninstalled without the listener being unregistered. Indexing on this node will not"
-                        + " resume until the node is restarted.", err.getMessage(), err);
-            } else {
-                LOGGER.error("Error processing events in the customGpt listener while loading {}; the listener"
-                        + " stays enabled because that class does not belong to this module", err.getMessage(), err);
-            }
+            // The load-bearing arm. A LinkageError naming a class this bundle owns usually means this listener has
+            // outlived its bundle classloader; one naming someone else's class is a different problem. Either way
+            // it must not escape, because Jahia does not contain Errors and this one would abort the caller's save.
+            // We deliberately do NOT disable the listener on this: deciding "my classloader is dead" from a message
+            // string is unreliable in both directions, and a permanent, restart-only off switch is too costly to
+            // hang off an unreliable signal.
+            LOGGER.error("Error processing events in the customGpt listener: could not load {}. If that class"
+                    + " belongs to customgpt-ai, this listener has most likely outlived its bundle classloader"
+                    + " (the module was updated, refreshed or uninstalled without the listener being"
+                    + " unregistered) and the node needs restarting.", err.getMessage(), err);
         }
     }
 
@@ -310,23 +283,8 @@ public class IndexerJCRListener extends DefaultEventListener {
         }
     }
 
-    /**
-     * Whether the failed class named by {@code err} belongs to this bundle. The message of a
-     * {@link NoClassDefFoundError} is the internal name of the class that could not be resolved.
-     */
-    private static boolean namesOwnClass(LinkageError err) {
-        final String failedClass = err.getMessage();
-        return failedClass != null && failedClass.replace('.', '/').startsWith(OWN_PACKAGE_PATH);
-    }
-
-    /** Whether this listener has disabled itself; see {@link #stale}. */
-    public boolean isStale() {
-        return stale;
-    }
-
     @Override
     public String toString() {
-        // Jahia prints listeners in its registry logs, so surface the disabled state where an operator will see it.
-        return IndexerJCRListener.class.getName() + "[workspace: " + getWorkspace() + (stale ? ", DISABLED]" : "]");
+        return IndexerJCRListener.class.getName() + "[workspace: " + getWorkspace() + "]";
     }
 }

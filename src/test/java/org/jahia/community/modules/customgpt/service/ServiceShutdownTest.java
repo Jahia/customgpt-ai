@@ -2,10 +2,14 @@ package org.jahia.community.modules.customgpt.service;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ExecutorService;
 import org.jahia.api.settings.SettingsBean;
 import org.jahia.api.templates.JahiaTemplateManagerService;
+import org.jahia.community.modules.customgpt.indexer.listener.IndexOperations;
 import org.jahia.community.modules.customgpt.indexer.listener.IndexerJCRListener;
+import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.services.templates.TemplatePackageRegistry;
 import org.junit.Before;
 import org.junit.Test;
@@ -15,6 +19,7 @@ import org.osgi.service.event.EventHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
@@ -63,6 +68,12 @@ public class ServiceShutdownTest {
         when(templateManager.getTemplatePackageRegistry()).thenReturn(templatePackageRegistry);
 
         listener = mock(IndexerJCRListener.class);
+        // Wire the collaborators registerJcrListeners() needs, so that a listener registration would genuinely
+        // succeed in this fixture. Without them init() NPEs inside getNodeTypes() and the disposed-latch test
+        // below would pass for the wrong reason.
+        final IndexService indexService = mock(IndexService.class);
+        when(indexService.getIndexedMainResourceNodeTypes()).thenReturn(Collections.singleton("jnt:page"));
+        when(indexService.getIndexedSubNodeTypes()).thenReturn(Collections.emptySet());
         eventHandlerRegistration = mock(ServiceRegistration.class);
         executor = mock(ExecutorService.class);
         executorFullIndexation = mock(ExecutorService.class);
@@ -76,8 +87,14 @@ public class ServiceShutdownTest {
         set("executorFullIndexation", executorFullIndexation);
         set("executorNThreads", executorNThreads);
         set("journalEventReaderEnabled", false);
+        set("indexService", indexService);
+        final Config config = mock(Config.class);
+        // init() builds the OkHttp clients after registering the listener; RateLimitInterceptor rejects 0.
+        when(config.getRateLimitRequestsPerSecond()).thenReturn(1);
+        set("customGptConfig", config);
     }
 
+    @SuppressWarnings("squid:S1172")
     private void set(String fieldName, Object value) throws Exception {
         final Field field = Service.class.getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -194,6 +211,11 @@ public class ServiceShutdownTest {
      */
     @Test
     public void init_afterStop_doesNotRegisterAnotherListener() throws Exception {
+        // Sanity-check the fixture first: without the latch, init() really would register. Otherwise the
+        // assertions below would hold for any reason at all.
+        invokeInit();
+        verify(templatePackageRegistry).handleJCREventListener(any(), eq(true));
+
         service.stop();
         clearInvocations(templatePackageRegistry);
 
@@ -201,6 +223,15 @@ public class ServiceShutdownTest {
 
         verify(templatePackageRegistry, never()).handleJCREventListener(any(), eq(true));
         assertThat(get("jcrListenerLive")).isNull();
+    }
+
+    /** A stranded listener calling into a stopped service must be rejected, not handed a brand-new thread pool. */
+    @Test
+    public void produceAsynchronousOperations_afterStop_isRejected() {
+        service.stop();
+
+        assertThatThrownBy(() -> service.produceAsynchronousOperations(new IndexOperations()))
+                .isInstanceOf(RejectedExecutionException.class);
     }
 
     private void invokeInit() throws Exception {

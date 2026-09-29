@@ -113,7 +113,7 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.jahiaServerCookieValue).to.eq('********');
                     expect(s.jahiaServerCookieDomain).to.eq('roundtrip.local');
                     expect(s.dryRun).to.eq(false);
-                    // scheduleJobASAP is a one-shot trigger: the service resets it to
+                    // The scheduleJobASAP flag is a one-shot trigger: the service resets it to
                     // false after scheduling the indexation jobs, so it never round-trips as true.
                     expect(s.scheduleJobASAP).to.eq(false);
                     expect(s.apiBaseUrl).to.eq('https://app.customgpt.ai/api/v1');

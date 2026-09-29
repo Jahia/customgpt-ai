@@ -19,10 +19,11 @@
         <jahia-module-type>system</jahia-module-type>
         <jahia.plugin.version>6.10</jahia.plugin.version>
         <!-- Export nothing: every package in this module is an internal implementation detail with no consumer
-             outside the bundle. Exporting them put them in the OSGi wiring graph, which keeps the revision of a
-             replaced bundle pinned as "removal pending" and makes the module's lifecycle sensitive to refresh
-             ordering. The parent pom substitutes this property into the Export-Package bnd instruction, so it must
-             stay declared (empty) rather than be deleted. -->
+             outside the bundle, so there is no reason to publish them. This is hygiene, not a fix for JAHIACOM-1675:
+             an exported package that nobody imports creates no wire and pins no revision, and the stale listener in
+             that incident was held by a strong reference from a JVM-wide static in Jahia core, which is why
+             refreshing the bundle did not clear it. The parent pom substitutes this property into the
+             Export-Package bnd instruction, so it must stay declared (empty) rather than be deleted. -->
         <export-package/>
         <import-package>
             graphql.annotations.annotationTypes;version="[7.2,99)",

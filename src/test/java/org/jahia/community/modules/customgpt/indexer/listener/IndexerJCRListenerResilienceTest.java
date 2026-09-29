@@ -25,7 +25,8 @@ import static org.mockito.Mockito.when;
  * reported incident a listener left over from an uninstalled bundle threw {@code NoClassDefFoundError} while
  * loading its own {@code IndexOperations$CustomGptOperationType}, which killed an unrelated
  * {@code PublicationJob}. The {@code LinkageError} arm is therefore the load-bearing one; the
- * {@code RuntimeException} arm only buys a better log line.
+ * {@code RuntimeException} arm only buys a better log line. Containment is all these tests assert: the listener
+ * deliberately does not try to decide, from a message string, that its own classloader is dead.
  */
 public class IndexerJCRListenerResilienceTest {
 
@@ -64,26 +65,6 @@ public class IndexerJCRListenerResilienceTest {
         assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
     }
 
-    /**
-     * A listener that cannot load its own classes has outlived its bundle and can never recover, so it must go
-     * inert instead of failing every subsequent publication on the node.
-     */
-    @Test
-    public void onEvent_becomesInert_afterItsOwnClassCannotBeLoaded() throws Exception {
-        // A real NoClassDefFoundError carries the internal name of the class that failed to resolve; the listener
-        // only latches itself off for classes its own bundle owns.
-        listener.onEvent(singleEventFailingInService(
-                new NoClassDefFoundError("org/jahia/community/modules/customgpt/indexer/listener/"
-                        + "IndexOperations$CustomGptOperationType")));
-        clearInvocations(service);
-
-        final EventIterator laterEvents = mock(EventIterator.class);
-        listener.onEvent(laterEvents);
-
-        // Short-circuited before the iterator is even touched.
-        verifyNoInteractions(laterEvents);
-        verifyNoInteractions(service);
-    }
 
     /** An ordinary runtime failure is logged and contained too, but does not disable the listener. */
     @Test
@@ -107,26 +88,10 @@ public class IndexerJCRListenerResilienceTest {
         assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
     }
 
-    /**
-     * A {@code LinkageError} naming someone else's class is a different problem - a failed static initialiser in a
-     * collaborator, say - and must not permanently disable a healthy, correctly-wired listener.
-     */
+
+    /** An ordinary runtime failure must not stop the listener processing later events. */
     @Test
-    public void onEvent_staysEnabled_whenTheFailedClassBelongsToAnotherBundle() throws Exception {
-        listener.onEvent(singleEventFailingInService(new NoClassDefFoundError("com/example/other/Thing")));
-        clearInvocations(service);
-
-        final EventWrapper event = mock(EventWrapper.class);
-        when(event.getPath()).thenReturn("/sites/acme/home");
-        listener.onEvent(singleEvent(event));
-
-        // Still processing: the listener reached the service rather than short-circuiting.
-        verify(service).acceptablePathToIndex("/sites/acme/home");
-    }
-
-    /** An ordinary runtime failure must not latch the listener off either. */
-    @Test
-    public void onEvent_staysEnabled_afterRuntimeException() throws Exception {
+    public void onEvent_keepsProcessing_afterRuntimeException() throws Exception {
         listener.onEvent(singleEventFailingInService(new IllegalStateException("transient glitch")));
         clearInvocations(service);
 
