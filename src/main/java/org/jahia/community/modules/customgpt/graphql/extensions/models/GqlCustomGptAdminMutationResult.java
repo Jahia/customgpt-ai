@@ -202,16 +202,42 @@ public class GqlCustomGptAdminMutationResult {
     }
 
     @GraphQLField
+    @GraphQLName("sweepOrphanedPages")
+    @GraphQLDescription("Report pages in the CustomGPT project that no Jahia content claims, and delete them when dryRun is false")
+    public Integer sweepOrphanedPages(@GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the orphaned pages") Boolean dryRun) {
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
+        } catch (RepositoryException e) {
+            LOGGER.warn("Permission check failed for sweepOrphanedPages", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+        if (LOGGER.isWarnEnabled()) {
+            LOGGER.warn("[audit] sweepOrphanedPages (dryRun={}) requested by user {}", dryRun, currentUserForAudit());
+        }
+        final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
+        if (customGptService == null) {
+            throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
+        }
+        try {
+            return customGptService.sweepOrphanedPages(Boolean.TRUE.equals(dryRun));
+        } catch (java.io.IOException | RepositoryException e) {
+            LOGGER.error("sweepOrphanedPages failed", e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+    }
+
+    @GraphQLField
     @GraphQLName("repairPageUrls")
-    @GraphQLDescription("Re-write the metadata of indexed pages that carry no URL, and return how many were repaired")
-    public Integer repairPageUrls(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey) {
+    @GraphQLDescription("Re-write the URL metadata of indexed pages whose stored URL is missing or stale; reports only when dryRun is true")
+    public Integer repairPageUrls(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey,
+            @GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the planned rewrites") Boolean dryRun) {
         // Validate the admin-supplied site key before building a JCR path to prevent path traversal / injection.
         if (siteKey == null || !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
             throw new DataFetchingException(new IllegalArgumentException("Invalid site key; expected ^[\\w-]+$"));
         }
         if (LOGGER.isInfoEnabled()) {
-            LOGGER.info("[audit] repairPageUrls requested by user {} for siteKey {}", currentUserForAudit(),
-                    SecurityUtils.sanitizeForLog(siteKey));
+            LOGGER.info("[audit] repairPageUrls (dryRun={}) requested by user {} for siteKey {}", dryRun,
+                    currentUserForAudit(), SecurityUtils.sanitizeForLog(siteKey));
         }
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
@@ -226,7 +252,7 @@ public class GqlCustomGptAdminMutationResult {
             throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
         }
         try {
-            return customGptService.repairMissingPageUrls(siteKey);
+            return customGptService.repairMissingPageUrls(siteKey, Boolean.TRUE.equals(dryRun));
         } catch (java.io.IOException | RepositoryException e) {
             LOGGER.error("repairPageUrls failed for siteKey {}", SecurityUtils.sanitizeForLog(siteKey), e);
             throw new DataFetchingException(ERR_OPERATION_FAILED);

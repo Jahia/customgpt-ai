@@ -48,6 +48,7 @@ import org.jahia.services.events.JournalEventReader;
 import org.jahia.services.query.QueryWrapper;
 import org.jahia.services.scheduler.BackgroundJob;
 import org.jahia.services.scheduler.SchedulerService;
+import org.jahia.community.modules.customgpt.indexer.OrphanedPages;
 import org.jahia.community.modules.customgpt.indexer.PageUrlRepair;
 import org.jahia.services.usermanager.JahiaUser;
 import org.osgi.framework.BundleContext;
@@ -1338,7 +1339,7 @@ public class Service implements EventHandler {
      *
      * @return the number of pages whose URL was repaired
      */
-    public int repairMissingPageUrls(String siteKey) throws IOException, RepositoryException {
+    public int repairMissingPageUrls(String siteKey, boolean dryRun) throws IOException, RepositoryException {
         // Validate before touching any state, so a bad site key fails the same way whether or not the module
         // happens to be initialised. The key is interpolated into a JCR-SQL2 path constraint, so it has to be a
         // single safe segment: deriving it with siteKeyOf would silently TRUNCATE "a/b" to "a" and accept it.
@@ -1349,7 +1350,21 @@ public class Service implements EventHandler {
             throw new IOException("CustomGPT HTTP client is not initialised; cannot repair page URLs");
         }
         return new PageUrlRepair(customGptClient, customGptConfig.getCustomGptProjectId(),
-                resolveValidatedApiBaseUrl()).repairSite(siteKey);
+                resolveValidatedApiBaseUrl()).repairSite(siteKey, dryRun);
+    }
+
+    /**
+     * Reports, and optionally deletes, pages in the project that no mapping node claims; see {@link OrphanedPages}.
+     *
+     * @param dryRun when true, the orphans are logged and nothing is deleted
+     * @return the number of orphaned pages found (deleted, when not a dry run)
+     */
+    public int sweepOrphanedPages(boolean dryRun) throws IOException, RepositoryException {
+        if (customGptClient == null) {
+            throw new IOException("CustomGPT HTTP client is not initialised; cannot sweep orphaned pages");
+        }
+        return new OrphanedPages(customGptClient, customGptConfig.getCustomGptProjectId(),
+                resolveValidatedApiBaseUrl()).sweep(dryRun);
     }
 
     public int purgeAllPages() throws IOException {
