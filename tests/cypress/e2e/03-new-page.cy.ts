@@ -44,6 +44,25 @@ describe('CustomGPT.ai new page indexing', function () {
     // ─── New page lifecycle ──────────────────────────────────────────────────────
 
     describe('New page lifecycle', () => {
+        // Configure this spec's own prerequisites rather than inheriting whatever the previous spec left behind.
+        // 02-indexing's after() hook resets dryRun to true, and a dry run skips indexation entirely, so relying on
+        // its settings made this spec silently unable to pass depending on execution order.
+        beforeEach(() => {
+            cy.apollo({
+                mutation: saveSettings,
+                variables: {
+                    contentIndexedMainResourceTypes: 'jnt:page,jmix:mainResource',
+                    projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
+                    token: Cypress.env('CUSTOMGPT_TOKEN'),
+                    jahiaUsername: 'root',
+                    jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
+                    dryRun: false,
+                    scheduleJobASAP: false,
+                    operationsBatchSize: 500
+                }
+            });
+        });
+
         it('new page has customGptPageId set after indexing', () => {
             cy.apollo({
                 mutation: createPage,
@@ -88,7 +107,7 @@ describe('CustomGPT.ai new page indexing', function () {
                 () =>
                     cy
                         .apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
-                        .then(result => Boolean(result.data.jcr.nodeByPath?.property?.value)),
+                        .then(result => Boolean(result.data?.jcr?.nodeByPath?.property?.value)),
                 {timeout: 60000, interval: 1000, errorMsg: 'Timed out waiting for customGptPageId to be set on the new page'}
             );
 

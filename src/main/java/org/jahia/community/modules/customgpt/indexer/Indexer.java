@@ -41,6 +41,11 @@ public class Indexer {
     private Config customGptConfig;
     private Service service;
     private JahiaUser rootUser;
+    /**
+     * Per-node failures seen during this run. Each one is caught and logged where it happens, so without counting
+     * them here the run as a whole completes normally and the site is recorded as successfully indexed.
+     */
+    private final List<String> failures = new ArrayList<>();
 
     @Override
     public String toString() {
@@ -66,6 +71,17 @@ public class Indexer {
             return;
         }
         CustomGptIndexerNodeHandler.handleNodeToReindex(customGptClient, jahiaClient, this);
+    }
+
+    /** Records a node that could not be indexed, so the run can be reported as failed rather than complete. */
+    public void recordFailure(String nodePath, String language, Throwable cause) {
+        failures.add(nodePath + (language == null ? "" : " [" + language + "]"));
+        LOGGER.error("Failed to index {}{}: {}", nodePath, language == null ? "" : " in " + language,
+                cause.getMessage(), cause);
+    }
+
+    public List<String> getFailures() {
+        return Collections.unmodifiableList(failures);
     }
 
     public boolean isEmpty() {

@@ -28,28 +28,51 @@ public class IndexerJCRListener extends DefaultEventListener {
     private static final int PROPERTY_EVENTS = Event.PROPERTY_CHANGED + Event.PROPERTY_ADDED + Event.PROPERTY_REMOVED;
     private final Config customGptConfig;
     private final Service service;
+    /**
+     * The node types this listener filters on, resolved ONCE at construction.
+     *
+     * <p>It has to be a snapshot. Jahia calls {@link #getNodeTypes()} itself when registering, independently of
+     * any check the caller makes, and stores the result in the {@code EventConsumer}. Resolving it live would mean
+     * the array that was validated is not necessarily the array that gets registered - and an empty one registers
+     * a listener that matches no event at all, for the life of the component.
+     */
+    private final String[] nodeTypes;
 
     public IndexerJCRListener(boolean availableDuringPublish, Service customGptService, Config customGptConfig) {
         super();
         this.customGptConfig = customGptConfig;
         this.availableDuringPublish = availableDuringPublish;
         this.service = customGptService;
+        this.nodeTypes = resolveNodeTypes(customGptService);
         propertiesToIgnore.add(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID);
         propertiesToIgnore.add(Constants.JCR_MIXINTYPES);
         setWorkspace(Constants.LIVE_WORKSPACE);
 
     }
 
+    private static String[] resolveNodeTypes(Service service) {
+        final Set<String> types = new HashSet<>();
+        try {
+            types.addAll(service.getIndexedMainResourceNodeTypes());
+            types.addAll(service.getIndexedSubNodeTypes());
+        } catch (NotConfiguredException ex) {
+            // Returning nothing here is not harmless: Jahia's checkNodeTypeNames rejects every event when the
+            // filter array is empty but non-null, so registering with it produces a listener that is registered,
+            // reported healthy, and permanently deaf. Service refuses to register in that case.
+            LOGGER.error("Cannot resolve the node types to index because the module is not configured yet;"
+                    + " the CustomGPT JCR listener cannot be registered until it is", ex);
+        }
+        return types.toArray(new String[0]);
+    }
+
     @Override
     public String[] getNodeTypes() {
-        final Set<String> nodeTypes = new HashSet<>();
-        try {
-            nodeTypes.addAll(service.getIndexedMainResourceNodeTypes());
-            nodeTypes.addAll(service.getIndexedSubNodeTypes());
-        } catch (NotConfiguredException ex) {
-            LOGGER.error("Issue retrieving node types", ex);
-        }
-        return nodeTypes.toArray(new String[0]);
+        return nodeTypes.clone();
+    }
+
+    /** Whether this listener would match anything at all; an empty filter matches no event in Jahia. */
+    public boolean hasNodeTypeFilter() {
+        return nodeTypes.length > 0;
     }
 
     @Override

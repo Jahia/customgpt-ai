@@ -144,7 +144,16 @@ final class CustomGptIndexerNodeHandler {
         }
         final RenderContext customRenderContext = buildRenderContext(serverUrl, siteNode, rootUser);
 
-        if (!session.nodeExists(nodeToIndex.getPath()) || customGptIndexer.getCustomGptConfig().isDryRun()) {
+        if (!session.nodeExists(nodeToIndex.getPath())) {
+            LOGGER.warn("Skipping indexation of {}: it does not exist in the live workspace", nodeToIndex.getPath());
+            return;
+        }
+        if (customGptIndexer.getCustomGptConfig().isDryRun()) {
+            // Say so. This used to return silently, which is indistinguishable from indexing that simply never
+            // happened - and dryRun defaults to true in the shipped configuration, so it is the likeliest reason
+            // for "the module is running but nothing is indexed".
+            LOGGER.info("Dry run is enabled: not indexing {} in CustomGPT. Set dryRun=false to index for real.",
+                    nodeToIndex.getPath());
             return;
         }
         try {
@@ -154,9 +163,11 @@ final class CustomGptIndexerNodeHandler {
             indexJahiaPage(customGptClient, jahiaClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, url, language);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            LOGGER.error("Issue:", ex);
+            customGptIndexer.recordFailure(nodeToIndex.getPath(), language, ex);
         } catch (RepositoryException | IOException | ServletException | InvocationTargetException | URISyntaxException ex) {
-            LOGGER.error("Issue:", ex);
+            // Recorded, not just logged: this used to be a bare "Issue:" with no node path, and because it was
+            // swallowed here the surrounding run still completed normally and the site was reported as indexed.
+            customGptIndexer.recordFailure(nodeToIndex.getPath(), language, ex);
         }
     }
 
@@ -227,7 +238,12 @@ final class CustomGptIndexerNodeHandler {
         LOGGER.debug("Updating page metadata in customGPT");
         try (Response metaResponse = updatePageMedata(customGptClient, projectId, pageId, title, url, apiBaseUrl)) {
             if (!metaResponse.isSuccessful()) {
-                throw new IOException("Unexpected code " + metaResponse);
+                // Include the body: a bare status line (a 422 in particular) says nothing about which field the
+                // API rejected, and this runs after the page and its mapping node already exist, so the page is
+                // indexed with stale metadata rather than missing - worth diagnosing, not just counting.
+                final String body = metaResponse.body() == null ? "<no body>" : metaResponse.body().string();
+                throw new IOException("Failed to update CustomGPT page metadata for page " + pageId
+                        + " (" + url + "): HTTP " + metaResponse.code() + ", " + body);
             }
             LOGGER.debug("Updating page metadata in customGPT is successful");
         }
