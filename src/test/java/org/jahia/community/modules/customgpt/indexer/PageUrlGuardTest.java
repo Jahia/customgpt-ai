@@ -115,4 +115,29 @@ public class PageUrlGuardTest {
     public void anEmptyExaminationIsNotTreatedAsAViolation() {
         assertThatCode(() -> PageUrlRepair.assertPlanIsPlausible(0, 0)).doesNotThrowAnyException();
     }
+
+    // --- run size ------------------------------------------------------------
+    //
+    // This runs synchronously on the caller's request thread. A whole-site run over thousands of mapping nodes
+    // takes ~30 minutes and no client survives it — and the client giving up does NOT stop the server, so a real
+    // run would rewrite an unknown subset with no summary and no returned count.
+
+    @Test
+    public void aWholeSiteRunIsRefusedRatherThanStartedAndAbandoned() {
+        assertThatThrownBy(() -> PageUrlRepair.assertRunIsBounded(2784))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("pageIds");
+    }
+
+    @Test
+    public void aScopedRunIsAllowed() {
+        // The 58 confirmed targets, scoped by page id, finish inside a request comfortably.
+        assertThatCode(() -> PageUrlRepair.assertRunIsBounded(58)).doesNotThrowAnyException();
+    }
+
+    @Test
+    public void aRunAtExactlyTheLimitIsAllowed() {
+        assertThatCode(() -> PageUrlRepair.assertRunIsBounded(100)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> PageUrlRepair.assertRunIsBounded(101)).isInstanceOf(IOException.class);
+    }
 }
