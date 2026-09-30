@@ -48,6 +48,7 @@ import org.jahia.services.events.JournalEventReader;
 import org.jahia.services.query.QueryWrapper;
 import org.jahia.services.scheduler.BackgroundJob;
 import org.jahia.services.scheduler.SchedulerService;
+import org.jahia.community.modules.customgpt.indexer.PageUrlRepair;
 import org.jahia.services.usermanager.JahiaUser;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
@@ -77,6 +78,8 @@ public class Service implements EventHandler {
     
     private static final Logger LOGGER = LoggerFactory.getLogger(Service.class);
     private static final Pattern SITE_MATCHER = Pattern.compile("\\/sites\\/.+");
+    /** A site key must be a single safe path segment; it is interpolated into JCR paths and queries. */
+    private static final Pattern SITE_KEY_PATTERN = Pattern.compile("^[\\w-]+$");
     private static final String ADDED_TO_THE_REGISTRY = "Task {}{} is added to the registry";
     private static final String CUSTOM_GPT_SITE_INDEXATION = "CustomGpt site indexation";
     private static final String REGISTER_EVENT = "org/jahia/modules/sam/TaskRegistryService/REGISTER";
@@ -1330,6 +1333,25 @@ public class Service implements EventHandler {
      *
      * @return the number of pages successfully deleted
      */
+    /**
+     * Repairs pages this module indexed without a URL; see {@link PageUrlRepair}.
+     *
+     * @return the number of pages whose URL was repaired
+     */
+    public int repairMissingPageUrls(String siteKey) throws IOException, RepositoryException {
+        // Validate before touching any state, so a bad site key fails the same way whether or not the module
+        // happens to be initialised. The key is interpolated into a JCR-SQL2 path constraint, so it has to be a
+        // single safe segment: deriving it with siteKeyOf would silently TRUNCATE "a/b" to "a" and accept it.
+        if (siteKey == null || !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+            throw new IllegalArgumentException("Invalid site key; expected ^[\\w-]+$ but got: " + siteKey);
+        }
+        if (customGptClient == null) {
+            throw new IOException("CustomGPT HTTP client is not initialised; cannot repair page URLs");
+        }
+        return new PageUrlRepair(customGptClient, customGptConfig.getCustomGptProjectId(),
+                resolveValidatedApiBaseUrl()).repairSite(siteKey);
+    }
+
     public int purgeAllPages() throws IOException {
         final String projectId = customGptConfig.getCustomGptProjectId();
         // projectId is free-form admin config; strip CR/LF before logging to prevent log forging.

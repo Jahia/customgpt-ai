@@ -201,6 +201,38 @@ public class GqlCustomGptAdminMutationResult {
         }
     }
 
+    @GraphQLField
+    @GraphQLName("repairPageUrls")
+    @GraphQLDescription("Re-write the metadata of indexed pages that carry no URL, and return how many were repaired")
+    public Integer repairPageUrls(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey) {
+        // Validate the admin-supplied site key before building a JCR path to prevent path traversal / injection.
+        if (siteKey == null || !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+            throw new DataFetchingException(new IllegalArgumentException("Invalid site key; expected ^[\\w-]+$"));
+        }
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info("[audit] repairPageUrls requested by user {} for siteKey {}", currentUserForAudit(),
+                    SecurityUtils.sanitizeForLog(siteKey));
+        }
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
+            checkAdminPermission(CustomGptConstants.PATH_SITES + siteKey, CustomGptConstants.PERM_SITE_ADMIN);
+        } catch (RepositoryException e) {
+            LOGGER.warn("Permission check failed for repairPageUrls on siteKey {}",
+                    SecurityUtils.sanitizeForLog(siteKey), e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+        final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
+        if (customGptService == null) {
+            throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
+        }
+        try {
+            return customGptService.repairMissingPageUrls(siteKey);
+        } catch (java.io.IOException | RepositoryException e) {
+            LOGGER.error("repairPageUrls failed for siteKey {}", SecurityUtils.sanitizeForLog(siteKey), e);
+            throw new DataFetchingException(ERR_OPERATION_FAILED);
+        }
+    }
+
     @SuppressWarnings("java:S107")
     @GraphQLField
     @GraphQLName("saveSettings")
