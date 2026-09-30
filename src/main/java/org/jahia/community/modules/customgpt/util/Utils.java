@@ -23,11 +23,13 @@ import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.exceptions.JahiaRuntimeException;
 import org.jahia.osgi.BundleUtils;
 import org.jahia.services.content.JCRContentUtils;
+import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.content.decorator.JCRSiteNode;
 import org.jahia.services.render.RenderContext;
 import org.jahia.services.seo.urlrewrite.UrlRewriteService;
+import org.jahia.services.usermanager.JahiaUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,6 +72,30 @@ public final class Utils {
      */
     public static String encode(String uri, RenderContext renderContext) throws IOException, ServletException, InvocationTargetException, URISyntaxException {
         return StringUtils.replaceEach(Utils.encodeLink(uri, true, renderContext, false), ENTITIES, ENCODED_ENTITIES);
+    }
+
+    /**
+     * Same as {@link #encode(String, RenderContext)}, with {@code user} bound as the JCR thread-local current user
+     * for the duration of the call.
+     *
+     * <p>Jahia resolves vanity URLs inside {@code rewriteOutbound} through a JCR lookup that reads
+     * {@code JCRSessionFactory.getCurrentUser()}. Indexation runs on a pooled executor thread, where the session is
+     * opened with {@code doExecuteWithSystemSessionAsUser}: that binds the SESSION's user, not the thread-local one.
+     * The vanity lookup therefore degraded to the raw {@code .html} path, Jahia answered it with a 302 to the vanity
+     * URL, and this module does not follow redirects - so the page was never fetched and never indexed.
+     *
+     * <p>The previous value is restored in a {@code finally}. These threads are pooled and reused, so leaving a user
+     * bound would leak an identity into whatever task ran next on the same thread.
+     */
+    public static String encode(String uri, RenderContext renderContext, JahiaUser user)
+            throws IOException, ServletException, InvocationTargetException, URISyntaxException {
+        final JahiaUser previous = JCRSessionFactory.getInstance().getCurrentUser();
+        JCRSessionFactory.getInstance().setCurrentUser(user);
+        try {
+            return encode(uri, renderContext);
+        } finally {
+            JCRSessionFactory.getInstance().setCurrentUser(previous);
+        }
     }
 
     public static String getHostName(JCRSiteNode siteNode) {

@@ -165,7 +165,7 @@ final class CustomGptIndexerNodeHandler {
         }
         try {
             final JCRNodeWrapper liveNode = session.getNode(nodeToIndex.getPath());
-            final String url = hostName + Utils.encode(liveNode.getUrl(), customRenderContext);
+            final String url = hostName + Utils.encode(liveNode.getUrl(), customRenderContext, rootUser);
             removeExistingPage(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode.getPath(), url, language);
             indexJahiaPage(customGptClient, jahiaClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, url, language);
         } catch (InterruptedException ex) {
@@ -208,19 +208,21 @@ final class CustomGptIndexerNodeHandler {
     }
 
     @SuppressWarnings("java:S107")
-    private static void indexJahiaPage(OkHttpClient customGptClient, OkHttpClient jahiaClient, Indexer customGptIndexer,
+    static void indexJahiaPage(OkHttpClient customGptClient, OkHttpClient jahiaClient, Indexer customGptIndexer,
             String apiBaseUrl, JahiaUser rootUser, JCRNodeWrapper liveNode, String url, String language)
             throws RepositoryException, IOException, InterruptedException {
         LOGGER.debug("Adding url {}", url);
         try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
             if (jahiaResponse == null || !jahiaResponse.isSuccessful()) {
-                LOGGER.warn("Impossible to retrieve content from {}", url);
-                return;
+                // Raised, not logged-and-skipped. Returning here left the enclosing run reporting success over a
+                // page that was never uploaded, which is how the vanity-URL defect stayed invisible: the raw .html
+                // path answers 302, this module does not follow redirects, and nothing counted a failure.
+                throw new IOException("Impossible to retrieve content from " + url
+                        + (jahiaResponse == null ? " (no response)" : " (HTTP " + jahiaResponse.code() + ")"));
             }
             LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
             if (jahiaResponse.body() == null) {
-                LOGGER.warn("Jahia page response body is null for {}", url);
-                return;
+                throw new IOException("Jahia returned an empty body for " + url);
             }
             final String output = jahiaResponse.body().string();
             final String title = liveNode.hasProperty(Constants.JCR_TITLE)
