@@ -1339,7 +1339,7 @@ public class Service implements EventHandler {
      *
      * @return the number of pages whose URL was repaired
      */
-    public int repairMissingPageUrls(String siteKey) throws IOException, RepositoryException {
+    public int repairMissingPageUrls(String siteKey, boolean dryRun) throws IOException, RepositoryException {
         // Validate before touching any state, so a bad site key fails the same way whether or not the module
         // happens to be initialised. The key is interpolated into a JCR-SQL2 path constraint, so it has to be a
         // single safe segment: deriving it with siteKeyOf would silently TRUNCATE "a/b" to "a" and accept it.
@@ -1350,7 +1350,7 @@ public class Service implements EventHandler {
             throw new IOException("CustomGPT HTTP client is not initialised; cannot repair page URLs");
         }
         return new PageUrlRepair(customGptClient, customGptConfig.getCustomGptProjectId(),
-                resolveValidatedApiBaseUrl()).repairSite(siteKey);
+                resolveValidatedApiBaseUrl()).repairSite(siteKey, dryRun);
     }
 
     /**
