@@ -111,7 +111,14 @@ final class CustomGptIndexerNodeHandler {
 
     private static void delete(OkHttpClient customGptClient, String pageId, Indexer customGptIndexer) throws IOException {
         String apiBaseUrl = getApiBaseUrl(customGptIndexer);
-        deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, apiBaseUrl);
+        final int status = deleteCustomGptPage(customGptClient,
+                customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), pageId, apiBaseUrl);
+        if (!isPageGone(status)) {
+            // Nothing is added in this path, so there is no duplicate to prevent - but a page the module believes
+            // it deleted and which is still answering queries needs to be visible rather than silently assumed.
+            LOGGER.error("CustomGPT page {} was queued for removal but could not be deleted (HTTP {}). It may still"
+                    + " be present in the project and retrievable by the chatbot.", pageId, status);
+        }
     }
 
     private static void index(OkHttpClient customGptClient, OkHttpClient jahiaClient, IndexRequest createCustomGptRequest, Indexer customGptIndexer) throws RepositoryException {
@@ -179,12 +186,24 @@ final class CustomGptIndexerNodeHandler {
         return customRenderContext;
     }
 
-    private static void removeExistingPage(OkHttpClient customGptClient, Indexer customGptIndexer, String apiBaseUrl,
+    static void removeExistingPage(OkHttpClient customGptClient, Indexer customGptIndexer, String apiBaseUrl,
             JahiaUser rootUser, String nodePath, String url, String language) throws RepositoryException, IOException {
         final String existingPageId = getExistingPageId(rootUser, nodePath);
-        if (existingPageId != null) {
-            LOGGER.info("Removing page with the id {} for the url {}, language {}", existingPageId, url, language);
-            deleteCustomGptPage(customGptClient, customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), existingPageId, apiBaseUrl);
+        if (existingPageId == null) {
+            return;
+        }
+        LOGGER.info("Removing page with the id {} for the url {}, language {}", existingPageId, url, language);
+        final int status = deleteCustomGptPage(customGptClient,
+                customGptIndexer.getCustomGptConfig().getCustomGptProjectId(), existingPageId, apiBaseUrl);
+        if (!isPageGone(status)) {
+            // Abort rather than add a replacement. The previous page may still be in the project, and adding
+            // another copy is precisely how re-publishing an already-indexed page accumulated duplicates: this
+            // status used to be discarded, so a failed delete was followed by an unconditional add, silently.
+            // Aborting leaves the page's content stale until the next publication, which is recoverable;
+            // a duplicate is not, short of an out-of-band purge.
+            throw new IOException("Could not remove the previous CustomGPT page " + existingPageId + " for " + url
+                    + " (HTTP " + status + "). Not adding a replacement, because that would leave the previous"
+                    + " page in the project as a duplicate. This node will be retried on its next publication.");
         }
     }
 
@@ -283,7 +302,16 @@ final class CustomGptIndexerNodeHandler {
         return parentNode.addNode(CustomGptConstants.CUSTOMGPT_INDEX_NODE_NAME, CustomGptConstants.NT_CUSTOM_GPT_INDEX_ENTRY);
     }
 
-    private static boolean deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException {
+    /**
+     * Deletes a CustomGPT page and returns the HTTP status.
+     *
+     * <p>Returns the status rather than a boolean deliberately. The caller has to distinguish "the page is already
+     * gone" from "the page may still be there", and those are different statuses; and the status has to reach the
+     * log, because the CustomGPT API is known to degrade under sustained volume (thousands of requests, not mere
+     * concurrency). If a degraded response ever starts reading as a success, the only way that becomes visible
+     * without auditing the corpus is if the status of every non-trivial outcome was logged at the time.
+     */
+    private static int deleteCustomGptPage(OkHttpClient customGptClient, String customGptProject, String pageId, String apiBaseUrl) throws IOException {
         LOGGER.info("Removing page with the id {}", pageId);
         final Request delPageRequest = new Request.Builder()
                 .url(String.format("%s/projects/%s/pages/%s", apiBaseUrl, customGptProject, pageId))
@@ -291,8 +319,41 @@ final class CustomGptIndexerNodeHandler {
                 .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
                 .build();
         try (Response delPageResponse = customGptClient.newCall(delPageRequest).execute()) {
-            return delPageResponse.isSuccessful();
+            if (!delPageResponse.isSuccessful()) {
+                LOGGER.warn("DELETE of CustomGPT page {} returned HTTP {}: {}", pageId, delPageResponse.code(),
+                        describeBody(delPageResponse));
+            }
+            return delPageResponse.code();
         }
+    }
+
+    /** First 200 characters of a response body, for diagnostics; never throws. */
+    private static String describeBody(Response response) {
+        try {
+            if (response.body() == null) {
+                return "<no body>";
+            }
+            final String body = response.body().string();
+            return body.length() > 200 ? body.substring(0, 200) + "..." : body;
+        } catch (IOException e) {
+            return "<unreadable body: " + e.getMessage() + ">";
+        }
+    }
+
+    /**
+     * Whether a DELETE status means the page is definitely no longer in the project.
+     *
+     * <p>{@code 2xx} is an actual deletion. {@code 403} is what this API returns for a page id that no longer
+     * exists - measured, not assumed: it answers {@code 403 {"message": "This action is unauthorized."}} rather
+     * than {@code 404}, consistently. A stale id in the sidecar is the common case and it leaves nothing behind,
+     * so it must not block re-indexing.
+     *
+     * <p>Every other status - notably {@code 429} and {@code 5xx} - means the page may well still be there. The
+     * caller must NOT add a replacement in that case: doing so is what leaves the old page in the project as a
+     * duplicate, which is the defect this method exists to prevent.
+     */
+    static boolean isPageGone(int deleteStatus) {
+        return (deleteStatus >= 200 && deleteStatus < 300) || deleteStatus == 403;
     }
 
     private static Response addPage(OkHttpClient customGptClient, String customGptProject, String title, String output, String apiBaseUrl) throws IOException {
