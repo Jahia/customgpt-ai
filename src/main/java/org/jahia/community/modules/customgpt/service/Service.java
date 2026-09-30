@@ -48,6 +48,7 @@ import org.jahia.services.events.JournalEventReader;
 import org.jahia.services.query.QueryWrapper;
 import org.jahia.services.scheduler.BackgroundJob;
 import org.jahia.services.scheduler.SchedulerService;
+import org.jahia.community.modules.customgpt.indexer.OrphanedPages;
 import org.jahia.community.modules.customgpt.indexer.PageUrlRepair;
 import org.jahia.services.usermanager.JahiaUser;
 import org.osgi.framework.BundleContext;
@@ -1350,6 +1351,20 @@ public class Service implements EventHandler {
         }
         return new PageUrlRepair(customGptClient, customGptConfig.getCustomGptProjectId(),
                 resolveValidatedApiBaseUrl()).repairSite(siteKey);
+    }
+
+    /**
+     * Reports, and optionally deletes, pages in the project that no mapping node claims; see {@link OrphanedPages}.
+     *
+     * @param dryRun when true, the orphans are logged and nothing is deleted
+     * @return the number of orphaned pages found (deleted, when not a dry run)
+     */
+    public int sweepOrphanedPages(boolean dryRun) throws IOException, RepositoryException {
+        if (customGptClient == null) {
+            throw new IOException("CustomGPT HTTP client is not initialised; cannot sweep orphaned pages");
+        }
+        return new OrphanedPages(customGptClient, customGptConfig.getCustomGptProjectId(),
+                resolveValidatedApiBaseUrl()).sweep(dryRun);
     }
 
     public int purgeAllPages() throws IOException {
