@@ -100,10 +100,12 @@ public class CustomGptIndexerNodeHandlerMetadataTest {
     }
 
     @Test
-    public void aWriteThatTakesOnARetryIsAccepted() throws Exception {
+    public void aDroppedReadDoesNotTriggerAPointlessSecondWrite() throws Exception {
+        // The write took; it was the READ that lost the value. Corroborating the read recognises that as a
+        // success, rather than answering it with another write against an API that drops writes under load.
         final OkHttpClient client = client(200, stored(null), stored(URL));
         assertThatCode(() -> update(client)).doesNotThrowAnyException();
-        assertThat(calls).containsExactly("PUT", "GET", "PUT", "GET");
+        assertThat(calls).containsExactly("PUT", "GET", "GET");
     }
 
     @Test

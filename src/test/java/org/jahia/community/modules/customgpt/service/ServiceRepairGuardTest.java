@@ -17,17 +17,17 @@ public class ServiceRepairGuardTest {
     public void aSiteKeyThatWouldEscapeTheSitesPathIsRejected() throws Exception {
         final Service service = newService();
         // The key is interpolated into a JCR query constraint; anything with a path separator is refused.
-        assertThatThrownBy(() -> service.repairMissingPageUrls("acme/../../etc", true))
+        assertThatThrownBy(() -> service.repairMissingPageUrls("acme/../../etc", null, true))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.repairMissingPageUrls("", true))
+        assertThatThrownBy(() -> service.repairMissingPageUrls("", null, true))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.repairMissingPageUrls("a/b", true))
+        assertThatThrownBy(() -> service.repairMissingPageUrls("a/b", null, true))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     public void anUninitialisedModuleReportsThatRatherThanFailingLater() throws Exception {
-        assertThatThrownBy(() -> newService().repairMissingPageUrls("academy", true))
+        assertThatThrownBy(() -> newService().repairMissingPageUrls("academy", null, true))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("not initialised");
     }

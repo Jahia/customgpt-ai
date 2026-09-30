@@ -230,7 +230,8 @@ public class GqlCustomGptAdminMutationResult {
     @GraphQLName("repairPageUrls")
     @GraphQLDescription("Re-write the URL metadata of indexed pages whose stored URL is missing or stale; reports only when dryRun is true")
     public Integer repairPageUrls(@GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLNonNull @GraphQLDescription("Site key") String siteKey,
-            @GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the planned rewrites") Boolean dryRun) {
+            @GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the planned rewrites") Boolean dryRun,
+            @GraphQLName("pageIds") @GraphQLDescription("Restrict the run to these CustomGPT page ids; required for large sites, which cannot be examined inside one request") java.util.List<String> pageIds) {
         // Validate the admin-supplied site key before building a JCR path to prevent path traversal / injection.
         if (siteKey == null || !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
             throw new DataFetchingException(new IllegalArgumentException("Invalid site key; expected ^[\\w-]+$"));
@@ -252,7 +253,7 @@ public class GqlCustomGptAdminMutationResult {
             throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
         }
         try {
-            return customGptService.repairMissingPageUrls(siteKey, Boolean.TRUE.equals(dryRun));
+            return customGptService.repairMissingPageUrls(siteKey, pageIds, Boolean.TRUE.equals(dryRun));
         } catch (java.io.IOException | RepositoryException e) {
             LOGGER.error("repairPageUrls failed for siteKey {}", SecurityUtils.sanitizeForLog(siteKey), e);
             throw new DataFetchingException(ERR_OPERATION_FAILED);

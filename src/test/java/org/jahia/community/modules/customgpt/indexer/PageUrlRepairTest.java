@@ -1,6 +1,5 @@
 package org.jahia.community.modules.customgpt.indexer;
 
-import org.json.JSONObject;
 import org.junit.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,47 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public class PageUrlRepairTest {
 
-    private static JSONObject metadata(String rawUrlJson) {
-        return new JSONObject("{\"id\":85803619,\"title\":\"t\",\"description\":null,\"image\":null,"
-                + "\"url\":" + rawUrlJson + "}");
-    }
-
     private static final String CANONICAL = "https://academy.example/documentation/jahia-cloud/jahia-cloud/about";
-
-    // --- reading the stored URL ---------------------------------------------
-
-    @Test
-    public void aStoredUrlIsReadBack() {
-        assertThat(PageUrlRepair.storedUrl(metadata("\"" + CANONICAL + "\""))).isEqualTo(CANONICAL);
-    }
-
-    @Test
-    public void aJsonNullUrlReadsAsAbsent() {
-        // The exact production shape of all 47.
-        assertThat(PageUrlRepair.storedUrl(metadata("null"))).isNull();
-    }
-
-    @Test
-    public void aMissingUrlKeyReadsAsAbsent() {
-        assertThat(PageUrlRepair.storedUrl(new JSONObject("{\"id\":1,\"title\":\"t\"}"))).isNull();
-    }
-
-    @Test
-    public void aBlankUrlReadsAsAbsent() {
-        assertThat(PageUrlRepair.storedUrl(metadata("\"\""))).isNull();
-        assertThat(PageUrlRepair.storedUrl(metadata("\"   \""))).isNull();
-    }
-
-    @Test
-    public void anAbsentDataObjectReadsAsAbsent() {
-        assertThat(PageUrlRepair.storedUrl(null)).isNull();
-    }
-
-    @Test
-    public void nullDescriptionAndImageDoNotMakeAHealthyPageLookBroken() {
-        // description and image are null on healthy pages too; only url may drive the decision.
-        assertThat(PageUrlRepair.storedUrl(metadata("\"" + CANONICAL + "\""))).isEqualTo(CANONICAL);
-    }
 
     // --- deciding whether to rewrite ----------------------------------------
 

@@ -6,10 +6,13 @@ import java.net.URISyntaxException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
 import javax.servlet.ServletException;
@@ -50,6 +53,8 @@ public class PageUrlRepair {
     private static final String NULL_SEGMENT = "null";
     /** Above this share of examined pages, a rewrite plan is treated as a bug rather than a mass move. */
     private static final int MAX_REWRITE_PERCENT = 25;
+    /** At roughly 0.6s per page, the most that comfortably finishes inside one HTTP request. */
+    private static final int MAX_SYNCHRONOUS_PAGES = 100;
 
     private final OkHttpClient customGptClient;
     private final String projectId;
@@ -76,12 +81,14 @@ public class PageUrlRepair {
      *
      * @return the number of pages whose URL was rewritten, or would be on a real run
      */
-    public int repairSite(String siteKey, boolean dryRun) throws RepositoryException, IOException {
+    public int repairSite(String siteKey, Collection<String> pageIds, boolean dryRun)
+            throws RepositoryException, IOException {
         final JahiaUser rootUser = JahiaUserManagerService.getInstance().lookupRootUser().getJahiaUser();
         // The locale is load-bearing. getUrl() renders the session locale into the path, so opening the session
         // without one produced "null" as a path segment and wrote a 404 over every URL it touched in production.
         final Locale siteLocale = resolveSiteLocale(siteKey);
-        final Map<String, String> mappings = collectPageMappings(siteKey);
+        final Map<String, String> mappings = restrictTo(collectPageMappings(siteKey), pageIds);
+        assertRunIsBounded(mappings.size());
         LOGGER.info("[repairPageUrls] {} indexed page(s) to examine for site {} (locale {}){}",
                 mappings.size(), siteKey, siteLocale.toLanguageTag(), dryRun ? ", dry run" : "");
 
@@ -108,6 +115,39 @@ public class PageUrlRepair {
         LOGGER.info("[repairPageUrls] Complete for site {} - {} of {} planned rewrite(s) applied",
                 siteKey, repaired, plan.size());
         return repaired;
+    }
+
+    /** Narrows the mapping nodes to the given CustomGPT page ids, or keeps them all when none are given. */
+    private static Map<String, String> restrictTo(Map<String, String> mappings, Collection<String> pageIds) {
+        if (pageIds == null || pageIds.isEmpty()) {
+            return mappings;
+        }
+        final Set<String> wanted = new HashSet<>(pageIds);
+        final Map<String, String> restricted = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : mappings.entrySet()) {
+            if (wanted.contains(entry.getValue())) {
+                restricted.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return restricted;
+    }
+
+    /**
+     * Refuses a run too large to finish inside an HTTP request.
+     *
+     * <p>This runs synchronously on the caller's request thread at roughly 0.6s per page, so a whole-site run over
+     * thousands of mapping nodes takes half an hour and no client survives it. That is not merely a timeout: the
+     * client gives up while the SERVER KEEPS WRITING, so a real run would rewrite an unknown subset with no
+     * summary and no returned count. Refusing to start is strictly better than finishing invisibly.
+     *
+     * <p>Scope a large job with explicit page ids, in batches, until this runs as a background job.
+     */
+    static void assertRunIsBounded(int toExamine) throws IOException {
+        if (toExamine > MAX_SYNCHRONOUS_PAGES) {
+            throw new IOException("Refusing to examine " + toExamine + " pages in one request (limit "
+                    + MAX_SYNCHRONOUS_PAGES + "). This runs synchronously and would outlive the request, leaving"
+                    + " an unknown subset rewritten with no summary. Pass explicit pageIds to scope the run.");
+        }
     }
 
     /**
@@ -175,21 +215,6 @@ public class PageUrlRepair {
     }
 
     /**
-     * The URL currently stored for the page, or {@code null} when it carries none.
-     *
-     * <p>Every one of the 47 null-URL pages in production shows the same shape: the {@code url} key is present
-     * and its value is JSON {@code null}. The key is never absent and never an empty string. The blank check is
-     * defensive - if the API ever starts storing an empty string, repairing is the right response to it.
-     */
-    static String storedUrl(JSONObject data) {
-        if (data == null || data.isNull(PROP_URL)) {
-            return null;
-        }
-        final String url = data.optString(PROP_URL, "").trim();
-        return url.isEmpty() ? null : url;
-    }
-
-    /**
      * Whether the stored URL needs rewriting: absent, or no longer the URL indexation would produce.
      *
      * <p>A stale URL is as user-visible as a missing one. 16 pages under {@code /jahia-cloud/latest/} store a path
@@ -254,9 +279,10 @@ public class PageUrlRepair {
     private void examineOnePage(String nodePath, String pageId, JahiaUser rootUser, Locale siteLocale,
             List<PlannedRewrite> plan) {
         try {
-            final JSONObject data = CustomGptIndexerNodeHandler.fetchPageMetadata(customGptClient, projectId,
+            // Read more than once before believing a missing URL: this API returns a correct envelope with a
+            // dropped payload often enough that a single read manufactures rewrite targets for correct pages.
+            final String stored = CustomGptIndexerNodeHandler.readStoredUrl(customGptClient, projectId,
                     pageId, apiBaseUrl);
-            final String stored = storedUrl(data);
             // readPage throws when the node is gone, which counts the page as unexaminable and names it in the
             // log. That is the right outcome: a page whose node no longer exists needs deleting from the corpus,
             // not a rewritten URL, and this makes those visible instead of silently passing as intact.

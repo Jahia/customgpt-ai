@@ -69,6 +69,8 @@ final class CustomGptIndexerNodeHandler {
     private static final String PROP_URL = "url";
     private static final int HTTP_FORBIDDEN = 403;
     private static final int HTTP_NOT_FOUND = 404;
+    /** How many times a missing URL is re-read before it is believed missing. */
+    private static final int URL_READ_ATTEMPTS = 2;
 
     private CustomGptIndexerNodeHandler() {
         throw new IllegalStateException("Utility class");
@@ -333,21 +335,49 @@ final class CustomGptIndexerNodeHandler {
         }
     }
 
-    /** Reads the stored metadata back, raising when it does not name this page or does not carry {@code url}. */
+    /** Reads the stored metadata back, raising when it does not carry the URL that was just written. */
     private static void verifyStoredMetadata(OkHttpClient customGptClient, String projectId, String pageId,
             String url, String apiBaseUrl) throws IOException, MetadataNotStoredException {
-        final JSONObject data = fetchPageMetadata(customGptClient, projectId, pageId, apiBaseUrl);
-        if (data == null) {
-            throw new MetadataNotStoredException("read-back of page " + pageId + " returned no 'data' object");
-        }
-        final String echoedId = data.optString("id", null);
-        if (echoedId == null || !echoedId.equals(pageId)) {
-            throw new MetadataNotStoredException("read-back of page " + pageId + " named page " + echoedId);
-        }
-        final String storedUrl = data.isNull(PROP_URL) ? null : data.optString(PROP_URL, null);
+        final String storedUrl = readStoredUrl(customGptClient, projectId, pageId, apiBaseUrl);
         if (!url.equals(storedUrl)) {
             throw new MetadataNotStoredException("page " + pageId + " stores url " + storedUrl + ", expected " + url);
         }
+    }
+
+    /**
+     * The URL stored for a page, read more than once before a missing value is believed.
+     *
+     * <p>A single read is not enough, and the {@code data.id} echo does not make it enough. This API was observed
+     * returning {@code {"status":"success","data":{"id":<the right id>,...,"url":null}}} for a page confirmed by a
+     * direct call to have a URL: correct envelope, dropped payload.
+     *
+     * <p>The degradation drops values rather than inventing them, so corroboration is asymmetric - a value seen in
+     * ANY read is real, and only a value absent from every read is believed absent. Without this, a dropped read
+     * manufactures a rewrite target for a page that was already correct in the examine phase, and makes a
+     * successful write look like a failure in the verification phase.
+     *
+     * @return the stored URL, or {@code null} when no read returned one
+     */
+    static String readStoredUrl(OkHttpClient customGptClient, String projectId, String pageId, String apiBaseUrl)
+            throws IOException {
+        for (int attempt = 1; attempt <= URL_READ_ATTEMPTS; attempt++) {
+            final JSONObject data = fetchPageMetadata(customGptClient, projectId, pageId, apiBaseUrl);
+            if (data == null) {
+                continue;
+            }
+            final String echoedId = data.optString("id", null);
+            if (echoedId == null || !echoedId.equals(pageId)) {
+                // Not a dropped value but a response about something else; corroboration must not paper over it.
+                throw new IOException("Read-back of page " + pageId + " named page " + echoedId);
+            }
+            if (!data.isNull(PROP_URL)) {
+                final String url = data.optString(PROP_URL, null);
+                if (url != null && !url.trim().isEmpty()) {
+                    return url;
+                }
+            }
+        }
+        return null;
     }
 
     /** {@code GET /projects/{projectId}/pages/{pageId}/metadata}, returning its {@code data} object. */
