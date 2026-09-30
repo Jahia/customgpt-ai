@@ -47,6 +47,13 @@ describe('CustomGPT.ai new page indexing', function () {
         // Configure this spec's own prerequisites rather than inheriting whatever the previous spec left behind.
         // 02-indexing's after() hook resets dryRun to true, and a dry run skips indexation entirely, so relying on
         // its settings made this spec silently unable to pass depending on execution order.
+        //
+        // The site setup below is the same principle applied to two prerequisites that only became load-bearing
+        // once indexation started refusing to guess. Both used to degrade silently and now fail:
+        //   - the site must carry jmix:customGptIndexableSite, or the registration gate drops every operation;
+        //   - the site must have a usable sitemapIndexURL, or the public URL cannot be resolved.
+        // Both were imported into this spec and never called, so it depended entirely on 02-indexing running
+        // first. Every mutation here is idempotent, so running the spec alone now works.
         beforeEach(() => {
             cy.apollo({
                 mutation: saveSettings,
@@ -60,6 +67,28 @@ describe('CustomGPT.ai new page indexing', function () {
                     scheduleJobASAP: false,
                     operationsBatchSize: 500
                 }
+            });
+
+            const sitePath = `/sites/${siteKey()}`;
+
+            cy.apollo({
+                mutation: setNodePropertyValues,
+                variables: {pathOrId: sitePath, propertyName: 'j:languages', propertyValues: ['en']}
+            });
+
+            cy.apollo({
+                mutation: addSitemapMixin,
+                variables: {pathOrId: sitePath, mixins: ['jseomix:sitemap']}
+            });
+
+            cy.apollo({
+                mutation: setNodeProperty,
+                variables: {pathOrId: sitePath, propertyName: 'sitemapIndexURL', propertyValue: 'http://jahia:8080'}
+            });
+
+            cy.apollo({
+                mutation: addSite,
+                variables: {siteKey: siteKey()}
             });
         });
 
