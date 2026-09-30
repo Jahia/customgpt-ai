@@ -107,7 +107,12 @@ public class PageUrlRepair {
         if (dryRun) {
             return plan.size();
         }
-        assertPlanIsPlausible(plan.size(), mappings.size() - dangling);
+        if (shouldCheckPlanSize(pageIds)) {
+            assertPlanIsPlausible(plan.size(), mappings.size() - dangling);
+        } else {
+            LOGGER.info("[repairPageUrls] Plan-size check skipped: the caller named {} page id(s), so there is no"
+                    + " population to judge the plan against", pageIds.size());
+        }
 
         for (PlannedRewrite rewrite : plan) {
             writeOneRewrite(rewrite);
@@ -148,6 +153,23 @@ public class PageUrlRepair {
                     + MAX_SYNCHRONOUS_PAGES + "). This runs synchronously and would outlive the request, leaving"
                     + " an unknown subset rewritten with no summary. Pass explicit pageIds to scope the run.");
         }
+    }
+
+    /**
+     * Whether the plan-size guard means anything for this run.
+     *
+     * <p>It asks "what share of this population looks wrong?", which is the signal that catches a systematically
+     * wrong computation across a whole site. Against an explicit list of page ids there is no population: the
+     * caller has already made the selection the guard exists to sanity-check, so {@code plan / examined} is
+     * {@code N / N} for any batch of pure targets. Batching changes N, never the ratio, and the only way to
+     * satisfy a threshold would be padding each call with healthy pages - an operator feeding the guard false
+     * negatives to get past it, which is worse than not having it.
+     *
+     * <p>The per-page checks are unaffected and fire in both modes: they judge each value on its own merits,
+     * independently of how the target set was chosen.
+     */
+    static boolean shouldCheckPlanSize(Collection<String> pageIds) {
+        return pageIds == null || pageIds.isEmpty();
     }
 
     /**

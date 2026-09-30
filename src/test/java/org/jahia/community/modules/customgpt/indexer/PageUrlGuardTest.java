@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -139,5 +140,25 @@ public class PageUrlGuardTest {
     public void aRunAtExactlyTheLimitIsAllowed() {
         assertThatCode(() -> PageUrlRepair.assertRunIsBounded(100)).doesNotThrowAnyException();
         assertThatThrownBy(() -> PageUrlRepair.assertRunIsBounded(101)).isInstanceOf(IOException.class);
+    }
+
+    // --- when the plan-size guard applies ------------------------------------
+    //
+    // The plan-size guard asks "what share of this population looks wrong?", which is the signal that would have
+    // caught a systematically wrong computation on a whole-site run. Against an explicit list of page ids there is
+    // no population: the caller has already made the selection the guard exists to sanity-check, so plan/examined
+    // is N/N = 100% for ANY batch of pure targets. Batching changes N, never the ratio. The only way to satisfy a
+    // threshold would be padding each call with healthy pages — an operator feeding the guard false negatives to
+    // get past it, which is worse than not having it.
+
+    @Test
+    public void thePlanSizeGuardAppliesToAWholeSiteRun() {
+        assertThat(PageUrlRepair.shouldCheckPlanSize(null)).isTrue();
+        assertThat(PageUrlRepair.shouldCheckPlanSize(java.util.Collections.emptyList())).isTrue();
+    }
+
+    @Test
+    public void thePlanSizeGuardIsSkippedWhenTheCallerNamedTheTargets() {
+        assertThat(PageUrlRepair.shouldCheckPlanSize(java.util.Arrays.asList("85801573", "87069572"))).isFalse();
     }
 }
