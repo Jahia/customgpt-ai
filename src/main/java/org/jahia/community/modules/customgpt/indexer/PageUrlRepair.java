@@ -50,6 +50,7 @@ public class PageUrlRepair {
     private int repaired;
     private int intact;
     private int failed;
+    private int dangling;
 
     public PageUrlRepair(OkHttpClient customGptClient, String projectId, String apiBaseUrl) {
         this.customGptClient = customGptClient;
@@ -67,7 +68,8 @@ public class PageUrlRepair {
             repairOnePage(entry.getKey(), entry.getValue(), rootUser);
         }
         LOGGER.info("[repairPageUrls] Complete for site {} - {} examined, {} repaired, {} already correct,"
-                + " {} could not be repaired", siteKey, mappings.size(), repaired, intact, failed);
+                + " {} pointing at a page the project no longer holds, {} could not be repaired",
+                siteKey, mappings.size(), repaired, intact, dangling, failed);
         return repaired;
     }
 
@@ -140,6 +142,13 @@ public class PageUrlRepair {
             CustomGptIndexerNodeHandler.updatePageMetadataChecked(customGptClient, projectId, pageId,
                     page.title, page.url, apiBaseUrl);
             repaired++;
+        } catch (CustomGptIndexerNodeHandler.PageGoneException e) {
+            // Not a failure and not actionable: the page was removed from the project out of band, leaving this
+            // mapping node behind. It self-heals on the node's next publication. Counted apart so a run is not
+            // buried under thousands of entries that need no action.
+            dangling++;
+            LOGGER.debug("[repairPageUrls] Mapping node {} points at page {}, which the project no longer holds",
+                    nodePath, pageId);
         } catch (RepositoryException | IOException | RuntimeException e) {
             failed++;
             LOGGER.warn("[repairPageUrls] Could not repair the URL of page {} ({})", pageId, nodePath, e);

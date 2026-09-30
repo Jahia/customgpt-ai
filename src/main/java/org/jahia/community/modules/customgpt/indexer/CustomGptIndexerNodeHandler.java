@@ -67,6 +67,8 @@ final class CustomGptIndexerNodeHandler {
     private static final String VALUE_FALSE = "false";
     private static final long RETRY_DELAY_MS = 500L;
     private static final String PROP_URL = "url";
+    private static final int HTTP_FORBIDDEN = 403;
+    private static final int HTTP_NOT_FOUND = 404;
 
     private CustomGptIndexerNodeHandler() {
         throw new IllegalStateException("Utility class");
@@ -357,11 +359,34 @@ final class CustomGptIndexerNodeHandler {
                 .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
                 .build();
         try (Response response = customGptClient.newCall(request).execute()) {
+            if (response.code() == HTTP_FORBIDDEN || response.code() == HTTP_NOT_FOUND) {
+                throw new PageGoneException(pageId, response.code());
+            }
             if (!response.isSuccessful() || response.body() == null) {
                 throw new IOException("Could not read back CustomGPT metadata for page " + pageId
                         + ": HTTP " + response.code());
             }
             return new JSONObject(response.body().string()).optJSONObject("data");
+        }
+    }
+
+    /**
+     * Raised when the project no longer holds the page: a mapping node pointing at something that is gone.
+     *
+     * <p>Distinct from an ordinary failure because it is neither actionable nor a defect. Pages get removed from
+     * a project directly through the API - an out-of-band cleanup of duplicates or obsolete content - without
+     * Jahia being told, which leaves the mapping node behind. That self-heals on the node's next publication, and
+     * since a delete now treats an absent page as gone, it no longer orphans a replacement.
+     *
+     * <p>It extends {@link IOException} so callers that do not care keep treating it as a failure; the URL repair
+     * counts it separately so a run is not buried under thousands of entries that need no action.
+     */
+    static class PageGoneException extends IOException {
+
+        private static final long serialVersionUID = 1L;
+
+        PageGoneException(String pageId, int status) {
+            super("CustomGPT no longer holds page " + pageId + " (HTTP " + status + ")");
         }
     }
 
