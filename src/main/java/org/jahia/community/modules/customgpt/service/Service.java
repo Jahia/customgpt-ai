@@ -1357,15 +1357,18 @@ public class Service implements EventHandler {
     /**
      * Reports, and optionally deletes, pages in the project that no mapping node claims; see {@link OrphanedPages}.
      *
+     * @param pageIds the orphan ids to delete; required when not a dry run, because an orphan is not
+     *                necessarily redundant and may be the only copy of its content
      * @param dryRun when true, the orphans are logged and nothing is deleted
      * @return the number of orphaned pages found (deleted, when not a dry run)
      */
-    public int sweepOrphanedPages(boolean dryRun) throws IOException, RepositoryException {
+    public int sweepOrphanedPages(java.util.Collection<String> pageIds, boolean dryRun)
+            throws IOException, RepositoryException {
         if (customGptClient == null) {
             throw new IOException("CustomGPT HTTP client is not initialised; cannot sweep orphaned pages");
         }
         return new OrphanedPages(customGptClient, customGptConfig.getCustomGptProjectId(),
-                resolveValidatedApiBaseUrl()).sweep(dryRun);
+                resolveValidatedApiBaseUrl()).sweep(pageIds, dryRun);
     }
 
     public int purgeAllPages() throws IOException {
