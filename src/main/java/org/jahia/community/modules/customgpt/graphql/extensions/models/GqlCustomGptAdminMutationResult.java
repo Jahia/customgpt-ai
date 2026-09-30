@@ -203,8 +203,9 @@ public class GqlCustomGptAdminMutationResult {
 
     @GraphQLField
     @GraphQLName("sweepOrphanedPages")
-    @GraphQLDescription("Report pages in the CustomGPT project that no Jahia content claims, and delete them when dryRun is false")
-    public Integer sweepOrphanedPages(@GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the orphaned pages") Boolean dryRun) {
+    @GraphQLDescription("Report pages in the CustomGPT project that no Jahia content claims; deletes only the ids passed in pageIds, since an orphan may be the only copy of its content")
+    public Integer sweepOrphanedPages(@GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the orphaned pages") Boolean dryRun,
+            @GraphQLName("pageIds") @GraphQLDescription("The orphan ids to delete; required when dryRun is false") java.util.List<String> pageIds) {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
@@ -212,14 +213,15 @@ public class GqlCustomGptAdminMutationResult {
             throw new DataFetchingException(ERR_OPERATION_FAILED);
         }
         if (LOGGER.isWarnEnabled()) {
-            LOGGER.warn("[audit] sweepOrphanedPages (dryRun={}) requested by user {}", dryRun, currentUserForAudit());
+            LOGGER.warn("[audit] sweepOrphanedPages (dryRun={}, {} id(s)) requested by user {}", dryRun,
+                    pageIds == null ? 0 : pageIds.size(), currentUserForAudit());
         }
         final Service customGptService = BundleUtils.getOsgiService(Service.class, null);
         if (customGptService == null) {
             throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
         }
         try {
-            return customGptService.sweepOrphanedPages(Boolean.TRUE.equals(dryRun));
+            return customGptService.sweepOrphanedPages(pageIds, Boolean.TRUE.equals(dryRun));
         } catch (java.io.IOException | RepositoryException e) {
             LOGGER.error("sweepOrphanedPages failed", e);
             throw new DataFetchingException(ERR_OPERATION_FAILED);
