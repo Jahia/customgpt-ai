@@ -8,6 +8,7 @@ import org.json.JSONObject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -91,6 +92,13 @@ public class Service implements EventHandler {
     private static final int READ_TIMEOUT_SECONDS = 30;
     private static final int WRITE_TIMEOUT_SECONDS = 30;
     private static final int CALL_TIMEOUT_SECONDS = 60;
+    // Executor shutdown budget. Deliberately >= CALL_TIMEOUT_SECONDS: indexing a node is a DELETE of the previous
+    // CustomGPT page followed by a re-add (see CustomGptIndexerNodeHandler), so a worker interrupted mid-sequence
+    // leaves a page removed from the customer's project and never recreated. A budget shorter than one call
+    // timeout makes that the normal outcome of a module update rather than a rare one. Deactivation is slower as
+    // a result; losing customer content is worse.
+    private static final int POOL_GRACEFUL_SHUTDOWN_SECONDS = 60;
+    private static final int POOL_FORCED_SHUTDOWN_SECONDS = 60;
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String HEADER_ACCEPT = "accept";
@@ -107,6 +115,16 @@ public class Service implements EventHandler {
     private SettingsBean settingsBean;
     private String journalEventReaderKey;
     private volatile boolean initialized;
+    /**
+     * Terminal latch set at the top of {@link #stop()}. {@code initialized} is cleared by {@code stop()}, so on its
+     * own it cannot distinguish "not started yet" from "already shut down": an OSGi event still in flight when the
+     * component is deactivated would pass the {@code !initialized} check in {@link #init()} and register a fresh
+     * JCR listener from a bundle that is on its way out - stranding it exactly like the listener this class now
+     * takes care to detach. Once set, this latch is never cleared; a redeployed bundle gets a new instance.
+     */
+    private volatile boolean disposed;
+    /** Makes {@link #closeHttpClients()} idempotent; only ever touched under that method's monitor. */
+    private boolean httpClientsClosed;
     private boolean journalEventReaderEnabled;
     private OkHttpClient customGptClient;
     private OkHttpClient jahiaClient;
@@ -290,7 +308,20 @@ public class Service implements EventHandler {
     }
     
     // Guarded so concurrent producers cannot race the shutdown/terminated check and lose tasks to a dead pool.
+    /**
+     * Refuses to allocate a thread pool for a component that has been stopped. A new pool here would be a live
+     * pool owned by a dead bundle generation, running module code on an invalidated classloader; and reaching
+     * this at all means a stranded listener is still calling in, which is the JAHIACOM-1675 failure itself.
+     */
+    private void assertNotDisposed() {
+        if (disposed) {
+            throw new RejectedExecutionException("The CustomGPT service has been stopped;"
+                    + " a stranded JCR listener is still submitting indexation work. This node needs restarting.");
+        }
+    }
+
     private synchronized void restartExecutor() {
+        assertNotDisposed();
         if (executor.isShutdown() || executor.isTerminated()) {
             LOGGER.warn("Executor is shutdown or terminated, starting a new one");
             executor = Executors.newFixedThreadPool(1);
@@ -298,6 +329,7 @@ public class Service implements EventHandler {
     }
 
     private synchronized void restartExecutorFullIndexation() {
+        assertNotDisposed();
         if (executorFullIndexation.isShutdown() || executorFullIndexation.isTerminated()) {
             LOGGER.warn("ExecutorFullIndexation is shutdown or terminated, starting a new one");
             executorFullIndexation = Executors.newFixedThreadPool(1);
@@ -305,6 +337,7 @@ public class Service implements EventHandler {
     }
 
     private synchronized void restartExecutorNThreads() {
+        assertNotDisposed();
         if (executorNThreads.isShutdown() || executorNThreads.isTerminated()) {
             LOGGER.warn("Executor with {} threads is shutdown or terminated, starting a new one", N_THREADS);
             executorNThreads = Executors.newFixedThreadPool(N_THREADS);
@@ -543,24 +576,41 @@ public class Service implements EventHandler {
     
     private synchronized void registerJcrListeners() {
         unregisterJcrListeners();
-        
+
         LOGGER.info("Registering JCR listeners");
-        
+
         jcrListenerLive = new IndexerJCRListener(true, this, customGptConfig);
-        
+
         if (journalEventReaderEnabled) {
             journalEventReader.replayMissedEvents(jcrListenerLive, journalEventReaderKey);
             journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey);
         }
-        
+
         handleJCREventListener(jcrListenerLive, true);
     }
     
+    /**
+     * Detaches the live-workspace JCR listener. This is the step that must never be skipped: the listener lives in
+     * a JVM-wide static list in {@code JCRObservationManager}, matched by instance identity, so one left behind
+     * survives the bundle and can only be removed by restarting the node.
+     *
+     * <p>The success message is logged only after the detach returns, so a failure cannot leave a log claiming it
+     * worked. Note the residual limit: {@code TemplatePackageRegistry.handleJCREventListener} swallows
+     * {@code RepositoryException} internally, so a failure to open the system session it needs - most likely
+     * during shutdown, exactly when this runs - is logged by Jahia and reported to us as success.
+     */
     private synchronized void unregisterJcrListeners() {
         if (jcrListenerLive != null) {
-            LOGGER.info("Unregistering JCR listener for live workspace");
-            
-            handleJCREventListener(jcrListenerLive, false);
+            try {
+                handleJCREventListener(jcrListenerLive, false);
+            } catch (RuntimeException | LinkageError e) {
+                LOGGER.error("The CustomGPT JCR listener could NOT be detached from Jahia's JVM-wide observation"
+                        + " registry. It will keep receiving publication events from a classloader that is being"
+                        + " invalidated, and can abort unrelated publications with NoClassDefFoundError. This node"
+                        + " must be restarted before customgpt-ai is refreshed or updated again.", e);
+                throw e;
+            }
+            LOGGER.info("Unregistered JCR listener for live workspace");
             jcrListenerLive = null;
         }
     }
@@ -570,10 +620,15 @@ public class Service implements EventHandler {
     }
     
     private synchronized void init() {
+        if (disposed) {
+            // The component has been deactivated. stop() clears `initialized`, so without this latch an OSGi event
+            // still in flight would fall straight through to registerJcrListeners() and strand a new listener.
+            LOGGER.debug("Ignoring initialisation request: the CustomGPT service has already been stopped");
+            return;
+        }
         if (!initialized) {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
-                registerJcrListeners();
                 final CookieJar cookieJar = new CookieJar() {
                     @Override
                     public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
@@ -626,6 +681,17 @@ public class Service implements EventHandler {
                         })
                         .addInterceptor(new RateLimitInterceptor(customGptConfig.getRateLimitRequestsPerSecond()))
                         .build();
+
+                // Register the JCR listener LAST, once everything that can throw has succeeded.
+                //
+                // Registering it first would be a stranding hazard: the listener goes into a JVM-wide static list
+                // in JCRObservationManager, but if anything after that throws - RateLimitInterceptor rejects a
+                // rateLimit.requestsPerSecond of 0, which a stale .cfg can easily supply - the exception escapes
+                // activate(), and per OSGi Compendium 112.5.8 a component whose activate() throws is never
+                // deactivated. stop() would then never run, and every safeguard in it is moot: the listener stays
+                // registered against a dead classloader for the life of the JVM. That is JAHIACOM-1675 through a
+                // door none of the shutdown hardening can close.
+                registerJcrListeners();
             }
             initialized = true;
             LOGGER.info("...service started");
@@ -637,20 +703,86 @@ public class Service implements EventHandler {
         init();
     }
     
+    /**
+     * Releases every resource held by this component. Invoked from {@link #deactivate()}.
+     *
+     * <p>Ordering and failure handling are deliberate, and both matter for correctness:
+     *
+     * <p><b>1. Detaching the JCR listener is the step that must never be skipped.</b>
+     * {@code JCRObservationManager} keeps its listeners in a JVM-wide {@code static} list, and both its
+     * {@code removeEventListener} (reference identity) and {@code TemplatePackageRegistry}'s de-duplication
+     * ({@code getListenerClass()}, i.e. {@code Class} identity) can only match the exact instance registered by
+     * <em>this</em> bundle generation. If it is skipped, the listener survives the bundle: it keeps receiving
+     * publication events from a classloader that is no longer valid, and neither a redeploy nor a wiring refresh
+     * can evict it - only a JVM restart can. Everything else here merely leaks within this JVM run. It is
+     * therefore called unconditionally, and only the cheap, idempotent steps below may precede it.
+     *
+     * <p><b>2. The door is closed before the teardown starts.</b> {@link #disposed} is latched first and the
+     * {@link EventHandler} registration is withdrawn next, so no OSGi event can re-enter {@link #init()} and
+     * register a fresh listener from a bundle that is on its way out.
+     *
+     * <p><b>3. Every step is isolated.</b> A failure in one cleanup must never skip the others; in particular an
+     * already-unregistered OSGi service used to throw {@link IllegalStateException} out of {@code stop()} and
+     * abort the listener de-registration.
+     */
     public void stop() {
-        shutdownAndAwaitTermination(executorFullIndexation);
-        shutdownAndAwaitTermination(executor);
-        shutdownAndAwaitTermination(executorNThreads);
-        unregisterEventHandler();
-        if (settingsBean.isProcessingServer()) {
-            unregisterJcrListeners();
-            if (journalEventReaderEnabled) {
-                journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey);
-            }
+        // Latch first: it closes the door on init() before anything below can yield to another thread.
+        disposed = true;
+        // Then stop new events reaching handleEvent(), so nothing can re-enter init() while we are tearing down.
+        runQuietly("unregister event handler", this::unregisterEventHandler);
+        // Then detach the listener - unconditionally. jcrListenerLive being non-null IS the authoritative signal
+        // that a listener was registered, and unregisterJcrListeners() already checks it; re-deriving that from
+        // settingsBean could only ever add a condition under which this step silently does not run.
+        runQuietly("unregister JCR listeners", this::unregisterJcrListeners);
+        if (journalEventReaderEnabled) {
+            runQuietly("remember last processed journal revision",
+                    () -> journalEventReader.rememberLastProcessedJournalRevision(journalEventReaderKey));
         }
+        runQuietly("shut down full indexation executor", () -> shutdownAndAwaitTermination(executorFullIndexation));
+        runQuietly("shut down indexation executor", () -> shutdownAndAwaitTermination(executor));
+        runQuietly("shut down multi-threaded indexation executor", () -> shutdownAndAwaitTermination(executorNThreads));
+        // Last: the pools have had their full graceful window, so anything still in flight is already lost.
+        runQuietly("close the HTTP clients", this::closeHttpClients);
+        initialized = false;
+    }
+
+    /**
+     * Cancels every in-flight HTTP call and releases both clients.
+     *
+     * <p>Called from {@link #stop()} only, once, after every pool has been shut down. It must NOT be called from
+     * {@link #shutdownAndAwaitTermination}: that helper also runs during normal operation, on a caller-local pool
+     * (see {@code purgeAllPages}), and these clients are component-wide - tearing them down there would leave a
+     * live component with dead clients and no way back, since {@code init()} is a no-op once initialised. Running
+     * it per-pool would also cancel calls owned by pools whose own graceful window had not yet opened.
+     *
+     * <p>Cancelling is destructive by nature: indexing a node is a {@code DELETE} of the previous CustomGPT page
+     * followed by a re-{@code add} (see {@code CustomGptIndexerNodeHandler}), so a call cancelled mid-sequence
+     * removes a page from the customer's project without recreating it. That is why the pools get a graceful
+     * window at least as long as one call timeout before this runs.
+     */
+    private synchronized void closeHttpClients() {
+        if (httpClientsClosed) {
+            return;
+        }
+        httpClientsClosed = true;
         closeHttpClient(customGptClient);
         closeHttpClient(jahiaClient);
-        initialized = false;
+    }
+
+    /**
+     * Runs one shutdown step, logging and swallowing any {@link RuntimeException} so that a single failing step
+     * cannot prevent the remaining ones from running. Shutdown is best-effort by nature: there is no caller left
+     * that could act on the failure, and propagating it would only strand the resources cleaned up afterwards.
+     */
+    private void runQuietly(String what, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException | LinkageError e) {
+            // LinkageError matters as much as RuntimeException here: stop() runs while the bundle is going down,
+            // which is precisely when classloading turns fragile. Letting one escape would abort the remaining
+            // steps - including the listener de-registration - and strand the listener for the life of the JVM.
+            LOGGER.error("Failed to {} while stopping the CustomGPT service", what, e);
+        }
     }
     
     private void closeHttpClient(OkHttpClient httpClient) {
@@ -670,12 +802,21 @@ public class Service implements EventHandler {
     private void shutdownAndAwaitTermination(ExecutorService pool) {
         pool.shutdown();
         try {
-            if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
-                pool.shutdownNow();
+            if (!pool.awaitTermination(POOL_GRACEFUL_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
+                final int running = pool instanceof ThreadPoolExecutor ? ((ThreadPoolExecutor) pool).getActiveCount() : 0;
+                // shutdownNow() hands back the tasks it never started. Dropping that list on the floor is how a
+                // shutdown silently loses queued indexation work, so name the cost - unconditionally, because
+                // cancelling a running task is a loss even when the queue behind it is empty.
+                final int discarded = pool.shutdownNow().size();
+                LOGGER.warn("Pool {} did not drain within {}s; cancelling {} running and discarding {} queued"
+                        + " indexation operation(s). Run a full re-indexation of the affected sites: some pages"
+                        + " may have been removed from the CustomGPT project without being re-added.",
+                        pool, POOL_GRACEFUL_SHUTDOWN_SECONDS, running, discarded);
             }
             // Wait a while for tasks to respond to being cancelled
-            if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
-                LOGGER.error("Pool did not terminate {}", pool);
+            if (!pool.awaitTermination(POOL_FORCED_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
+                LOGGER.error("Pool {} still has tasks running after shutdown; they will keep executing module code"
+                        + " on a classloader that is being invalidated", pool);
             }
         } catch (InterruptedException e) {
             LOGGER.warn("CustomGpt service was interrupted while shutting down tasks");
@@ -704,6 +845,15 @@ public class Service implements EventHandler {
     public void handleEvent(Event event) {
         final String type = (String) event.getProperty("type");
         LOGGER.info("Received event from topic {} of type {}", event.getTopic(), type);
+
+        if (disposed) {
+            // stop() withdraws the EventHandler registration, but EventAdmin delivery is not transactional: a
+            // thread can already be inside this method. Everything below has side effects that outlive us -
+            // init() registers a JCR listener, reIndexUsingJob() schedules a Quartz job whose class belongs to
+            // the bundle being torn down - so refuse the whole event, not just init().
+            LOGGER.warn("Ignoring {} event: the CustomGPT service has already been stopped", type);
+            return;
+        }
 
         if ((CustomGptConstants.EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE.equals(type)
                 || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED.equals(type)
@@ -752,10 +902,21 @@ public class Service implements EventHandler {
         eventHandlerServiceRegistration = bundleContext.registerService(EventHandler.class, this, new MapToDictionary(props));
     }
     
+    /**
+     * Unregisters the OSGi event handler. Idempotent: the registration is cleared before the call, and an
+     * {@link IllegalStateException} from a service the framework already unregistered while the bundle was
+     * stopping is expected rather than exceptional.
+     */
     private void unregisterEventHandler() {
-        if (eventHandlerServiceRegistration != null) {
+        final ServiceRegistration<EventHandler> registration = eventHandlerServiceRegistration;
+        eventHandlerServiceRegistration = null;
+        if (registration != null) {
             LOGGER.info("Unregistering Event Handler");
-            eventHandlerServiceRegistration.unregister();
+            try {
+                registration.unregister();
+            } catch (IllegalStateException e) {
+                LOGGER.debug("Event handler service was already unregistered by the framework", e);
+            }
         }
     }
     

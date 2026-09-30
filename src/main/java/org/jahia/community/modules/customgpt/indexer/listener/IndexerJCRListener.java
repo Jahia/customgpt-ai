@@ -57,6 +57,19 @@ public class IndexerJCRListener extends DefaultEventListener {
         return Event.NODE_ADDED + Event.NODE_REMOVED + PROPERTY_EVENTS;
     }
 
+    /**
+     * Entry point called by {@code JCRObservationManager.consume}, which runs listeners inline inside
+     * {@code JCRSessionWrapper.save()}.
+     *
+     * <p>Jahia wraps this call in {@code catch (Exception)} and logs a WARN, so an ordinary exception is already
+     * contained by the platform. An {@link Error} is <em>not</em>: it propagates out of {@code consume} and aborts
+     * the caller's save - a publication, an import, an editor's content change - for a failure that has nothing to
+     * do with the content being saved. That is how a {@link NoClassDefFoundError} from a stale listener killed a
+     * {@code PublicationJob} in JAHIACOM-1675, and it is why {@link LinkageError} is caught below.
+     *
+     * <p>The {@link RuntimeException} arm is not load-bearing for the save - the platform would have swallowed it
+     * anyway - but it lets this module log the failure with its own context instead of a context-free core WARN.
+     */
     @Override
     public void onEvent(EventIterator events) {
         try {
@@ -74,6 +87,19 @@ public class IndexerJCRListener extends DefaultEventListener {
             }
         } catch (RepositoryException ex) {
             LOGGER.error("Error processing events in the customGpt listener", ex);
+        } catch (RuntimeException ex) {
+            LOGGER.error("Unexpected error processing events in the customGpt listener", ex);
+        } catch (LinkageError err) {
+            // The load-bearing arm. A LinkageError naming a class this bundle owns usually means this listener has
+            // outlived its bundle classloader; one naming someone else's class is a different problem. Either way
+            // it must not escape, because Jahia does not contain Errors and this one would abort the caller's save.
+            // We deliberately do NOT disable the listener on this: deciding "my classloader is dead" from a message
+            // string is unreliable in both directions, and a permanent, restart-only off switch is too costly to
+            // hang off an unreliable signal.
+            LOGGER.error("Error processing events in the customGpt listener: could not load {}. If that class"
+                    + " belongs to customgpt-ai, this listener has most likely outlived its bundle classloader"
+                    + " (the module was updated, refreshed or uninstalled without the listener being"
+                    + " unregistered) and the node needs restarting.", err.getMessage(), err);
         }
     }
 
