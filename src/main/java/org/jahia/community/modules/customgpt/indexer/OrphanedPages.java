@@ -1,6 +1,8 @@
 package org.jahia.community.modules.customgpt.indexer;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -44,6 +46,10 @@ public class OrphanedPages {
     private static final Logger LOGGER = LoggerFactory.getLogger(OrphanedPages.class);
     /** Stops a malformed pagination response from looping forever; far above any realistic project size. */
     private static final int MAX_RESULT_PAGES = 500;
+    private static final String FIELD_FILESIZE = "filesize";
+    private static final String HTML_SUFFIX = ".html";
+    /** URL paths starting with one of these are raw JCR paths rather than vanity URLs. */
+    private static final String[] RAW_JCR_PREFIXES = {"/home/", "/contents/", "/files/"};
 
     private final OkHttpClient customGptClient;
     private final String projectId;
@@ -61,6 +67,8 @@ public class OrphanedPages {
         private final String title;
         /** Filled from the per-page metadata endpoint; the pages LISTING reports null for every uploaded page. */
         private String url;
+        /** The listing's {@code filesize}, or {@code null} when the record does not carry one. */
+        private Long filesize;
 
         public ProjectPage(String id, String title, String url) {
             this.id = id;
@@ -82,6 +90,14 @@ public class OrphanedPages {
 
         void setUrl(String url) {
             this.url = url;
+        }
+
+        public Long getFilesize() {
+            return filesize;
+        }
+
+        void setFilesize(Long filesize) {
+            this.filesize = filesize;
         }
     }
 
@@ -125,7 +141,8 @@ public class OrphanedPages {
      *
      * @return the number of orphaned pages found, or deleted when not a dry run
      */
-    public int sweep(Collection<String> pageIds, boolean dryRun) throws IOException, RepositoryException {
+    public int sweep(Collection<String> pageIds, String siteKey, boolean dryRun)
+            throws IOException, RepositoryException {
         final Set<String> knownPageIds = collectKnownPageIds();
         assertSafeToSweep(knownPageIds);
         if (!dryRun) {
@@ -141,9 +158,10 @@ public class OrphanedPages {
         LOGGER.info("[sweepOrphanedPages] An orphan is NOT necessarily redundant. Before deleting any of these,"
                 + " check whether a still-claimed page holds the same URL. If none does, this page is the only"
                 + " copy of that content and the remedy is to re-index its node, not to delete it.");
+        final List<ProjectPage> claimed = new ArrayList<>(projectPages);
+        claimed.removeAll(orphans);
         for (ProjectPage orphan : orphans) {
-            LOGGER.info("[sweepOrphanedPages] Orphan: id={} title='{}' url={}",
-                    orphan.getId(), orphan.getTitle(), orphan.getUrl() == null ? "<none stored>" : orphan.getUrl());
+            reportOneOrphan(orphan, claimed, siteKey);
         }
         if (dryRun) {
             return orphans.size();
@@ -177,6 +195,66 @@ public class OrphanedPages {
         }
     }
 
+    /**
+     * The one claimed page sharing this orphan's title, or {@code null} when there is not exactly one.
+     *
+     * <p>A 1:1 match on a specific title ("Spring Bean modifications in 7.3.0.1") is evidence. One of thirteen
+     * pages called "Overview" is not, and presenting it as a twin would invite exactly the wrong deletion, so an
+     * ambiguous title yields nothing.
+     */
+    static ProjectPage findTitleTwin(ProjectPage orphan, List<ProjectPage> claimed) {
+        if (orphan.getTitle() == null) {
+            return null;
+        }
+        ProjectPage found = null;
+        for (ProjectPage candidate : claimed) {
+            if (orphan.getTitle().equals(candidate.getTitle())) {
+                if (found != null) {
+                    return null;
+                }
+                found = candidate;
+            }
+        }
+        return found;
+    }
+
+    /**
+     * A guess at the JCR node behind this URL, or {@code null} when none can be made.
+     *
+     * <p>A URL path beginning {@code /home/}, {@code /contents/} or {@code /files/} is a raw JCR path, so the node
+     * is the site path plus that path with any {@code .html} stripped. Anything else is a vanity URL, and vanity
+     * mapping has no reliable inverse - guessing there would be worse than saying nothing.
+     *
+     * <p>This is a HINT. It was verified against paths that appear in the corpus in both forms, with and without
+     * the site prefix; it has not been proven as an inverse, so the report labels it as a guess.
+     */
+    static String nodePathHint(String siteKey, String url) {
+        if (siteKey == null || url == null) {
+            return null;
+        }
+        final String path;
+        try {
+            path = new URI(url).getPath();
+        } catch (URISyntaxException e) {
+            return null;
+        }
+        if (path == null) {
+            return null;
+        }
+        boolean raw = false;
+        for (String prefix : RAW_JCR_PREFIXES) {
+            if (path.startsWith(prefix)) {
+                raw = true;
+                break;
+            }
+        }
+        if (!raw) {
+            return null;
+        }
+        final String trimmed = path.endsWith(HTML_SUFFIX) ? path.substring(0, path.length() - HTML_SUFFIX.length()) : path;
+        return CustomGptConstants.PATH_SITES + siteKey + trimmed;
+    }
+
     /** The orphans the caller named; naming an id that is not an orphan does not make it deletable. */
     static List<ProjectPage> selectForDeletion(List<ProjectPage> orphans, Collection<String> pageIds) {
         final Set<String> named = new HashSet<>(pageIds);
@@ -187,6 +265,29 @@ public class OrphanedPages {
             }
         }
         return selected;
+    }
+
+    /**
+     * Prints one orphan with the context a human needs to judge it.
+     *
+     * <p>Size is printed beside the twin's size on purpose. The pattern that distinguished residue from unique
+     * content on this corpus was a CONSTANT byte delta repeating down a cluster - 19617 across five pages, ~9235
+     * across three others - and that is legible only when the rows are read side by side. No predicate or summary
+     * statistic reproduces it, which is why this reports rather than decides.
+     */
+    private void reportOneOrphan(ProjectPage orphan, List<ProjectPage> claimed, String siteKey) {
+        final ProjectPage twin = findTitleTwin(orphan, claimed);
+        final String hint = nodePathHint(siteKey, orphan.getUrl());
+        LOGGER.info("[sweepOrphanedPages] Orphan: id={} size={} title='{}' url={}{}{}",
+                orphan.getId(), describeSize(orphan.getFilesize()), orphan.getTitle(),
+                orphan.getUrl() == null ? "<none stored>" : orphan.getUrl(),
+                twin == null ? " | no single claimed page shares this title"
+                        : " | same title as claimed page " + twin.getId() + " size=" + describeSize(twin.getFilesize()),
+                hint == null ? "" : " | probable node (guess): " + hint);
+    }
+
+    private static String describeSize(Long filesize) {
+        return filesize == null ? "unknown" : filesize.toString();
     }
 
     /**
@@ -241,7 +342,15 @@ public class OrphanedPages {
                 // The listing's url field is null for every uploaded page in this corpus (all is_file: true),
                 // so it is deliberately not read here. The real URL comes from the per-page metadata endpoint
                 // and is fetched for orphans only, in enrichWithStoredUrls.
-                pages.add(new ProjectPage(String.valueOf(item.get("id")), item.optString("filename", null), null));
+                final ProjectPage page = new ProjectPage(String.valueOf(item.get("id")),
+                        item.optString("filename", null), null);
+                // filesize is an integer on every record of the corpus this was written against, but every one
+                // of those is is_file: true. A crawled page has not been observed, so a missing value means
+                // "size unknown" and is reported as such rather than assumed.
+                if (!item.isNull(FIELD_FILESIZE)) {
+                    page.setFilesize(item.optLong(FIELD_FILESIZE, 0L) == 0L ? null : item.optLong(FIELD_FILESIZE));
+                }
+                pages.add(page);
             }
         }
         throw new IOException("Stopped listing CustomGPT pages after " + MAX_RESULT_PAGES

@@ -205,7 +205,8 @@ public class GqlCustomGptAdminMutationResult {
     @GraphQLName("sweepOrphanedPages")
     @GraphQLDescription("Report pages in the CustomGPT project that no Jahia content claims; deletes only the ids passed in pageIds, since an orphan may be the only copy of its content")
     public Integer sweepOrphanedPages(@GraphQLName("dryRun") @GraphQLNonNull @GraphQLDescription("When true, only report the orphaned pages") Boolean dryRun,
-            @GraphQLName("pageIds") @GraphQLDescription("The orphan ids to delete; required when dryRun is false") java.util.List<String> pageIds) {
+            @GraphQLName("pageIds") @GraphQLDescription("The orphan ids to delete; required when dryRun is false") java.util.List<String> pageIds,
+            @GraphQLName(CustomGptConstants.PROP_SITE_KEY) @GraphQLDescription("Used only to render the probable-node hint in the report; the sweep itself is project-wide") String siteKey) {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
@@ -221,7 +222,10 @@ public class GqlCustomGptAdminMutationResult {
             throw new DataFetchingException(new IllegalStateException("CustomGPT service is not available"));
         }
         try {
-            return customGptService.sweepOrphanedPages(pageIds, Boolean.TRUE.equals(dryRun));
+            if (siteKey != null && !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+                throw new DataFetchingException(new IllegalArgumentException("Invalid site key; expected ^[\\w-]+$"));
+            }
+            return customGptService.sweepOrphanedPages(pageIds, siteKey, Boolean.TRUE.equals(dryRun));
         } catch (java.io.IOException | RepositoryException e) {
             LOGGER.error("sweepOrphanedPages failed", e);
             throw new DataFetchingException(ERR_OPERATION_FAILED);
