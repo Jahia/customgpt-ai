@@ -7,6 +7,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -125,6 +126,11 @@ public class Service implements EventHandler {
      * takes care to detach. Once set, this latch is never cleared; a redeployed bundle gets a new instance.
      */
     private volatile boolean disposed;
+    /**
+     * Nodes with an index operation queued or running, so repeats from the same publication can be dropped.
+     * See {@link #produceAsynchronousOperations}.
+     */
+    private final Set<String> pendingOperationKeys = ConcurrentHashMap.newKeySet();
     /** Makes {@link #closeHttpClients()} idempotent; only ever touched under that method's monitor. */
     private boolean httpClientsClosed;
     private boolean journalEventReaderEnabled;
@@ -346,18 +352,84 @@ public class Service implements EventHandler {
         }
     }
 
+    /**
+     * Dispatches index operations, dropping any whose node already has an equivalent operation queued or running.
+     *
+     * <p>One publication is not one JCR save: {@code JCRPublicationService.publish} saves repeatedly across the
+     * subtree, and each save delivers its own event batch. {@code IndexerJCRListener.onEvent} builds a fresh
+     * {@code IndexOperations} per batch, so its internal de-duplication cannot see across batches and the same
+     * node is dispatched several times for one publication - measured at up to 10, a few seconds apart.
+     *
+     * <p>Each of those repeats issues a DELETE of the previous CustomGPT page and a POST of a new one, so N
+     * batches cost N times the API calls to reach the state one would have reached. That is not just waste: this
+     * API degrades under sustained volume, so the redundant calls consume the very rate budget whose exhaustion
+     * produces the degraded responses.
+     *
+     * <p>Correctness does not depend on this - with a working DELETE the repeats converge on a single page
+     * regardless (see {@code CustomGptIndexerNodeHandler.removeExistingPage}). This removes the cost.
+     *
+     * <p>The trade-off: a genuine second change to a node, published while the first index is still pending, is
+     * dropped rather than queued. Within a publication that is exactly right, since the repeats carry identical
+     * content. Across two publications seconds apart it means the later content waits for the next publication.
+     * Losing a few seconds of freshness is preferable to multiplying the request volume on every publish.
+     */
     public void produceAsynchronousOperations(IndexOperations... operations) {
         restartExecutor();
-        final CompletableFuture<Void>[] completableFuture = new CompletableFuture[operations.length];
-        int i = 0;
+        final List<CompletableFuture<Void>> dispatched = new ArrayList<>(operations.length);
         for (IndexOperations operation : operations) {
-            completableFuture[i++] = CompletableFuture.supplyAsync(getPerformIndexationSupplier(operation), executor);
+            final IndexOperations coalesced = dropOperationsAlreadyPending(operation);
+            if (coalesced.isEmpty()) {
+                continue;
+            }
+            try {
+                dispatched.add(CompletableFuture
+                        .supplyAsync(getPerformIndexationSupplier(coalesced), executor)
+                        .whenComplete((unused, throwable) -> releasePending(coalesced)));
+            } catch (RuntimeException e) {
+                // Never leave a key behind: a node whose key is stuck pending would never be indexed again.
+                releasePending(coalesced);
+                throw e;
+            }
         }
-        CompletableFuture.allOf(completableFuture).whenCompleteAsync((unused, throwable) -> {
+        if (dispatched.isEmpty()) {
+            return;
+        }
+        CompletableFuture.allOf(dispatched.toArray(new CompletableFuture[0])).whenCompleteAsync((unused, throwable) -> {
             if (throwable != null) {
                 LOGGER.error("One or more asynchronous indexation operations failed: {}", throwable.getMessage(), throwable);
             }
         });
+    }
+
+    /** Claims each operation's node, returning only those not already claimed by queued or running work. */
+    private IndexOperations dropOperationsAlreadyPending(IndexOperations source) {
+        final IndexOperations kept = new IndexOperations();
+        kept.setSiteKey(source.getSiteKey());
+        int coalesced = 0;
+        for (IndexOperations.CustomGptIndexOperation operation : source.getOperations()) {
+            if (pendingOperationKeys.add(pendingOperationKey(operation))) {
+                kept.addOperation(operation);
+            } else {
+                coalesced++;
+            }
+        }
+        if (coalesced > 0) {
+            // INFO, not DEBUG: this drops indexing work. If the coalescing key is ever wrong, the symptom is
+            // content silently not being indexed, and an operator needs evidence of the decision at the default
+            // log level rather than having to reproduce it with DEBUG enabled.
+            LOGGER.info("Coalesced {} index operation(s) for node(s) already queued in this publication;"
+                    + " {} operation(s) dispatched", coalesced, kept.getOperations().size());
+        }
+        return kept;
+    }
+
+    private void releasePending(IndexOperations dispatched) {
+        dispatched.getOperations().forEach(operation -> pendingOperationKeys.remove(pendingOperationKey(operation)));
+    }
+
+    /** Type is part of the key: a removal and an indexation of the same node are different work. */
+    private static String pendingOperationKey(IndexOperations.CustomGptIndexOperation operation) {
+        return operation.getType() + "|" + operation.getNodePath();
     }
     
     public void produceSiteAsynchronousIndexations(String sitePath, IndexOperations... operations) {
