@@ -92,10 +92,13 @@ public class Service implements EventHandler {
     private static final int READ_TIMEOUT_SECONDS = 30;
     private static final int WRITE_TIMEOUT_SECONDS = 30;
     private static final int CALL_TIMEOUT_SECONDS = 60;
-    // Executor shutdown budget. Kept short on purpose: shutdownAndAwaitTermination runs on the SCR deactivation
-    // thread, so every second spent here delays the module update/uninstall that triggered it.
-    private static final int POOL_GRACEFUL_SHUTDOWN_SECONDS = 10;
-    private static final int POOL_FORCED_SHUTDOWN_SECONDS = 5;
+    // Executor shutdown budget. Deliberately >= CALL_TIMEOUT_SECONDS: indexing a node is a DELETE of the previous
+    // CustomGPT page followed by a re-add (see CustomGptIndexerNodeHandler), so a worker interrupted mid-sequence
+    // leaves a page removed from the customer's project and never recreated. A budget shorter than one call
+    // timeout makes that the normal outcome of a module update rather than a rare one. Deactivation is slower as
+    // a result; losing customer content is worse.
+    private static final int POOL_GRACEFUL_SHUTDOWN_SECONDS = 60;
+    private static final int POOL_FORCED_SHUTDOWN_SECONDS = 60;
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String HEADER_ACCEPT = "accept";
@@ -120,7 +123,7 @@ public class Service implements EventHandler {
      * takes care to detach. Once set, this latch is never cleared; a redeployed bundle gets a new instance.
      */
     private volatile boolean disposed;
-    /** Guards {@link #closeHttpClients()}, which each pool's forced phase may reach. */
+    /** Makes {@link #closeHttpClients()} idempotent; only ever touched under that method's monitor. */
     private boolean httpClientsClosed;
     private boolean journalEventReaderEnabled;
     private OkHttpClient customGptClient;
@@ -305,14 +308,20 @@ public class Service implements EventHandler {
     }
     
     // Guarded so concurrent producers cannot race the shutdown/terminated check and lose tasks to a dead pool.
-    private synchronized void restartExecutor() {
+    /**
+     * Refuses to allocate a thread pool for a component that has been stopped. A new pool here would be a live
+     * pool owned by a dead bundle generation, running module code on an invalidated classloader; and reaching
+     * this at all means a stranded listener is still calling in, which is the JAHIACOM-1675 failure itself.
+     */
+    private void assertNotDisposed() {
         if (disposed) {
-            // A deactivated component must never allocate a new pool: that would be a live thread pool owned by a
-            // dead bundle generation, running module code on an invalidated classloader. Reaching here means a
-            // stranded listener is still calling in, which is the JAHIACOM-1675 failure itself.
             throw new RejectedExecutionException("The CustomGPT service has been stopped;"
                     + " a stranded JCR listener is still submitting indexation work. This node needs restarting.");
         }
+    }
+
+    private synchronized void restartExecutor() {
+        assertNotDisposed();
         if (executor.isShutdown() || executor.isTerminated()) {
             LOGGER.warn("Executor is shutdown or terminated, starting a new one");
             executor = Executors.newFixedThreadPool(1);
@@ -320,13 +329,7 @@ public class Service implements EventHandler {
     }
 
     private synchronized void restartExecutorFullIndexation() {
-        if (disposed) {
-            // A deactivated component must never allocate a new pool: that would be a live thread pool owned by a
-            // dead bundle generation, running module code on an invalidated classloader. Reaching here means a
-            // stranded listener is still calling in, which is the JAHIACOM-1675 failure itself.
-            throw new RejectedExecutionException("The CustomGPT service has been stopped;"
-                    + " a stranded JCR listener is still submitting indexation work. This node needs restarting.");
-        }
+        assertNotDisposed();
         if (executorFullIndexation.isShutdown() || executorFullIndexation.isTerminated()) {
             LOGGER.warn("ExecutorFullIndexation is shutdown or terminated, starting a new one");
             executorFullIndexation = Executors.newFixedThreadPool(1);
@@ -334,13 +337,7 @@ public class Service implements EventHandler {
     }
 
     private synchronized void restartExecutorNThreads() {
-        if (disposed) {
-            // A deactivated component must never allocate a new pool: that would be a live thread pool owned by a
-            // dead bundle generation, running module code on an invalidated classloader. Reaching here means a
-            // stranded listener is still calling in, which is the JAHIACOM-1675 failure itself.
-            throw new RejectedExecutionException("The CustomGPT service has been stopped;"
-                    + " a stranded JCR listener is still submitting indexation work. This node needs restarting.");
-        }
+        assertNotDisposed();
         if (executorNThreads.isShutdown() || executorNThreads.isTerminated()) {
             LOGGER.warn("Executor with {} threads is shutdown or terminated, starting a new one", N_THREADS);
             executorNThreads = Executors.newFixedThreadPool(N_THREADS);
@@ -592,11 +589,28 @@ public class Service implements EventHandler {
         handleJCREventListener(jcrListenerLive, true);
     }
     
+    /**
+     * Detaches the live-workspace JCR listener. This is the step that must never be skipped: the listener lives in
+     * a JVM-wide static list in {@code JCRObservationManager}, matched by instance identity, so one left behind
+     * survives the bundle and can only be removed by restarting the node.
+     *
+     * <p>The success message is logged only after the detach returns, so a failure cannot leave a log claiming it
+     * worked. Note the residual limit: {@code TemplatePackageRegistry.handleJCREventListener} swallows
+     * {@code RepositoryException} internally, so a failure to open the system session it needs - most likely
+     * during shutdown, exactly when this runs - is logged by Jahia and reported to us as success.
+     */
     private synchronized void unregisterJcrListeners() {
         if (jcrListenerLive != null) {
-            LOGGER.info("Unregistering JCR listener for live workspace");
-            
-            handleJCREventListener(jcrListenerLive, false);
+            try {
+                handleJCREventListener(jcrListenerLive, false);
+            } catch (RuntimeException | LinkageError e) {
+                LOGGER.error("The CustomGPT JCR listener could NOT be detached from Jahia's JVM-wide observation"
+                        + " registry. It will keep receiving publication events from a classloader that is being"
+                        + " invalidated, and can abort unrelated publications with NoClassDefFoundError. This node"
+                        + " must be restarted before customgpt-ai is refreshed or updated again.", e);
+                throw e;
+            }
+            LOGGER.info("Unregistered JCR listener for live workspace");
             jcrListenerLive = null;
         }
     }
@@ -615,7 +629,6 @@ public class Service implements EventHandler {
         if (!initialized) {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
-                registerJcrListeners();
                 final CookieJar cookieJar = new CookieJar() {
                     @Override
                     public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
@@ -668,6 +681,17 @@ public class Service implements EventHandler {
                         })
                         .addInterceptor(new RateLimitInterceptor(customGptConfig.getRateLimitRequestsPerSecond()))
                         .build();
+
+                // Register the JCR listener LAST, once everything that can throw has succeeded.
+                //
+                // Registering it first would be a stranding hazard: the listener goes into a JVM-wide static list
+                // in JCRObservationManager, but if anything after that throws - RateLimitInterceptor rejects a
+                // rateLimit.requestsPerSecond of 0, which a stale .cfg can easily supply - the exception escapes
+                // activate(), and per OSGi Compendium 112.5.8 a component whose activate() throws is never
+                // deactivated. stop() would then never run, and every safeguard in it is moot: the listener stays
+                // registered against a dead classloader for the life of the JVM. That is JAHIACOM-1675 through a
+                // door none of the shutdown hardening can close.
+                registerJcrListeners();
             }
             initialized = true;
             LOGGER.info("...service started");
@@ -717,7 +741,7 @@ public class Service implements EventHandler {
         runQuietly("shut down full indexation executor", () -> shutdownAndAwaitTermination(executorFullIndexation));
         runQuietly("shut down indexation executor", () -> shutdownAndAwaitTermination(executor));
         runQuietly("shut down multi-threaded indexation executor", () -> shutdownAndAwaitTermination(executorNThreads));
-        // Safety net: if every pool drained gracefully the clients were never closed above.
+        // Last: the pools have had their full graceful window, so anything still in flight is already lost.
         runQuietly("close the HTTP clients", this::closeHttpClients);
         initialized = false;
     }
@@ -725,12 +749,16 @@ public class Service implements EventHandler {
     /**
      * Cancels every in-flight HTTP call and releases both clients.
      *
-     * <p>Called from {@link #shutdownAndAwaitTermination} <em>between</em> the graceful and the forced phase, never
-     * before the graceful wait. Indexing a node is a {@code DELETE} of the previous CustomGPT page followed by a
-     * re-{@code add} (see {@code CustomGptIndexerNodeHandler}); cancelling mid-sequence removes a page from the
-     * customer's project without recreating it. So in-flight calls get the graceful window to finish, and are only
-     * cancelled once we are going to interrupt their threads anyway - at which point cancelling is what actually
-     * unblocks them, since a synchronous OkHttp call unwinds via its dispatcher rather than via the interrupt.
+     * <p>Called from {@link #stop()} only, once, after every pool has been shut down. It must NOT be called from
+     * {@link #shutdownAndAwaitTermination}: that helper also runs during normal operation, on a caller-local pool
+     * (see {@code purgeAllPages}), and these clients are component-wide - tearing them down there would leave a
+     * live component with dead clients and no way back, since {@code init()} is a no-op once initialised. Running
+     * it per-pool would also cancel calls owned by pools whose own graceful window had not yet opened.
+     *
+     * <p>Cancelling is destructive by nature: indexing a node is a {@code DELETE} of the previous CustomGPT page
+     * followed by a re-{@code add} (see {@code CustomGptIndexerNodeHandler}), so a call cancelled mid-sequence
+     * removes a page from the customer's project without recreating it. That is why the pools get a graceful
+     * window at least as long as one call timeout before this runs.
      */
     private synchronized void closeHttpClients() {
         if (httpClientsClosed) {
@@ -776,16 +804,14 @@ public class Service implements EventHandler {
         try {
             if (!pool.awaitTermination(POOL_GRACEFUL_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
                 final int running = pool instanceof ThreadPoolExecutor ? ((ThreadPoolExecutor) pool).getActiveCount() : 0;
-                // Only now cancel the HTTP calls: we are about to interrupt these threads regardless, and an
-                // interrupt alone does not unblock a synchronous OkHttp call.
-                closeHttpClients();
                 // shutdownNow() hands back the tasks it never started. Dropping that list on the floor is how a
                 // shutdown silently loses queued indexation work, so name the cost - unconditionally, because
                 // cancelling a running task is a loss even when the queue behind it is empty.
                 final int discarded = pool.shutdownNow().size();
                 LOGGER.warn("Pool {} did not drain within {}s; cancelling {} running and discarding {} queued"
-                        + " indexation operation(s). The affected content will not be indexed until the next"
-                        + " full re-indexation.", pool, POOL_GRACEFUL_SHUTDOWN_SECONDS, running, discarded);
+                        + " indexation operation(s). Run a full re-indexation of the affected sites: some pages"
+                        + " may have been removed from the CustomGPT project without being re-added.",
+                        pool, POOL_GRACEFUL_SHUTDOWN_SECONDS, running, discarded);
             }
             // Wait a while for tasks to respond to being cancelled
             if (!pool.awaitTermination(POOL_FORCED_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
@@ -819,6 +845,15 @@ public class Service implements EventHandler {
     public void handleEvent(Event event) {
         final String type = (String) event.getProperty("type");
         LOGGER.info("Received event from topic {} of type {}", event.getTopic(), type);
+
+        if (disposed) {
+            // stop() withdraws the EventHandler registration, but EventAdmin delivery is not transactional: a
+            // thread can already be inside this method. Everything below has side effects that outlive us -
+            // init() registers a JCR listener, reIndexUsingJob() schedules a Quartz job whose class belongs to
+            // the bundle being torn down - so refuse the whole event, not just init().
+            LOGGER.warn("Ignoring {} event: the CustomGPT service has already been stopped", type);
+            return;
+        }
 
         if ((CustomGptConstants.EVENT_TYPE_TRANSPORT_CLIENT_SERVICE_AVAILABLE.equals(type)
                 || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED.equals(type)

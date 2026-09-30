@@ -4,6 +4,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import okhttp3.OkHttpClient;
 import java.util.concurrent.ExecutorService;
 import org.jahia.api.settings.SettingsBean;
 import org.jahia.api.templates.JahiaTemplateManagerService;
@@ -23,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -54,6 +57,8 @@ public class ServiceShutdownTest {
     private ExecutorService executor;
     private ExecutorService executorFullIndexation;
     private ExecutorService executorNThreads;
+    private OkHttpClient customGptClient;
+    private OkHttpClient jahiaClient;
 
     @Before
     @SuppressWarnings("unchecked")
@@ -92,6 +97,11 @@ public class ServiceShutdownTest {
         // init() builds the OkHttp clients after registering the listener; RateLimitInterceptor rejects 0.
         when(config.getRateLimitRequestsPerSecond()).thenReturn(1);
         set("customGptConfig", config);
+        // Without these the client teardown short-circuits on null and the whole path goes untested.
+        customGptClient = new OkHttpClient();
+        jahiaClient = new OkHttpClient();
+        set("customGptClient", customGptClient);
+        set("jahiaClient", jahiaClient);
     }
 
     @SuppressWarnings("squid:S1172")
@@ -115,10 +125,57 @@ public class ServiceShutdownTest {
     public void stop_withdrawsEventHandlerThenListenerBeforeShuttingDownExecutors() {
         service.stop();
 
-        final InOrder order = inOrder(eventHandlerRegistration, templatePackageRegistry, executor);
+        final InOrder order = inOrder(eventHandlerRegistration, templatePackageRegistry,
+                executorFullIndexation, executor, executorNThreads);
         order.verify(eventHandlerRegistration).unregister();
         order.verify(templatePackageRegistry).handleJCREventListener(listener, false);
+        // Every pool shutdown must follow the de-registration: each one can block for the full graceful window
+        // and can throw, so any of them moving ahead of it reopens the stranding window.
+        order.verify(executorFullIndexation).shutdown();
         order.verify(executor).shutdown();
+        order.verify(executorNThreads).shutdown();
+    }
+
+    /**
+     * The HTTP clients must be torn down only after every pool has had its graceful window. Cancelling earlier
+     * aborts an in-flight DELETE-then-re-add and removes a page from the customer's CustomGPT project without
+     * recreating it; and this teardown is component-wide, so it must not be reachable from the per-pool helper,
+     * which also runs during normal operation on a caller-local pool.
+     */
+    @Test
+    public void stop_closesHttpClientsOnlyAfterEveryPoolHasBeenShutDown() {
+        // Record whether the clients were already dead at the moment the LAST pool was asked to shut down.
+        // Asserting only the end state would pass even if the clients had been closed first, which is precisely
+        // the ordering that aborts an in-flight DELETE-then-re-add.
+        final AtomicBoolean clientsClosedBeforeLastPool = new AtomicBoolean();
+        doAnswer(invocation -> {
+            clientsClosedBeforeLastPool.set(customGptClient.dispatcher().executorService().isShutdown());
+            return null;
+        }).when(executorNThreads).shutdown();
+
+        service.stop();
+
+        assertThat(clientsClosedBeforeLastPool).isFalse();
+        assertThat(customGptClient.dispatcher().executorService().isShutdown()).isTrue();
+        assertThat(jahiaClient.dispatcher().executorService().isShutdown()).isTrue();
+    }
+
+    /** A stranded listener driving a full re-index must be rejected too, not just the incremental path. */
+    @Test
+    public void produceAsynchronousFullIndexation_afterStop_isRejected() {
+        service.stop();
+
+        assertThatThrownBy(() -> service.produceAsynchronousFullIndexation(new IndexOperations()))
+                .isInstanceOf(RejectedExecutionException.class);
+    }
+
+    /** Likewise the site-indexation path, which runs on its own pool. */
+    @Test
+    public void produceSiteAsynchronousIndexations_afterStop_isRejected() {
+        service.stop();
+
+        assertThatThrownBy(() -> service.produceSiteAsynchronousIndexations("/sites/acme", new IndexOperations()))
+                .isInstanceOf(RejectedExecutionException.class);
     }
 
     /**

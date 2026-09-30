@@ -11,9 +11,9 @@ import org.junit.Test;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -51,7 +51,9 @@ public class IndexerJCRListenerResilienceTest {
     private EventIterator singleEventFailingInService(Throwable failure) throws RepositoryException {
         final EventWrapper event = mock(EventWrapper.class);
         when(event.getPath()).thenReturn("/sites/acme/home");
-        when(service.acceptablePathToIndex(anyString())).thenThrow(failure);
+        // doThrow/when, not when/thenThrow: the latter would *invoke* an already-stubbed method, so re-stubbing
+        // inside a loop would throw the previous failure outside the code under test.
+        doThrow(failure).when(service).acceptablePathToIndex(anyString());
         return singleEvent(event);
     }
 
@@ -66,40 +68,60 @@ public class IndexerJCRListenerResilienceTest {
     }
 
 
-    /** An ordinary runtime failure is logged and contained too, but does not disable the listener. */
-    @Test
-    public void onEvent_doesNotPropagate_onRuntimeException() throws Exception {
-        final EventIterator events = singleEventFailingInService(new IllegalStateException("transient glitch"));
 
-        assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
+
+
+    /**
+     * An ordinary runtime failure must not stop the listener processing later events. The second pass has to get
+     * all the way to dispatching an operation: merely re-entering the loop would also happen if the listener had
+     * quietly disabled itself, so stubbing the failure once and then succeeding is what makes this meaningful.
+     */
+    @Test
+    public void onEvent_keepsProcessing_afterRuntimeException() throws Exception {
+        final EventWrapper failing = mock(EventWrapper.class);
+        when(failing.getPath()).thenReturn("/sites/acme/home");
+        when(service.acceptablePathToIndex(anyString()))
+                .thenThrow(new IllegalStateException("transient glitch"))
+                .thenReturn(false);
+
+        listener.onEvent(singleEvent(failing));
+        clearInvocations(service);
+
+        final EventWrapper later = mock(EventWrapper.class);
+        when(later.getPath()).thenReturn("/sites/acme/other");
+        listener.onEvent(singleEvent(later));
+
+        // Reached the collaborator again on the second pass rather than short-circuiting.
+        verify(service).acceptablePathToIndex("/sites/acme/other");
     }
 
     /**
-     * The incident's failure was raised by the JVM resolving a class this bundle owns, which can happen at the
-     * very first statement of the method - before any collaborator is reached. Injecting the error mid-loop would
-     * leave that path uncovered, so this case throws from the first thing {@code onEvent} touches.
+     * The {@code LinkageError} arm must cover the whole family, not just {@code NoClassDefFoundError}. A bundle
+     * whose wiring was replaced can equally produce {@code NoSuchMethodError} or {@code IncompatibleClassChangeError},
+     * and any of them escaping aborts the caller's save - Jahia contains {@code Exception}, not {@code Error}.
      */
     @Test
-    public void onEvent_doesNotPropagate_whenTheErrorIsRaisedAtTheStartOfTheMethod() {
-        final EventIterator events = mock(EventIterator.class);
-        when(events.hasNext()).thenThrow(
-                new NoClassDefFoundError("org/jahia/community/modules/customgpt/indexer/listener/IndexOperations"));
-
-        assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
+    public void onEvent_doesNotPropagate_onOtherLinkageErrors() throws Exception {
+        for (LinkageError err : new LinkageError[]{
+                new NoSuchMethodError("org.jahia.services.content.JCRNodeWrapper.getPath()"),
+                new IncompatibleClassChangeError("org/apache/jackrabbit/core/ItemManager")}) {
+            assertThatCode(() -> listener.onEvent(singleEventFailingInService(err)))
+                    .as("%s must be contained", err.getClass().getSimpleName())
+                    .doesNotThrowAnyException();
+        }
     }
 
-
-    /** An ordinary runtime failure must not stop the listener processing later events. */
+    /**
+     * A {@code LinkageError} naming another bundle's class must be contained too. The listener deliberately does
+     * not try to decide, from a message string, whose classloader is at fault - so narrowing the arm to "only
+     * swallow errors that name us" would let a stale listener abort publications again.
+     */
     @Test
-    public void onEvent_keepsProcessing_afterRuntimeException() throws Exception {
-        listener.onEvent(singleEventFailingInService(new IllegalStateException("transient glitch")));
-        clearInvocations(service);
+    public void onEvent_doesNotPropagate_whenTheFailedClassBelongsToAnotherBundle() throws Exception {
+        final EventIterator events = singleEventFailingInService(
+                new NoClassDefFoundError("org/apache/jackrabbit/core/session/SessionItemOperation"));
 
-        final EventWrapper event = mock(EventWrapper.class);
-        when(event.getPath()).thenReturn("/sites/acme/home");
-        listener.onEvent(singleEvent(event));
-
-        verify(service).acceptablePathToIndex("/sites/acme/home");
+        assertThatCode(() -> listener.onEvent(events)).doesNotThrowAnyException();
     }
 
     /** A repository failure is contained, as it already was before this change. */
