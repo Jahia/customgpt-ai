@@ -8,10 +8,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Tests for the predicate that selects pages to repair.
  *
- * <p>The shape is measured, not assumed: all 47 affected pages in the production corpus return the identical
+ * <p>The shape is measured, not assumed: all 47 null-URL pages in the production corpus return the identical
  * five-key set {@code [description, id, image, title, url]} with {@code url} set to JSON null. The key is never
  * absent and never empty, and {@code description}/{@code image} are null on healthy pages too - so {@code url} is
  * the only field that distinguishes a dropped write.
+ *
+ * <p>A URL that is present but no longer canonical is repaired too. 16 pages under {@code /jahia-cloud/latest/}
+ * store a path answering 301 to a different URL, because {@code latest} is an alias segment in that tree; a
+ * measured sample put the corpus-wide redirect rate at ~0.7%, so this is a targeted case rather than a sweep.
  */
 public class PageUrlRepairTest {
 
@@ -20,36 +24,66 @@ public class PageUrlRepairTest {
                 + "\"url\":" + rawUrlJson + "}");
     }
 
+    private static final String CANONICAL = "https://academy.example/documentation/jahia-cloud/jahia-cloud/about";
+
+    // --- reading the stored URL ---------------------------------------------
+
     @Test
-    public void aPageWithAUrlIsLeftAlone() {
-        assertThat(PageUrlRepair.hasStoredUrl(metadata("\"https://academy.example/kb/x\""))).isTrue();
+    public void aStoredUrlIsReadBack() {
+        assertThat(PageUrlRepair.storedUrl(metadata("\"" + CANONICAL + "\""))).isEqualTo(CANONICAL);
     }
 
     @Test
-    public void aPageWhoseUrlIsJsonNullIsRepaired() {
+    public void aJsonNullUrlReadsAsAbsent() {
         // The exact production shape of all 47.
-        assertThat(PageUrlRepair.hasStoredUrl(metadata("null"))).isFalse();
+        assertThat(PageUrlRepair.storedUrl(metadata("null"))).isNull();
     }
 
     @Test
-    public void aPageWithNoUrlKeyAtAllIsRepaired() {
-        assertThat(PageUrlRepair.hasStoredUrl(new JSONObject("{\"id\":1,\"title\":\"t\"}"))).isFalse();
+    public void aMissingUrlKeyReadsAsAbsent() {
+        assertThat(PageUrlRepair.storedUrl(new JSONObject("{\"id\":1,\"title\":\"t\"}"))).isNull();
     }
 
     @Test
-    public void aPageWithABlankUrlIsRepaired() {
-        assertThat(PageUrlRepair.hasStoredUrl(metadata("\"\""))).isFalse();
-        assertThat(PageUrlRepair.hasStoredUrl(metadata("\"   \""))).isFalse();
+    public void aBlankUrlReadsAsAbsent() {
+        assertThat(PageUrlRepair.storedUrl(metadata("\"\""))).isNull();
+        assertThat(PageUrlRepair.storedUrl(metadata("\"   \""))).isNull();
     }
 
     @Test
-    public void anAbsentDataObjectIsTreatedAsNeedingRepair() {
-        assertThat(PageUrlRepair.hasStoredUrl(null)).isFalse();
+    public void anAbsentDataObjectReadsAsAbsent() {
+        assertThat(PageUrlRepair.storedUrl(null)).isNull();
     }
 
     @Test
     public void nullDescriptionAndImageDoNotMakeAHealthyPageLookBroken() {
         // description and image are null on healthy pages too; only url may drive the decision.
-        assertThat(PageUrlRepair.hasStoredUrl(metadata("\"https://academy.example/x\""))).isTrue();
+        assertThat(PageUrlRepair.storedUrl(metadata("\"" + CANONICAL + "\""))).isEqualTo(CANONICAL);
+    }
+
+    // --- deciding whether to rewrite ----------------------------------------
+
+    @Test
+    public void aPageAlreadyStoringTheCanonicalUrlIsLeftAlone() {
+        assertThat(PageUrlRepair.needsRepair(CANONICAL, CANONICAL)).isFalse();
+    }
+
+    @Test
+    public void aPageWithNoStoredUrlIsRepaired() {
+        assertThat(PageUrlRepair.needsRepair(null, CANONICAL)).isTrue();
+    }
+
+    @Test
+    public void aPageStoringAnAliasPathThatRedirectsIsRepaired() {
+        // The measured /jahia-cloud/latest/ shape: stored path 301s to the canonical one, and the redirect also
+        // normalises case and spaces, so this is a real vanity mapping rather than trailing-slash noise.
+        final String alias = "https://academy.example/home/documentation/jahia-cloud/latest/About%20Jahia";
+        assertThat(PageUrlRepair.needsRepair(alias, CANONICAL)).isTrue();
+    }
+
+    @Test
+    public void aTrailingSlashDifferenceIsStillARewrite() {
+        // Deliberate: the comparison is exact, so the stored value always converges on what indexation produces.
+        assertThat(PageUrlRepair.needsRepair(CANONICAL + "/", CANONICAL)).isTrue();
     }
 }

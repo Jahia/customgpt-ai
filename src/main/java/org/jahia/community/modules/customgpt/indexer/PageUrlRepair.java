@@ -21,13 +21,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Re-writes the metadata of pages this module indexed without a URL.
+ * Re-writes the metadata of indexed pages whose stored URL is missing or no longer canonical.
  *
  * <p>A page with no URL gives the chatbot a citation the user cannot click. 47 of 1920 pages in the production
  * corpus are in that state. The cause is <em>not</em> URL validation - version-range titles producing
  * 170-character paths store fine - but transient failure under bulk load: this API answers {@code status: success}
  * with an empty body while reporting zero errors, and the write is dropped. 36 of the 47 came from a single
  * high-volume day, scattered across separate minutes rather than one contiguous bad window.
+ *
+ * <p>A stale URL is as user-visible as a missing one: 16 pages under {@code /jahia-cloud/latest/} store a path
+ * that answers 301 to a different canonical URL, because {@code latest} is an alias segment in that tree. Rather
+ * than enumerate which trees use aliases, every page's URL is recomputed and compared.
  *
  * <p>Only the metadata write is re-issued. The pages exist with correct content and their mapping nodes are
  * intact, so there is nothing to re-render or re-upload: one request per affected page instead of a full
@@ -62,7 +66,7 @@ public class PageUrlRepair {
         for (Map.Entry<String, String> entry : mappings.entrySet()) {
             repairOnePage(entry.getKey(), entry.getValue(), rootUser);
         }
-        LOGGER.info("[repairPageUrls] Complete for site {} - {} examined, {} repaired, {} already had a URL,"
+        LOGGER.info("[repairPageUrls] Complete for site {} - {} examined, {} repaired, {} already correct,"
                 + " {} could not be repaired", siteKey, mappings.size(), repaired, intact, failed);
         return repaired;
     }
@@ -91,29 +95,46 @@ public class PageUrlRepair {
     }
 
     /**
-     * Whether the page already carries a usable URL.
+     * The URL currently stored for the page, or {@code null} when it carries none.
      *
-     * <p>Every one of the 47 affected pages in production shows the same shape: the {@code url} key is present
+     * <p>Every one of the 47 null-URL pages in production shows the same shape: the {@code url} key is present
      * and its value is JSON {@code null}. The key is never absent and never an empty string. The blank check is
      * defensive - if the API ever starts storing an empty string, repairing is the right response to it.
      */
-    static boolean hasStoredUrl(JSONObject data) {
+    static String storedUrl(JSONObject data) {
         if (data == null || data.isNull(PROP_URL)) {
-            return false;
+            return null;
         }
-        return !data.optString(PROP_URL, "").trim().isEmpty();
+        final String url = data.optString(PROP_URL, "").trim();
+        return url.isEmpty() ? null : url;
+    }
+
+    /**
+     * Whether the stored URL needs rewriting: absent, or no longer the URL indexation would produce.
+     *
+     * <p>A stale URL is as user-visible as a missing one. 16 pages under {@code /jahia-cloud/latest/} store a path
+     * that answers 301 to a different canonical URL, because {@code latest} is an alias segment in that tree - so
+     * every citation to them costs the reader a redirect, and the stored path is not what the page is called.
+     * Comparing against the recomputed URL catches that without needing to know which trees use aliases.
+     */
+    static boolean needsRepair(String storedUrl, String canonicalUrl) {
+        return !canonicalUrl.equals(storedUrl);
     }
 
     private void repairOnePage(String nodePath, String pageId, JahiaUser rootUser) {
         try {
             final JSONObject data = CustomGptIndexerNodeHandler.fetchPageMetadata(customGptClient, projectId,
                     pageId, apiBaseUrl);
-            if (hasStoredUrl(data)) {
+            final String stored = storedUrl(data);
+            // readPage throws when the node is gone, which counts the page as failed and names it in the log.
+            // That is the right outcome: a page whose node no longer exists needs deleting from the corpus, not
+            // a rewritten URL, and this at least makes those visible instead of silently passing as intact.
+            final PageToRepair page = readPage(nodePath, rootUser);
+            if (!needsRepair(stored, page.url)) {
                 intact++;
                 return;
             }
-            final PageToRepair page = readPage(nodePath, rootUser);
-            LOGGER.info("[repairPageUrls] Page {} ({}) has no URL; setting it to {}", pageId, nodePath, page.url);
+            LOGGER.info("[repairPageUrls] Page {} ({}) stores {}; setting it to {}", pageId, nodePath, stored, page.url);
             // Goes through the same checked write as indexation, so the repair is itself verified by read-back
             // rather than trusting the 2xx that caused this state in the first place.
             CustomGptIndexerNodeHandler.updatePageMetadataChecked(customGptClient, projectId, pageId,
