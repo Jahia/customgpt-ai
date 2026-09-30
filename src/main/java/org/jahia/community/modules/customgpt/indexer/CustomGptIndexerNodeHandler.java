@@ -66,6 +66,7 @@ final class CustomGptIndexerNodeHandler {
     private static final String MEDIA_TYPE_JSON = "application/json";
     private static final String VALUE_FALSE = "false";
     private static final long RETRY_DELAY_MS = 500L;
+    private static final String PROP_URL = "url";
 
     private CustomGptIndexerNodeHandler() {
         throw new IllegalStateException("Utility class");
@@ -137,20 +138,6 @@ final class CustomGptIndexerNodeHandler {
     private static void indexInSession(JCRSessionWrapper session, OkHttpClient customGptClient, OkHttpClient jahiaClient,
             JCRNodeWrapper nodeToIndex, JCRSiteNode siteNode, String language, String apiBaseUrl,
             Indexer customGptIndexer, JahiaUser rootUser) throws RepositoryException {
-        final String hostName = Utils.getHostName(siteNode);
-        if (StringUtils.isEmpty(hostName)) {
-            LOGGER.warn("The host name can not be extracted from the property sitemapIndexURL");
-            return;
-        }
-        final URL serverUrl;
-        try {
-            serverUrl = URI.create(hostName).toURL();
-        } catch (MalformedURLException | IllegalArgumentException e) {
-            LOGGER.warn("The property sitemapIndexURL does not match an URL pattern, Sitemap generation won't happen");
-            return;
-        }
-        final RenderContext customRenderContext = buildRenderContext(serverUrl, siteNode, rootUser);
-
         if (!session.nodeExists(nodeToIndex.getPath())) {
             LOGGER.warn("Skipping indexation of {}: it does not exist in the live workspace", nodeToIndex.getPath());
             return;
@@ -165,7 +152,10 @@ final class CustomGptIndexerNodeHandler {
         }
         try {
             final JCRNodeWrapper liveNode = session.getNode(nodeToIndex.getPath());
-            final String url = hostName + Utils.encode(liveNode.getUrl(), customRenderContext);
+            // Raises rather than returning when the site's sitemapIndexURL is missing or malformed. That used to
+            // be two silent early returns, which meant a site with a broken sitemapIndexURL indexed nothing at
+            // all and still reported success - the same silent-success shape as the skipped render below.
+            final String url = resolvePublicUrl(liveNode, siteNode, rootUser);
             removeExistingPage(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode.getPath(), url, language);
             indexJahiaPage(customGptClient, jahiaClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, url, language);
         } catch (InterruptedException ex) {
@@ -176,6 +166,30 @@ final class CustomGptIndexerNodeHandler {
             // swallowed here the surrounding run still completed normally and the site was reported as indexed.
             customGptIndexer.recordFailure(nodeToIndex.getPath(), language, ex);
         }
+    }
+
+    /**
+     * The public URL this module indexes {@code liveNode} under: the site's host plus the node's outbound-rewritten
+     * path, with the thread user bound so vanity URLs resolve.
+     *
+     * <p>Shared by the indexation path and the URL repair pass, so a repaired URL is by construction the same URL
+     * indexation would have produced.
+     */
+    static String resolvePublicUrl(JCRNodeWrapper liveNode, JCRSiteNode siteNode, JahiaUser rootUser)
+            throws IOException, ServletException, InvocationTargetException, URISyntaxException {
+        final String hostName = Utils.getHostName(siteNode);
+        if (StringUtils.isEmpty(hostName)) {
+            throw new IOException("The host name cannot be extracted from the sitemapIndexURL property of site "
+                    + siteNode.getName());
+        }
+        final URL serverUrl;
+        try {
+            serverUrl = URI.create(hostName).toURL();
+        } catch (MalformedURLException | IllegalArgumentException e) {
+            throw new IOException("The sitemapIndexURL property of site " + siteNode.getName()
+                    + " does not match a URL pattern", e);
+        }
+        return hostName + Utils.encode(liveNode.getUrl(), buildRenderContext(serverUrl, siteNode, rootUser), rootUser);
     }
 
     private static RenderContext buildRenderContext(URL serverUrl, JCRSiteNode siteNode, JahiaUser rootUser) {
@@ -208,19 +222,21 @@ final class CustomGptIndexerNodeHandler {
     }
 
     @SuppressWarnings("java:S107")
-    private static void indexJahiaPage(OkHttpClient customGptClient, OkHttpClient jahiaClient, Indexer customGptIndexer,
+    static void indexJahiaPage(OkHttpClient customGptClient, OkHttpClient jahiaClient, Indexer customGptIndexer,
             String apiBaseUrl, JahiaUser rootUser, JCRNodeWrapper liveNode, String url, String language)
             throws RepositoryException, IOException, InterruptedException {
         LOGGER.debug("Adding url {}", url);
         try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
             if (jahiaResponse == null || !jahiaResponse.isSuccessful()) {
-                LOGGER.warn("Impossible to retrieve content from {}", url);
-                return;
+                // Raised, not logged-and-skipped. Returning here left the enclosing run reporting success over a
+                // page that was never uploaded, which is how the vanity-URL defect stayed invisible: the raw .html
+                // path answers 302, this module does not follow redirects, and nothing counted a failure.
+                throw new IOException("Impossible to retrieve content from " + url
+                        + (jahiaResponse == null ? " (no response)" : " (HTTP " + jahiaResponse.code() + ")"));
             }
             LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
             if (jahiaResponse.body() == null) {
-                LOGGER.warn("Jahia page response body is null for {}", url);
-                return;
+                throw new IOException("Jahia returned an empty body for " + url);
             }
             final String output = jahiaResponse.body().string();
             final String title = liveNode.hasProperty(Constants.JCR_TITLE)
@@ -252,7 +268,55 @@ final class CustomGptIndexerNodeHandler {
         }
     }
 
-    private static void updatePageMetadataChecked(OkHttpClient customGptClient, String projectId, String pageId,
+    /**
+     * Writes the page metadata and reads it back, retrying until the stored URL matches what was sent.
+     *
+     * <p>A 2xx on the PUT is not evidence the write took. Under sustained bulk load this API answers
+     * {@code status: success} with an empty body while reporting zero errors, and the write is simply dropped.
+     * 47 of 1920 pages in the production corpus carry no URL because of it - 47 citations a user cannot click -
+     * and because the PUT "succeeded" nothing was ever logged.
+     *
+     * <p>The read-back checks {@code data.id} as well as {@code data.url}. A response that does not name the page
+     * that was asked for is the exact signature measured at high concurrency, and comparing only the URL would
+     * accept another page's metadata as proof of this page's write.
+     */
+    static void updatePageMetadataChecked(OkHttpClient customGptClient, String projectId, String pageId,
+            String title, String url, String apiBaseUrl) throws IOException {
+        IOException lastMismatch = null;
+        for (int attempt = 1; attempt <= CustomGptConstants.MAX_RETRIES; attempt++) {
+            putPageMetadata(customGptClient, projectId, pageId, title, url, apiBaseUrl);
+            try {
+                verifyStoredMetadata(customGptClient, projectId, pageId, url, apiBaseUrl);
+                return;
+            } catch (MetadataNotStoredException e) {
+                lastMismatch = new IOException(e.getMessage());
+                LOGGER.warn("CustomGPT accepted the metadata write for page {} but did not store it"
+                        + " (attempt {}/{}): {}", pageId, attempt, CustomGptConstants.MAX_RETRIES, e.getMessage());
+                if (attempt < CustomGptConstants.MAX_RETRIES) {
+                    sleepBeforeRetry();
+                }
+            }
+        }
+        throw lastMismatch;
+    }
+
+    private static void sleepBeforeRetry() throws IOException {
+        try {
+            Thread.sleep(RETRY_DELAY_MS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while retrying a CustomGPT metadata write", ie);
+        }
+    }
+
+    /** Raised when the API accepted a metadata write but did not store it; retryable, unlike a rejected write. */
+    private static class MetadataNotStoredException extends Exception {
+        MetadataNotStoredException(String message) {
+            super(message);
+        }
+    }
+
+    private static void putPageMetadata(OkHttpClient customGptClient, String projectId, String pageId,
             String title, String url, String apiBaseUrl) throws IOException {
         LOGGER.debug("Updating page metadata in customGPT");
         try (Response metaResponse = updatePageMedata(customGptClient, projectId, pageId, title, url, apiBaseUrl)) {
@@ -264,7 +328,40 @@ final class CustomGptIndexerNodeHandler {
                 throw new IOException("Failed to update CustomGPT page metadata for page " + pageId
                         + " (" + url + "): HTTP " + metaResponse.code() + ", " + body);
             }
-            LOGGER.debug("Updating page metadata in customGPT is successful");
+        }
+    }
+
+    /** Reads the stored metadata back, raising when it does not name this page or does not carry {@code url}. */
+    private static void verifyStoredMetadata(OkHttpClient customGptClient, String projectId, String pageId,
+            String url, String apiBaseUrl) throws IOException, MetadataNotStoredException {
+        final JSONObject data = fetchPageMetadata(customGptClient, projectId, pageId, apiBaseUrl);
+        if (data == null) {
+            throw new MetadataNotStoredException("read-back of page " + pageId + " returned no 'data' object");
+        }
+        final String echoedId = data.optString("id", null);
+        if (echoedId == null || !echoedId.equals(pageId)) {
+            throw new MetadataNotStoredException("read-back of page " + pageId + " named page " + echoedId);
+        }
+        final String storedUrl = data.isNull(PROP_URL) ? null : data.optString(PROP_URL, null);
+        if (!url.equals(storedUrl)) {
+            throw new MetadataNotStoredException("page " + pageId + " stores url " + storedUrl + ", expected " + url);
+        }
+    }
+
+    /** {@code GET /projects/{projectId}/pages/{pageId}/metadata}, returning its {@code data} object. */
+    static JSONObject fetchPageMetadata(OkHttpClient customGptClient, String projectId, String pageId,
+            String apiBaseUrl) throws IOException {
+        final Request request = new Request.Builder()
+                .url(String.format("%s/projects/%s/pages/%s/metadata", apiBaseUrl, projectId, pageId))
+                .get()
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .build();
+        try (Response response = customGptClient.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                throw new IOException("Could not read back CustomGPT metadata for page " + pageId
+                        + ": HTTP " + response.code());
+            }
+            return new JSONObject(response.body().string()).optJSONObject("data");
         }
     }
 
