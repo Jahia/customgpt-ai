@@ -1359,16 +1359,18 @@ public class Service implements EventHandler {
      *
      * @param pageIds the orphan ids to delete; required when not a dry run, because an orphan is not
      *                necessarily redundant and may be the only copy of its content
+     * @param siteKey used only to render the probable-node hint in the report; the sweep itself is
+     *                project-wide, because scoping it to a site would classify other sites' pages as orphaned
      * @param dryRun when true, the orphans are logged and nothing is deleted
      * @return the number of orphaned pages found (deleted, when not a dry run)
      */
-    public int sweepOrphanedPages(java.util.Collection<String> pageIds, boolean dryRun)
+    public int sweepOrphanedPages(java.util.Collection<String> pageIds, String siteKey, boolean dryRun)
             throws IOException, RepositoryException {
         if (customGptClient == null) {
             throw new IOException("CustomGPT HTTP client is not initialised; cannot sweep orphaned pages");
         }
         return new OrphanedPages(customGptClient, customGptConfig.getCustomGptProjectId(),
-                resolveValidatedApiBaseUrl()).sweep(pageIds, dryRun);
+                resolveValidatedApiBaseUrl()).sweep(pageIds, siteKey, dryRun);
     }
 
     public int purgeAllPages() throws IOException {
