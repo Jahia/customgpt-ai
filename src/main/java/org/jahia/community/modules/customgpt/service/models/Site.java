@@ -18,6 +18,7 @@ public class Site {
     private Calendar indexationStart;
     private Calendar indexationEnd;
     private Calendar indexationScheduled;
+    private Calendar indexationFailed;
 
     public Site(String siteKey, String path) {
         this.siteKey = siteKey;
@@ -87,6 +88,19 @@ public class Site {
 
     public void setIndexationScheduled(Calendar indexationScheduled) {
         this.indexationScheduled = indexationScheduled;
+    }
+
+    public Calendar getIndexationFailed() {
+        return indexationFailed;
+    }
+
+    public void setIndexationFailed(Calendar indexationFailed) {
+        this.indexationFailed = indexationFailed;
+    }
+
+    /** Whether the most recent run ended in failure, i.e. it failed at or after it started. */
+    public boolean indexationFailedLastRun() {
+        return indexationFailed != null && indexationStart != null && !indexationFailed.before(indexationStart);
     }
 
     public Calendar getIndexationScheduled() {

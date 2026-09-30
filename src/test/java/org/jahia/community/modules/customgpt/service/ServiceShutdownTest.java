@@ -2,7 +2,9 @@ package org.jahia.community.modules.customgpt.service;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import okhttp3.OkHttpClient;
@@ -12,6 +14,7 @@ import org.jahia.api.templates.JahiaTemplateManagerService;
 import org.jahia.community.modules.customgpt.indexer.listener.IndexOperations;
 import org.jahia.community.modules.customgpt.indexer.listener.IndexerJCRListener;
 import org.jahia.community.modules.customgpt.settings.Config;
+import org.jahia.community.modules.customgpt.settings.NotConfiguredException;
 import org.jahia.services.templates.TemplatePackageRegistry;
 import org.junit.Before;
 import org.junit.Test;
@@ -26,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -59,6 +63,7 @@ public class ServiceShutdownTest {
     private ExecutorService executorNThreads;
     private OkHttpClient customGptClient;
     private OkHttpClient jahiaClient;
+    private IndexService indexService;
 
     @Before
     @SuppressWarnings("unchecked")
@@ -76,7 +81,7 @@ public class ServiceShutdownTest {
         // Wire the collaborators registerJcrListeners() needs, so that a listener registration would genuinely
         // succeed in this fixture. Without them init() NPEs inside getNodeTypes() and the disposed-latch test
         // below would pass for the wrong reason.
-        final IndexService indexService = mock(IndexService.class);
+        indexService = mock(IndexService.class);
         when(indexService.getIndexedMainResourceNodeTypes()).thenReturn(Collections.singleton("jnt:page"));
         when(indexService.getIndexedSubNodeTypes()).thenReturn(Collections.emptySet());
         eventHandlerRegistration = mock(ServiceRegistration.class);
@@ -289,6 +294,64 @@ public class ServiceShutdownTest {
 
         assertThatThrownBy(() -> service.produceAsynchronousOperations(new IndexOperations()))
                 .isInstanceOf(RejectedExecutionException.class);
+    }
+
+    /**
+     * A listener whose node-type filter came back empty matches no event in Jahia, so registering it would leave
+     * the module reporting healthy while indexing nothing. Registration must be refused instead.
+     */
+    @Test
+    public void registerJcrListeners_refusesAListenerWithNoNodeTypeFilter() throws Exception {
+        doThrow(new NotConfiguredException("not configured")).when(indexService).getIndexedMainResourceNodeTypes();
+        doThrow(new NotConfiguredException("not configured")).when(indexService).getIndexedSubNodeTypes();
+        set("jcrListenerLive", null);
+
+        invokeInit();
+
+        verify(templatePackageRegistry, never()).handleJCREventListener(any(), eq(true));
+        assertThat(get("jcrListenerLive")).isNull();
+    }
+
+    /** Once the configuration arrives, a refused registration has to be recoverable. */
+    @Test
+    public void refreshJcrListeners_registersAfterConfigurationBecomesAvailable() throws Exception {
+        doThrow(new NotConfiguredException("not configured")).when(indexService).getIndexedMainResourceNodeTypes();
+        set("jcrListenerLive", null);
+        invokeInit();
+        verify(templatePackageRegistry, never()).handleJCREventListener(any(), eq(true));
+
+        // Configuration arrives.
+        doReturn(Collections.singleton("jnt:page")).when(indexService).getIndexedMainResourceNodeTypes();
+        service.refreshJcrListeners();
+
+        verify(templatePackageRegistry).handleJCREventListener(any(), eq(true));
+        assertThat(get("jcrListenerLive")).isNotNull();
+    }
+
+    /** The filter is snapshotted at registration, so a change to the indexed types must re-register. */
+    @Test
+    public void refreshJcrListeners_reRegistersWhenTheIndexedNodeTypesChange() throws Exception {
+        set("jcrListenerLive", null);
+        invokeInit();
+        clearInvocations(templatePackageRegistry);
+
+        doReturn(new LinkedHashSet<>(Arrays.asList("jnt:page", "jnt:file")))
+                .when(indexService).getIndexedMainResourceNodeTypes();
+        service.refreshJcrListeners();
+
+        verify(templatePackageRegistry).handleJCREventListener(any(), eq(true));
+    }
+
+    /** An unchanged configuration must not churn the registration. */
+    @Test
+    public void refreshJcrListeners_isANoOpWhenNothingChanged() throws Exception {
+        set("jcrListenerLive", null);
+        invokeInit();
+        clearInvocations(templatePackageRegistry);
+
+        service.refreshJcrListeners();
+
+        verify(templatePackageRegistry, never()).handleJCREventListener(any(), eq(true));
     }
 
     private void invokeInit() throws Exception {

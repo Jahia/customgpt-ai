@@ -48,11 +48,14 @@ public class GqlSiteListModel {
             @GraphQLDescription("Indexation has started")
             STARTED,
             @GraphQLDescription("Indexation has completed")
-            COMPLETED
+            COMPLETED,
+            @GraphQLDescription("Indexation ended with at least one failed operation")
+            FAILED
         }
 
         private final String siteKey;
         private final boolean indexationInProgress;
+        private final boolean indexationFailed;
         private final Instant indexationStart;
         private final Instant indexationEnd;
         private final Instant indexationScheduled;
@@ -60,6 +63,7 @@ public class GqlSiteListModel {
         public IndexedSite(Site site) {
             this.siteKey = site.getSiteKey();
             this.indexationInProgress = site.indexationInProgress();
+            this.indexationFailed = site.indexationFailedLastRun();
             this.indexationStart = toInstant(site.getIndexationStart());
             this.indexationEnd = toInstant(site.getIndexationEnd());
             this.indexationScheduled = toInstant(site.getIndexationScheduled());
@@ -82,8 +86,14 @@ public class GqlSiteListModel {
                 return null;
             } else if (indexationStart == null || indexationScheduled.isAfter(indexationStart)) {
                 return IndexationStatus.SCHEDULED;
+            } else if (indexationInProgress) {
+                return IndexationStatus.STARTED;
+            } else if (indexationFailed) {
+                // Never report COMPLETED for a run that did not complete: the end timestamp is written even on
+                // failure so the site does not appear stuck, so the failure marker is the only truthful signal.
+                return IndexationStatus.FAILED;
             } else {
-                return indexationInProgress ? IndexationStatus.STARTED : IndexationStatus.COMPLETED;
+                return IndexationStatus.COMPLETED;
             }
         }
 

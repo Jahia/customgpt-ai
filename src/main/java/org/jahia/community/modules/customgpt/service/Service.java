@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -82,6 +83,7 @@ public class Service implements EventHandler {
     private static final String UNREGISTER_EVENT = "org/jahia/modules/sam/TaskRegistryService/UNREGISTER";
     private static final String INDEXATION_FAILED_DUE_TO_CONFIGURATION_ISSUES = "Indexation failed due to configuration issues: {}";
     private static final String PROP_INDEXATION_END = "customGptIndexationEnd";
+    private static final String PROP_INDEXATION_FAILED = "customGptIndexationFailed";
     private static final String PROP_INDEXATION_SCHEDULED = "customGptIndexationScheduled";
     private static final String PROP_INDEXATION_START = "customGptIndexationStart";
     private static final String RECREATE_LOG = "Recreate Log";
@@ -367,16 +369,12 @@ public class Service implements EventHandler {
         }
         try {
             updateIndexationTime(sitePath, PROP_INDEXATION_START, new GregorianCalendar());
+            clearIndexationFailure(sitePath);
         } catch (RepositoryException e) {
-            LOGGER.error("Failed to record indexation start time: {}", e.getMessage());
+            LOGGER.error("Failed to record indexation start time for site {}", sitePath, e);
         }
-        CompletableFuture.allOf(completableFuture).whenCompleteAsync((unused, throwable) -> {
-            try {
-                updateIndexationTime(sitePath, PROP_INDEXATION_END, new GregorianCalendar());
-            } catch (RepositoryException e) {
-                LOGGER.error("Failed to record indexation end time: {}", e.getMessage());
-            }
-        });
+        CompletableFuture.allOf(completableFuture)
+                .whenCompleteAsync((unused, throwable) -> recordIndexationOutcome(sitePath, throwable));
     }
     
     private Supplier<Void> getPerformIndexationSupplier(IndexOperations operations) {
@@ -385,6 +383,9 @@ public class Service implements EventHandler {
                 performIndexation(operations);
             } catch (RepositoryException | IOException e) {
                 LOGGER.error("Indexation failed due to: {}", e.getMessage(), e);
+                // Propagate. Swallowing here left every future completing normally, so the caller recorded a
+                // successful indexation for a run in which nothing was indexed.
+                throw new CompletionException(e);
             }
             return null;
         };
@@ -412,6 +413,7 @@ public class Service implements EventHandler {
 
             if (customGptIndexer != null) {
                 customGptIndexer.queueRequests(customGptClient, jahiaClient);
+                failIfAnyNodeFailed(customGptIndexer);
             }
         } catch (NotConfiguredException e) {
             LOGGER.error(INDEXATION_FAILED_DUE_TO_CONFIGURATION_ISSUES, e.getMessage(), e);
@@ -574,12 +576,31 @@ public class Service implements EventHandler {
         }
     }
     
+    /**
+     * Registers the live-workspace JCR listener, replacing any previously registered one.
+     *
+     * <p>Refuses to register a listener with an empty node-type filter. Jahia snapshots
+     * {@code DefaultEventListener.getNodeTypes()} into the {@code EventConsumer} at registration, and
+     * {@code JCRObservationManager.checkNodeTypeNames} rejects every event when that array is empty but non-null.
+     * Such a listener is registered, reported healthy, and receives nothing for the life of the component - the
+     * module looks started while indexing silently never happens. The listener resolves its filter once in its
+     * constructor, so the array checked here is the same one Jahia registers.
+     */
     private synchronized void registerJcrListeners() {
+        final IndexerJCRListener candidate = new IndexerJCRListener(true, this, customGptConfig);
+        if (!candidate.hasNodeTypeFilter()) {
+            LOGGER.error("Not registering the CustomGPT JCR listener: its node-type filter is empty, which in Jahia"
+                    + " matches no event at all - nothing would ever be indexed. This normally means the module"
+                    + " configuration has not been delivered yet; registration is retried on the next"
+                    + " configuration update. Any existing listener is left in place.");
+            return;
+        }
+
         unregisterJcrListeners();
 
         LOGGER.info("Registering JCR listeners");
 
-        jcrListenerLive = new IndexerJCRListener(true, this, customGptConfig);
+        jcrListenerLive = candidate;
 
         if (journalEventReaderEnabled) {
             journalEventReader.replayMissedEvents(jcrListenerLive, journalEventReaderKey);
@@ -599,6 +620,32 @@ public class Service implements EventHandler {
      * {@code RepositoryException} internally, so a failure to open the system session it needs - most likely
      * during shutdown, exactly when this runs - is logged by Jahia and reported to us as success.
      */
+    /**
+     * Registers the listener if it is missing, or replaces it if the configured node types have changed.
+     *
+     * <p>{@link #init()} is gated on {@code initialized}, so on its own it can neither recover a registration that
+     * was refused for want of configuration nor pick up a later change to the indexed node types - the filter is
+     * snapshotted at registration and frozen thereafter.
+     */
+    synchronized void refreshJcrListeners() {
+        if (disposed || !settingsBean.isProcessingServer()) {
+            return;
+        }
+        if (jcrListenerLive != null
+                && sameNodeTypes(jcrListenerLive.getNodeTypes(), new IndexerJCRListener(true, this, customGptConfig).getNodeTypes())) {
+            return;
+        }
+        registerJcrListeners();
+    }
+
+    private static boolean sameNodeTypes(String[] a, String[] b) {
+        final String[] left = a.clone();
+        final String[] right = b.clone();
+        Arrays.sort(left);
+        Arrays.sort(right);
+        return Arrays.equals(left, right);
+    }
+
     private synchronized void unregisterJcrListeners() {
         if (jcrListenerLive != null) {
             try {
@@ -860,6 +907,9 @@ public class Service implements EventHandler {
                 || CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type))
                 && customGptConfig.isConfigured()) {
             init();
+            // init() is a no-op once initialised, so it can neither recover a refused registration nor pick up a
+            // change to the indexed node types. That is what this call is for.
+            refreshJcrListeners();
             if (CustomGptConstants.EVENT_TYPE_CONFIG_UPDATED_REQUIRE_REINDEX.equals(type)) {
                 reIndexUsingJob();
                 resetScheduleJobASAP();
@@ -959,6 +1009,9 @@ public class Service implements EventHandler {
         if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_SCHEDULED)) {
             site.setIndexationScheduled(jcrNodeWrapper.getProperty(PROP_INDEXATION_SCHEDULED).getDate());
         }
+        if (jcrNodeWrapper.hasProperty(PROP_INDEXATION_FAILED)) {
+            site.setIndexationFailed(jcrNodeWrapper.getProperty(PROP_INDEXATION_FAILED).getDate());
+        }
         return site;
     }
 
@@ -980,12 +1033,59 @@ public class Service implements EventHandler {
         return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_LASTMODIFIED));
     }
     
+    /**
+     * Records how a site indexation ended.
+     *
+     * <p>The end timestamp is written either way, so the site never appears stuck mid-run - {@code Site} derives
+     * "in progress" from the absence of an end timestamp. What distinguishes the two outcomes is the failure
+     * marker, which the admin status reads: without it a run in which every operation failed was reported as
+     * COMPLETED, because nothing that the status is derived from recorded the failure.
+     */
+    /**
+     * Surfaces per-node failures that {@code CustomGptIndexerNodeHandler} caught individually.
+     *
+     * <p>Without this the run completes normally however many nodes failed, and the site is recorded as
+     * successfully indexed - the failures are visible only as individual log lines.
+     */
+    private static void failIfAnyNodeFailed(Indexer indexer) throws IOException {
+        final List<String> failures = indexer.getFailures();
+        if (!failures.isEmpty()) {
+            throw new IOException(failures.size() + " node(s) could not be indexed: " + failures);
+        }
+    }
+
+    void recordIndexationOutcome(String sitePath, Throwable throwable) {
+        final Calendar now = new GregorianCalendar();
+        try {
+            updateIndexationTime(sitePath, PROP_INDEXATION_END, now);
+            if (throwable != null) {
+                updateIndexationTime(sitePath, PROP_INDEXATION_FAILED, now);
+                LOGGER.error("Indexation of site {} ended with at least one failed operation; it is reported as"
+                        + " FAILED, not COMPLETED. Re-run it once the cause is fixed.", sitePath, throwable);
+            }
+        } catch (RepositoryException e) {
+            LOGGER.error("Failed to record the indexation outcome for site {}", sitePath, e);
+        }
+    }
+
     private void updateIndexationTime(String path, String property, Calendar date) throws RepositoryException {
         JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
             final JCRNodeWrapper node = session.getNode(path);
             node.setProperty(property, date);
             session.save();
             LOGGER.info("Site {} indexation has {} at {}", path, (property.equals(PROP_INDEXATION_START) ? "started" : "ended"), date.toInstant());
+            return null;
+        });
+    }
+
+    /** Clears the previous run's failure marker, so a site does not stay reported as FAILED after a good run. */
+    private void clearIndexationFailure(String path) throws RepositoryException {
+        JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
+            final JCRNodeWrapper node = session.getNode(path);
+            if (node.hasProperty(PROP_INDEXATION_FAILED)) {
+                node.getProperty(PROP_INDEXATION_FAILED).remove();
+                session.save();
+            }
             return null;
         });
     }
