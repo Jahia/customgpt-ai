@@ -527,7 +527,7 @@ public class Service implements EventHandler {
 
     private Indexer handleNodeIndex(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation op) throws NotConfiguredException {
         customGptIndexer = initIndexer(customGptIndexer);
-        if (acceptablePathToIndex(op.getNodePath())) {
+        if (acceptableToIndex(op.getNodePath(), customGptIndexer)) {
             indexNode(customGptIndexer, op);
         }
         return customGptIndexer;
@@ -542,7 +542,7 @@ public class Service implements EventHandler {
 
     private Indexer handleNodeMove(Indexer customGptIndexer, IndexOperations.CustomGptIndexOperation op) {
         customGptIndexer = initIndexer(customGptIndexer);
-        if (acceptablePathToIndex(op.getNodePath())) {
+        if (acceptableToIndex(op.getNodePath(), customGptIndexer)) {
             customGptIndexer.addNodePathToMove(op.getSourcePath(), op.getNodePath());
         }
         return customGptIndexer;
@@ -552,7 +552,7 @@ public class Service implements EventHandler {
             IndexOperations.CustomGptIndexOperation op) throws RepositoryException, NotConfiguredException {
         preIndexOperationHandler(operations);
         customGptIndexer = initIndexer(customGptIndexer);
-        if (acceptablePathToIndex(op.getNodePath())) {
+        if (acceptableToIndex(op.getNodePath(), customGptIndexer)) {
             customGptIndexer.addSiteToIndex(customGptClient, jahiaClient, op.getNodePath());
         }
         postIndexOperationHandler(operations);
@@ -564,7 +564,7 @@ public class Service implements EventHandler {
         LOGGER.info("Received a sub nodes index operation for following node {} in workspace live", op.getNodePath());
         customGptIndexer = initIndexer(customGptIndexer);
         final String path = op.getNodePath();
-        if (acceptablePathToIndex(path)) {
+        if (acceptableToIndex(path, customGptIndexer)) {
             final JCRNodeWrapper node = customGptIndexer.getSystemSession().getNode(path);
             indexNode(customGptIndexer, op);
             customGptIndexer.addNodesToIndex(customGptClient, jahiaClient, node);
@@ -1103,6 +1103,79 @@ public class Service implements EventHandler {
      */
     public boolean acceptablePathToIndex(String path) {
         return ((path.startsWith("/trash-") || SITE_MATCHER.matcher(path).matches()) && !path.endsWith(CustomGptConstants.PROP_CUSTOM_GPT_PAGE_ID) && !path.endsWith(Constants.JCR_LASTMODIFIED));
+    }
+
+    /**
+     * Returns {@code true} when {@code path} is both shaped like an indexable path and owned by a site an
+     * administrator has actually registered for CustomGPT indexation.
+     *
+     * <p>This is the gate {@link #acceptablePathToIndex(String)} was mistaken for. That method only ever checked
+     * the <em>shape</em> of a path, so any publication anywhere under {@code /sites/} produced an index operation,
+     * whether or not the site had been registered with {@code addSite}. The effect was measurable in production:
+     * a {@code store.jahia.com} page reached a corpus intended to hold one site's content, and there is no way to
+     * filter a CustomGPT corpus by origin afterwards - it had to be identified and deleted by hand.
+     *
+     * <p>Deletes deliberately do NOT pass through here; see {@code handleNodeRemove}. Removing a page that should
+     * not be in the corpus is always safe, and a delete is already self-limiting because it is driven by a mapping
+     * node that exists only for content this module indexed in the first place.
+     */
+    boolean acceptableToIndex(String path, Indexer customGptIndexer) {
+        if (!acceptablePathToIndex(path)) {
+            return false;
+        }
+        try {
+            return isInRegisteredSite(path, customGptIndexer.getSystemSession());
+        } catch (RepositoryException e) {
+            LOGGER.warn("Not indexing {}: cannot open a session to check whether its site is registered", path, e);
+            return false;
+        }
+    }
+
+    /**
+     * Whether the site owning {@code path} carries {@code jmix:customGptIndexableSite}.
+     *
+     * <p>Fails CLOSED: an unresolvable site, a missing site node or a repository error all return {@code false}.
+     * The asymmetry is deliberate. Failing to index a page that should have been indexed is repaired by the next
+     * publication or a re-index; indexing a page that should not have been contaminates a corpus that cannot be
+     * filtered by origin.
+     */
+    boolean isInRegisteredSite(String path, JCRSessionWrapper session) {
+        final String siteKey = siteKeyOf(path);
+        if (siteKey == null) {
+            return false;
+        }
+        final String sitePath = CustomGptConstants.PATH_SITES + siteKey;
+        try {
+            if (!session.nodeExists(sitePath)) {
+                LOGGER.warn("Not indexing {}: its site node {} does not exist", path, sitePath);
+                return false;
+            }
+            if (!session.getNode(sitePath).isNodeType(CustomGptConstants.MIX_INDEXABLE_SITE)) {
+                LOGGER.debug("Not indexing {}: site {} is not registered for CustomGPT indexation", path, siteKey);
+                return false;
+            }
+            return true;
+        } catch (RepositoryException e) {
+            LOGGER.warn("Not indexing {}: cannot determine whether site {} is registered for CustomGPT indexation",
+                    path, siteKey, e);
+            return false;
+        }
+    }
+
+    /**
+     * The site key in {@code /sites/<key>[/...]}, or {@code null} when the path names no site.
+     *
+     * <p>A {@code /trash-} path yields {@code null} on purpose: it only ever accompanies a delete, and a delete
+     * is not gated on registration.
+     */
+    static String siteKeyOf(String path) {
+        if (path == null || !path.startsWith(CustomGptConstants.PATH_SITES)) {
+            return null;
+        }
+        final String rest = path.substring(CustomGptConstants.PATH_SITES.length());
+        final int slash = rest.indexOf('/');
+        final String siteKey = slash < 0 ? rest : rest.substring(0, slash);
+        return siteKey.isEmpty() ? null : siteKey;
     }
     
     /**
