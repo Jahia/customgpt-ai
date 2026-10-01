@@ -102,4 +102,36 @@ public class CorroboratedReadTest {
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining(PAGE_ID);
     }
+
+    // --- spacing -------------------------------------------------------------
+    //
+    // Corroboration only means something if the second read is a genuinely new sample. The drop this guards
+    // against is SUSTAINED-VOLUME dependent - 6 concurrent workers produced 2558 false nulls, 2 produced none -
+    // so a retry issued microseconds later, through the same congested channel, is very likely to inherit the
+    // same cause and report "absent from every read" with false confidence. The decorrelating variable is time.
+
+    @Test
+    public void aReReadIsSpacedFromTheReadItIsCorroborating() throws Exception {
+        final OkHttpClient client = client(payload(PAGE_ID, null));
+
+        final long start = System.nanoTime();
+        read(client);
+        final long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+
+        assertThat(elapsedMs)
+                .as("a second read issued in the same burst inherits the same cause and corroborates nothing")
+                .isGreaterThanOrEqualTo(400L);
+    }
+
+    @Test
+    public void aValueFoundImmediatelyCostsNoDelay() throws Exception {
+        // Only a missing value is worth re-sampling, and the repair reads one page per target - paying the
+        // spacing on every healthy page would push a scoped run past its budget for nothing.
+        final OkHttpClient client = client(payload(PAGE_ID, URL));
+
+        final long start = System.nanoTime();
+        read(client);
+
+        assertThat((System.nanoTime() - start) / 1_000_000L).isLessThan(300L);
+    }
 }

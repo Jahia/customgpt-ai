@@ -352,7 +352,8 @@ final class CustomGptIndexerNodeHandler {
      * direct call to have a URL: correct envelope, dropped payload.
      *
      * <p>The degradation drops values rather than inventing them, so corroboration is asymmetric - a value seen in
-     * ANY read is real, and only a value absent from every read is believed absent. Without this, a dropped read
+     * ANY read is real, and only a value absent from every read is believed absent. Re-reads are spaced, because
+     * a second sample taken in the same burst is not an independent one. Without this, a dropped read
      * manufactures a rewrite target for a page that was already correct in the examine phase, and makes a
      * successful write look like a failure in the verification phase.
      *
@@ -361,6 +362,13 @@ final class CustomGptIndexerNodeHandler {
     static String readStoredUrl(OkHttpClient customGptClient, String projectId, String pageId, String apiBaseUrl)
             throws IOException {
         for (int attempt = 1; attempt <= URL_READ_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+                // Space the re-read from the read it is corroborating. The drop this guards against is
+                // sustained-volume dependent - 6 concurrent workers produced 2558 false nulls where 2 produced
+                // none - so a retry issued in the same burst inherits the same cause and corroborates nothing.
+                // The decorrelating variable is time, not attempt count.
+                sleepBeforeRetry();
+            }
             final JSONObject data = fetchPageMetadata(customGptClient, projectId, pageId, apiBaseUrl);
             if (data == null) {
                 continue;
