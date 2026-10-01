@@ -17,6 +17,7 @@ import javax.jcr.RepositoryException;
 import javax.servlet.ServletException;
 import okhttp3.Credentials;
 import okhttp3.FormBody;
+import okhttp3.HttpUrl;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
@@ -67,6 +68,9 @@ final class CustomGptIndexerNodeHandler {
     private static final String VALUE_FALSE = "false";
     private static final long RETRY_DELAY_MS = 500L;
     private static final String PROP_URL = "url";
+    private static final String HEADER_LOCATION = "Location";
+    /** Enough for Jahia's canonicalisation hops; a longer chain is a loop or a misconfiguration. */
+    private static final int MAX_REDIRECT_HOPS = 3;
     private static final int HTTP_FORBIDDEN = 403;
     private static final int HTTP_NOT_FOUND = 404;
     /** How many times a missing URL is re-read before it is believed missing. */
@@ -246,7 +250,13 @@ final class CustomGptIndexerNodeHandler {
             final String title = liveNode.hasProperty(Constants.JCR_TITLE)
                     ? liveNode.getPropertyAsString(Constants.JCR_TITLE)
                     : liveNode.getName();
-            uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title, output, url, language);
+            // The URL actually fetched, after any same-origin redirect. Storing the pre-redirect one would give
+            // the reader a citation that costs them a hop, and is how raw .html paths came to sit in the corpus.
+            final String finalUrl = jahiaResponse.request().url().toString();
+            if (!finalUrl.equals(url)) {
+                LOGGER.info("Indexing {} under its canonical URL {} rather than {}", liveNode.getPath(), finalUrl, url);
+            }
+            uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title, output, finalUrl, language);
         }
     }
 
@@ -575,38 +585,87 @@ final class CustomGptIndexerNodeHandler {
         return languages;
     }
 
-    private static Response getJahiaPageContent(OkHttpClient jahiaClient, String url, Config config) throws IOException, InterruptedException {
-        Request.Builder requestBuilder = new Request.Builder()
-                .url(url)
-                .get()
-                .addHeader(HEADER_CONTENT_TYPE, "text/html;charset=UTF-8");
-
-        if (StringUtils.isNotEmpty(config.getJahiaUsername()) && StringUtils.isNotEmpty(config.getJahiaPassword())) {
-            // Only attach Basic auth over HTTPS — the URL host comes from the site's sitemapIndexURL property, which
-            // may be http://; sending the Jahia password over cleartext would expose it on the wire.
-            if (SecurityUtils.isHttpsUrl(url)) {
-                String credential = Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8);
-                requestBuilder.addHeader("Authorization", credential);
-            } else {
-                LOGGER.warn("Skipping Basic authentication for non-https rendering URL to avoid sending credentials in cleartext: {}", url);
-            }
-        }
-
-        final Request request = requestBuilder.build();
+    /**
+     * Fetches the rendered page, following a redirect only when it stays on the same origin.
+     *
+     * <p>Jahia answers the raw {@code .html} path with a 301 to its canonical form, so refusing every redirect
+     * meant a first publish failed outright and the node was never indexed.
+     *
+     * <p>The client is deliberately built {@code .followRedirects(false)}, and that stays: this request carries
+     * Basic credentials, and OkHttp would replay them to wherever the redirect pointed. Following them here
+     * explicitly, and only within the same scheme, host and port, keeps the credentials on the host they were
+     * issued for. A cross-origin redirect is returned unfollowed and the caller raises on it.
+     */
+    private static Response getJahiaPageContent(OkHttpClient jahiaClient, String url, Config config)
+            throws IOException, InterruptedException {
         Response response = null;
         for (int attempts = 0; attempts < CustomGptConstants.MAX_RETRIES; attempts++) {
-            response = jahiaClient.newCall(request).execute();
+            response = fetchFollowingSameOriginRedirects(jahiaClient, url, config);
             if (response.isSuccessful()) {
                 return response;
             }
-            // Close the failed response before retrying so its body/connection is not leaked; the last
-            // (still unsuccessful) response is returned for the caller to inspect and close.
+            // A redirect that survived the hop loop is either cross-origin or past the hop limit. Either way it
+            // is a routing fact rather than a blip, and retrying it only burns the retry budget.
+            if (isRedirect(response.code())) {
+                return response;
+            }
             if (attempts < CustomGptConstants.MAX_RETRIES - 1) {
+                // Close the failed response before retrying so its body/connection is not leaked; the last
+                // (still unsuccessful) response is returned for the caller to inspect and close.
                 response.close();
                 Thread.sleep(RETRY_DELAY_MS);
             }
         }
         return response;
+    }
+
+    private static Response fetchFollowingSameOriginRedirects(OkHttpClient jahiaClient, String url, Config config)
+            throws IOException {
+        Response response = jahiaClient.newCall(buildRenderRequest(url, config)).execute();
+        for (int hop = 1; hop <= MAX_REDIRECT_HOPS && isRedirect(response.code()); hop++) {
+            final String location = response.header(HEADER_LOCATION);
+            final HttpUrl next = location == null ? null : response.request().url().resolve(location);
+            if (next == null || !isSameOrigin(response.request().url(), next)) {
+                LOGGER.warn("Not following a redirect from {} to {}: it leaves the origin, and this request"
+                        + " carries credentials that must not be replayed to another host",
+                        response.request().url(), location);
+                return response;
+            }
+            LOGGER.debug("Following same-origin redirect {} -> {}", response.request().url(), next);
+            response.close();
+            response = jahiaClient.newCall(buildRenderRequest(next.toString(), config)).execute();
+        }
+        return response;
+    }
+
+    /** Whether a redirect may be followed: identical scheme, host and port, so credentials stay put. */
+    static boolean isSameOrigin(HttpUrl from, HttpUrl to) {
+        return from.scheme().equals(to.scheme())
+                && from.host().equals(to.host())
+                && from.port() == to.port();
+    }
+
+    static boolean isRedirect(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    private static Request buildRenderRequest(String url, Config config) {
+        final Request.Builder requestBuilder = new Request.Builder()
+                .url(url)
+                .get()
+                .addHeader(HEADER_CONTENT_TYPE, "text/html;charset=UTF-8");
+
+        if (StringUtils.isNotEmpty(config.getJahiaUsername()) && StringUtils.isNotEmpty(config.getJahiaPassword())) {
+            // Only attach Basic auth over HTTPS - the URL host comes from the site's sitemapIndexURL property,
+            // which may be http://; sending the Jahia password over cleartext would expose it on the wire.
+            if (SecurityUtils.isHttpsUrl(url)) {
+                requestBuilder.addHeader("Authorization",
+                        Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8));
+            } else {
+                LOGGER.warn("Skipping Basic authentication for non-https rendering URL to avoid sending credentials in cleartext: {}", url);
+            }
+        }
+        return requestBuilder.build();
     }
 
     private static String getApiBaseUrl(Indexer customGptIndexer) {
