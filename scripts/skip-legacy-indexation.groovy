@@ -108,26 +108,31 @@ final String MANIFEST_FILE = null
 final String SKIP_MIXIN = 'jmix:skipCustomGptIndexation'
 
 /**
- * Content that must never be marked. The prune verified it touched no current Jahia 8.1/8.2, Forms,
- * jExperience 2.x/3.x, Cloud, Augmented Search, knowledge-base or security-advisory page; this reasserts
- * it on every run. One match aborts the whole run before any write -- a wrong root is far likelier than a
- * wrong individual node, so failing the batch beats skipping the node.
+ * Content that must never be marked: the current product documentation trees, reasserting on every run
+ * what the prune verified it had not touched. One match aborts the whole run before any write -- a wrong
+ * root is far likelier than a wrong individual node, so failing the batch beats skipping the node.
+ *
+ * These are whole-path prefixes, not substrings. A substring test is wrong here: legacy-1 holds pages like
+ * .../legacy-1/1/sysadmin/release-notes/jexperience-1.11.0 -- jExperience 1.11 release notes, archived
+ * content that must be marked -- and a bare "jexperience" test flags all 18 of them. What makes a page
+ * current is where its tree starts, not a product name appearing somewhere along the way.
  */
-final List<java.util.regex.Pattern> PROTECTED = [
-        // Current Jahia docs are documentation/jahia/8_1 and 8_2. The dotted patterns below never match a
-        // JCR path -- the dot only ever appears in vanity URLs and titles -- so this underscore form is
-        // the one actually defending current content. 9_x is included so a future version is covered too.
-        ~/\/[89]_\d(\/|$)/,
-        ~/(?i)\/jahia-8\.\d/,
-        ~/(?i)\/jahia-cms\/jahia-8/,
-        ~/(?i)\/forms(\/|$)/,
-        ~/(?i)\/jexperience/,
-        ~/(?i)\/jahia-cloud/,
-        ~/(?i)\/augmented-search/,
-        ~/(?i)\/knowledge-base/,
-        ~/(?i)\/security-advisor/,
-        ~/(?i)\/jsa-\d{4}/
+final List<String> PROTECTED_PREFIXES = [
+        '/sites/academy/home/documentation/forms',
+        '/sites/academy/home/documentation/jexperience',
+        '/sites/academy/home/documentation/jahia-cloud',
+        '/sites/academy/home/documentation/augmented-search',
+        '/sites/academy/home/documentation/knowledge-base',
+        '/sites/academy/home/documentation/glossary',
+        '/sites/academy/home/customer-center'
 ]
+
+/**
+ * Everything under documentation/jahia except the 7_3 archive: 8_1 and 8_2 today, and any version
+ * directory added later without anyone remembering to update this script.
+ */
+final java.util.regex.Pattern PROTECTED_CURRENT_JAHIA =
+        ~/^\/sites\/academy\/home\/documentation\/jahia\/(?!7_3(\/|$))/
 
 // ---------------------------------------------------------------------------
 
@@ -193,9 +198,12 @@ WORKSPACES.each { workspace ->
 
 // --- guard: nothing current may be in the selection ------------------------
 
-def violations = selected.values().flatten().unique().findAll { path ->
-    PROTECTED.any { pattern -> pattern.matcher(path).find() }
+def isProtected = { String path ->
+    PROTECTED_PREFIXES.any { path == it || path.startsWith(it + '/') } ||
+            PROTECTED_CURRENT_JAHIA.matcher(path).find()
 }
+
+def violations = selected.values().flatten().unique().findAll { path -> isProtected(path) }
 
 if (violations) {
     def message = "${TAG} ABORT - selection includes ${violations.size()} protected path(s), nothing was " +
