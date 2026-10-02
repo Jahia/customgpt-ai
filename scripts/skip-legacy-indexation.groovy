@@ -92,7 +92,14 @@ final List<String> ROOTS = [
         '/sites/academy/home/documentation/legacy-1',
         // Jahia 7.3 docs. The node is named 7_3, not 7.3: the version separator is an underscore, and its
         // siblings are 8_1 and 8_2. 217 jnt:page descendants, against the prune's 207 jahia-cms/jahia-7.x.
-        '/sites/academy/home/documentation/jahia/7_3'
+        '/sites/academy/home/documentation/jahia/7_3',
+        // Jahia 8.1 docs, 199 jnt:page. DIFFERENT IN KIND FROM THE ROOTS ABOVE -- read this before running.
+        // Those were deleted from CustomGPT in September, so the DELETE each one queues here is a no-op
+        // against an id that is already gone. These 199 are still in the live corpus, so marking them
+        // actively removes them: the chatbot stops being able to answer about 8.1 at all. 8.1 is the
+        // version immediately before current, not an archive, so that is a product decision about who the
+        // chatbot serves, not cleanup. Comment this line out to run the archive roots on their own first.
+        '/sites/academy/home/documentation/jahia/8_1'
 ]
 
 /** The node types the indexer treats as main resources. Keep in step with the module settings. */
@@ -128,11 +135,13 @@ final List<String> PROTECTED_PREFIXES = [
 ]
 
 /**
- * Everything under documentation/jahia except the 7_3 archive: 8_1 and 8_2 today, and any version
- * directory added later without anyone remembering to update this script.
+ * Everything under documentation/jahia except the version trees being retired: 8_2 today, and any version
+ * directory added later without anyone remembering to update this script. Keep this list in step with the
+ * jahia/* entries in ROOTS -- they are deliberately two separate lists, so that a typo in one cannot
+ * quietly disarm the other.
  */
 final java.util.regex.Pattern PROTECTED_CURRENT_JAHIA =
-        ~/^\/sites\/academy\/home\/documentation\/jahia\/(?!7_3(\/|$))/
+        ~/^\/sites\/academy\/home\/documentation\/jahia\/(?!(7_3|8_1)(\/|$))/
 
 // ---------------------------------------------------------------------------
 
@@ -220,6 +229,12 @@ emit("types: ${TYPES.join(', ')}")
 
 WORKSPACES.each { workspace ->
     emit("${workspace}: ${selected[workspace].size()} node(s) to mark")
+    // Per root as well as in total. The roots differ in consequence -- the archives are already gone from
+    // CustomGPT, 8_1 is not -- so a single number is the one thing that must not be the only number.
+    ROOTS.each { root ->
+        def n = selected[workspace].count { it == root || it.startsWith(root + '/') }
+        emit("  ${String.format('%5d', n)}  ${root}")
+    }
     selected[workspace].each { path -> log.info("${TAG} ${workspace} ${path}") }
 }
 
