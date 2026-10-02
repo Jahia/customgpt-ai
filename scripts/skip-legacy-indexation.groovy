@@ -81,17 +81,18 @@ final boolean DRY_RUN = true
  * JCR path segment: /archives is a vanity URL on the legacy-1 page, and jahia-cms exists nowhere in the
  * repository -- it appears only inside vanity URLs.
  *
- * MIND THE ENCODING if you add a root. JCR names are ISO9075-encoded, so "7.3" is stored as _x0037__3 and
- * "8.2" as _x0038__2. A readable version number in a path will simply not match anything.
+ * READING PATHS OUT OF AN EXPORT: the export XML escapes any node name that is not a legal XML element
+ * name, so the 7.3 docs appear there as <_x0037__3>. That escaping belongs to the file, not to the
+ * repository -- the JCR name is 7_3 (siblings 8_1, 8_2), and the home 404 page exports as <_x0034_04>.
+ * Decode _xHHHH_ back to its character before putting a path in this list or in PROTECTED.
  */
 final List<String> ROOTS = [
         // "Archives" in the UI; its /archives vanity URL is why the prune logged 127 pages under that
         // prefix and 537 more under legacy-1/. One tree, two URL forms. 781 jnt:page descendants.
         '/sites/academy/home/documentation/legacy-1',
-        // Jahia 7.3 docs. _x0037__3 is ISO9075 for "7.3" -- a JCR name cannot start with a digit, so the
-        // readable version number never appears in the path. 217 jnt:page descendants, which is the
-        // prune's 207 jahia-cms/jahia-7.x pages plus a few that were never indexed.
-        '/sites/academy/home/documentation/jahia/_x0037__3'
+        // Jahia 7.3 docs. The node is named 7_3, not 7.3: the version separator is an underscore, and its
+        // siblings are 8_1 and 8_2. 217 jnt:page descendants, against the prune's 207 jahia-cms/jahia-7.x.
+        '/sites/academy/home/documentation/jahia/7_3'
 ]
 
 /** The node types the indexer treats as main resources. Keep in step with the module settings. */
@@ -113,10 +114,10 @@ final String SKIP_MIXIN = 'jmix:skipCustomGptIndexation'
  * wrong individual node, so failing the batch beats skipping the node.
  */
 final List<java.util.regex.Pattern> PROTECTED = [
-        // Current Jahia docs live at documentation/jahia/_x0038__1 and _x0038__2 -- ISO9075 for 8.1 and
-        // 8.2. The readable patterns below would never have matched them, so the encoded form is the one
-        // that actually defends current content; both are kept because URLs and titles use the readable one.
-        ~/\/_x003[89]__\d/,
+        // Current Jahia docs are documentation/jahia/8_1 and 8_2. The dotted patterns below never match a
+        // JCR path -- the dot only ever appears in vanity URLs and titles -- so this underscore form is
+        // the one actually defending current content. 9_x is included so a future version is covered too.
+        ~/\/[89]_\d(\/|$)/,
         ~/(?i)\/jahia-8\.\d/,
         ~/(?i)\/jahia-cms\/jahia-8/,
         ~/(?i)\/forms(\/|$)/,
