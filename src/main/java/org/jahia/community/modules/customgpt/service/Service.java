@@ -3,6 +3,7 @@ package org.jahia.community.modules.customgpt.service;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.concurrent.CompletableFuture;
@@ -110,6 +111,19 @@ public class Service implements EventHandler {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String HEADER_ACCEPT = "accept";
     private static final String MEDIA_TYPE_JSON = "application/json";
+
+    /**
+     * How long a resolved SGE deployment is reused before the quota is checked again.
+     *
+     * <p>Caching is not an optimisation here. Without it every render of a search page would make two
+     * authenticated calls to CustomGPT, one of them to an endpoint that is itself rate limited, which would
+     * turn page views into API spend and eventually into 429s. Five minutes is chosen against what the data
+     * does: a team's query quota moves slowly, and the cost of being up to five minutes stale is a handful
+     * of visitors seeing the widget just after the quota ran out, who then see CustomGPT's own message.
+     */
+    private static final long SGE_CACHE_TTL_MS = 5L * 60L * 1000L;
+
+    private final AtomicReference<CachedSgeDeployment> sgeCache = new AtomicReference<>();
     private static final String UNSET = "unset";
     private BundleContext bundleContext;
     private Config customGptConfig;
@@ -165,6 +179,10 @@ public class Service implements EventHandler {
     @Reference(service = Config.class)
     public void setCustomGptConfig(Config customGptConfig) {
         this.customGptConfig = customGptConfig;
+        // A new project id or token makes the cached deployment wrong, and it would otherwise survive for
+        // the rest of the TTL -- long enough for someone to change the configuration, reload, and conclude
+        // the change did not take.
+        invalidateSgeDeployment();
     }
     
     @Reference(service = SettingsBean.class)
@@ -1320,6 +1338,148 @@ public class Service implements EventHandler {
         } catch (IOException e) {
             LOGGER.warn("Error fetching CustomGPT project name: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * The public embed details for the Search Generative Experience widget, cached for
+     * {@value #SGE_CACHE_TTL_MS} ms.
+     *
+     * <p>Resolves the project id from configuration, the public deployment key from
+     * {@code GET /projects/{id}} (the {@code shareable_slug} field of the same payload the project name
+     * comes from), and availability from {@code GET /limits/usage}, which reports the team's
+     * {@code max_queries} per billing cycle against {@code current_queries}.
+     *
+     * <p><strong>Fails open.</strong> Availability is false only when the quota is positively known to be
+     * used up. A call that times out, returns 429, or comes back without the fields reads as available.
+     * Hiding a working feature because of a transient error is the worse failure of the two: the visitor
+     * loses a route that would have worked and nothing says why, whereas letting a doomed query through
+     * costs one CustomGPT error message that the visitor can see and act on. The same reasoning does not
+     * apply to a definite "quota used up", which is why that case does close the feature.
+     *
+     * @return a deployment; {@link SgeDeployment#isUsable()} is the single question a caller should ask
+     */
+    public SgeDeployment getSgeDeployment() {
+        final CachedSgeDeployment cached = sgeCache.get();
+        if (cached != null && !cached.isExpired()) {
+            return cached.deployment;
+        }
+
+        final SgeDeployment resolved = resolveSgeDeployment();
+        // Cached whatever the outcome, including "not configured": a site that has not set this up must not
+        // pay for a lookup on every page view either.
+        sgeCache.set(new CachedSgeDeployment(resolved, System.currentTimeMillis() + SGE_CACHE_TTL_MS));
+        return resolved;
+    }
+
+    /** Drops the cached deployment, so the next read re-resolves. Called when the configuration changes. */
+    public void invalidateSgeDeployment() {
+        sgeCache.set(null);
+    }
+
+    private SgeDeployment resolveSgeDeployment() {
+        final String projectId = customGptConfig.getCustomGptProjectId();
+        if (projectId == null || projectId.isEmpty() || customGptClient == null) {
+            return SgeDeployment.notConfigured();
+        }
+
+        final String baseUrl;
+        try {
+            baseUrl = resolveValidatedApiBaseUrl();
+        } catch (IllegalStateException e) {
+            LOGGER.warn("Cannot resolve the CustomGPT SGE deployment: {}", e.getMessage());
+            return SgeDeployment.notConfigured();
+        }
+
+        final String shareableKey = fetchShareableKey(baseUrl, projectId);
+        if (shareableKey == null) {
+            // Without the public key there is nothing to embed, so this is "not configured" rather than
+            // "unavailable" -- the caller renders nothing either way, but the distinction is in the logs.
+            return SgeDeployment.notConfigured();
+        }
+
+        return SgeDeployment.of(projectId, shareableKey, hasQueryQuotaLeft(baseUrl));
+    }
+
+    /** The {@code shareable_slug} of the project: CustomGPT's public deployment key. */
+    private String fetchShareableKey(String baseUrl, String projectId) {
+        final Request request = new Request.Builder()
+                .url(String.format("%s/projects/%s", baseUrl, projectId))
+                .get()
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
+                .build();
+        try (Response response = customGptClient.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                LOGGER.warn("Cannot read the CustomGPT deployment key for project {}: HTTP {}", projectId,
+                        response.code());
+                return null;
+            }
+            final JSONObject data = new JSONObject(response.body().string()).optJSONObject("data");
+            if (data == null) {
+                return null;
+            }
+            final String slug = data.optString("shareable_slug", null);
+            return slug == null || slug.isEmpty() ? null : slug;
+        } catch (IOException e) {
+            LOGGER.warn("Error reading the CustomGPT deployment key: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** @return true unless the team's query quota for this billing cycle is positively known to be spent */
+    private boolean hasQueryQuotaLeft(String baseUrl) {
+        final Request request = new Request.Builder()
+                .url(baseUrl + "/limits/usage")
+                .get()
+                .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
+                .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
+                .build();
+        try (Response response = customGptClient.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                LOGGER.warn("Could not read the CustomGPT query quota (HTTP {}); assuming it is available",
+                        response.code());
+                return true;
+            }
+            return hasQueryQuotaLeft(new JSONObject(response.body().string()).optJSONObject("data"));
+        } catch (IOException e) {
+            LOGGER.warn("Error reading the CustomGPT query quota ({}); assuming it is available", e.getMessage());
+            return true;
+        }
+    }
+
+    /**
+     * The quota decision, separated from the request so it can be tested without a network.
+     *
+     * <p>Every uncertain case answers true. A missing payload, a missing field, or a non-positive
+     * {@code max_queries} (which is how an unmetered plan reads) are all "we do not know", and the choice
+     * on not knowing is to leave the feature on.
+     */
+    static boolean hasQueryQuotaLeft(JSONObject limits) {
+        if (limits == null) {
+            return true;
+        }
+        final int max = limits.optInt("max_queries", -1);
+        final int current = limits.optInt("current_queries", -1);
+        if (max <= 0 || current < 0) {
+            return true;
+        }
+        return current < max;
+    }
+
+    /** A resolved deployment and the moment it stops being trusted. */
+    private static final class CachedSgeDeployment {
+
+        private final SgeDeployment deployment;
+        private final long expiresAt;
+
+        private CachedSgeDeployment(SgeDeployment deployment, long expiresAt) {
+            this.deployment = deployment;
+            this.expiresAt = expiresAt;
+        }
+
+        private boolean isExpired() {
+            return System.currentTimeMillis() >= expiresAt;
         }
     }
 
