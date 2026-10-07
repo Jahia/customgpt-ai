@@ -32,6 +32,14 @@ describe('CustomGPT.ai new page indexing', function () {
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
     const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
+
+    const metadataFor = (pageId: string) =>
+        cy.request({
+            method: 'GET',
+            url: `${apiBaseUrl()}/projects/${Cypress.env('CUSTOMGPT_PROJECT_ID')}/pages/${pageId}/metadata`,
+            headers: {Authorization: `Bearer ${Cypress.env('CUSTOMGPT_TOKEN')}`},
+            failOnStatusCode: false
+        });
     const testPageName = 'cypress-indexing-test';
     const testPagePath = () => `/sites/${siteKey()}/home/${testPageName}`;
 
@@ -150,6 +158,27 @@ describe('CustomGPT.ai new page indexing', function () {
                     expect(node).to.exist;
                     expect(node.property).to.exist;
                     expect(node.property.value).to.be.a('string').and.not.be.empty;
+                });
+
+            // The id alone is minted before the metadata write and survives its rejection, so it says nothing
+            // about whether the page was really indexed. Read the URL back: this is the assertion that tells
+            // an indexed page from an empty shell.
+            cy.apollo({query: getNodeStatus, variables: {path: `${testPagePath()}/customgptIndex`}})
+                .its('data.jcr.nodeByPath.property.value')
+                .then(pageId => {
+                    // Sampled until a URL appears: this API has been observed returning a correct envelope
+                    // with a dropped `url`, so one null read is not proof of absence.
+                    cy.waitUntil(() => metadataFor(pageId).then(r => r.status === 200 && Boolean(r.body?.data?.url)), {
+                        timeout: 60000,
+                        interval: 5000,
+                        errorMsg: 'CustomGPT never returned a URL for the newly published page'
+                    });
+
+                    metadataFor(pageId).should(response => {
+                        expect(response.status).to.eq(200);
+                        expect(response.body.data.url).to.contain('jahia.localhost:8080');
+                        expect(response.body.data.url).to.contain(testPageName);
+                    });
                 });
         });
 
