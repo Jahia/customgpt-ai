@@ -4,6 +4,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.Locale;
 import org.apache.commons.lang.StringUtils;
 
 /**
@@ -29,6 +30,8 @@ public final class SecurityUtils {
     public static final String SECRET_PLACEHOLDER = "********";
 
     private static final String SCHEME_HTTPS = "https";
+    private static final String SCHEME_HTTP = "http";
+    private static final String SCHEME_SEPARATOR = "://";
 
     private SecurityUtils() {
         throw new IllegalStateException("Utility class");
@@ -173,6 +176,93 @@ public final class SecurityUtils {
             throw new IllegalStateException("CustomGPT apiBaseUrl must be a valid https:// URL");
         }
         return baseUrl;
+    }
+
+    /**
+     * Normalises a configured indexation server name to the bare {@code scheme://host[:port]} base that is prefixed
+     * to a node's rewritten path, or returns an empty string when the value cannot be used.
+     *
+     * <p>This is the override for the host that {@link Utils#getHostName(org.jahia.services.content.decorator.JCRSiteNode)}
+     * otherwise derives from a site's {@code sitemapIndexURL}. The resulting base is load-bearing twice: the module
+     * fetches the rendered page from it (carrying the Jahia Basic-auth credentials) and stores it as the citation
+     * URL in CustomGPT. An unusable value is therefore rejected outright and the caller falls back to
+     * {@code sitemapIndexURL}, rather than a half-applied host being concatenated into every indexed URL.
+     *
+     * <p>Accepted: an absolute {@code http://} or {@code https://} URL with a host that is not a literal
+     * private/loopback/link-local address — the same SSRF guard {@code getHostName} applies to {@code sitemapIndexURL},
+     * for the same reason (the render request carries credentials). {@code http} is allowed because a sitemap host may
+     * legitimately be {@code http} on a local deployment; Basic auth is then skipped by the render request builder.
+     *
+     * <p>Any path, query or fragment is dropped, so a sitemap URL can be pasted verbatim, and a trailing slash cannot
+     * double up against the rewritten path. Scheme and host are lower-cased so the stored citation URL is stable
+     * regardless of how the value was typed.
+     *
+     * @param rawServerName the configured value, possibly null, blank or malformed
+     * @return {@code scheme://host[:port]}, or an empty string when nothing usable was configured
+     */
+    /**
+     * Validates an admin-supplied HTTP header value, returning it trimmed or an empty string when it cannot be
+     * sent safely.
+     *
+     * <p>OkHttp rejects any value containing a character outside {@code \u0020..\u007e} (tab excepted) by
+     * throwing {@link IllegalArgumentException} while building the request. On the indexation path that would
+     * surface as a per-node failure on every single page, with nothing pointing at the {@code .cfg} as the
+     * cause. Dropping the header instead costs only the header.
+     *
+     * <p>This also closes header injection: a CR or LF in the value would otherwise let a configuration entry
+     * append headers of its own to the request.
+     *
+     * @param rawValue the configured value, possibly null
+     * @return the trimmed value, or {@code ""} if it is blank or not a legal header value
+     */
+    public static String normalizeHeaderValue(String rawValue) {
+        if (StringUtils.isBlank(rawValue)) {
+            return "";
+        }
+        // Scan BEFORE trimming. String.trim() cuts every char <= U+0020, so it quietly removes the NUL, CR and
+        // LF this is here to reject - validating the trimmed value would launder exactly what it screens for.
+        for (int i = 0; i < rawValue.length(); i++) {
+            final char c = rawValue.charAt(i);
+            if (c != '\t' && c != ' ' && (c <= '\u001f' || c >= '\u007f')) {
+                return "";
+            }
+        }
+        return rawValue.trim();
+    }
+
+    public static String normalizeServerName(String rawServerName) {
+        if (StringUtils.isBlank(rawServerName)) {
+            return "";
+        }
+        // A bare host is the form Jahia itself uses for j:serverName, so accept it and assume https. Testing for
+        // "://" rather than for a parsed scheme is deliberate: new URI("host:8443") parses "host" as the scheme and
+        // "8443" as an opaque scheme-specific part, so a bare host carrying a port would otherwise be read as a
+        // non-http scheme and silently rejected. https rather than http because the render request this URL is
+        // fetched with carries the Jahia credentials.
+        final String trimmed = rawServerName.trim();
+        final String absolute = trimmed.contains(SCHEME_SEPARATOR) ? trimmed : SCHEME_HTTPS + SCHEME_SEPARATOR + trimmed;
+        final URI uri;
+        try {
+            uri = new URI(absolute);
+        } catch (URISyntaxException e) {
+            return "";
+        }
+        final String scheme = uri.getScheme();
+        final String host = uri.getHost();
+        if (scheme == null || StringUtils.isEmpty(host)) {
+            return "";
+        }
+        final String lowerScheme = scheme.toLowerCase(Locale.ROOT);
+        if (!SCHEME_HTTPS.equals(lowerScheme) && !SCHEME_HTTP.equals(lowerScheme)) {
+            return "";
+        }
+        if (isInternalHost(host)) {
+            return "";
+        }
+        final String authority = uri.getPort() == -1
+                ? host.toLowerCase(Locale.ROOT)
+                : host.toLowerCase(Locale.ROOT) + ":" + uri.getPort();
+        return lowerScheme + "://" + authority;
     }
 
     /**

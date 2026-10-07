@@ -46,9 +46,85 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `jahia.username` | _(empty)_ | Jahia user for rendering pages during indexing |
 | `jahia.password` | _(empty)_ | Jahia password for the rendering user |
 | `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
+| `serverName` | _(empty)_ | Server name the pages are fetched from and cited under — `host`, `host:port` or a full `scheme://host[:port]`. A bare host is read as `https://`. Empty means each site's own `sitemapIndexURL` host |
+| `site.<siteKey>.serverName` | _(empty)_ | Same, for one site only; wins over `serverName` |
+| `userAgent` | _(empty)_ | User-Agent sent when fetching a page's rendered HTML. Set it when the site is behind bot protection that refuses the default agent. Printable ASCII, no line breaks |
 | `dryRun` | `true` | When `true`, simulate indexing without calling CustomGPT |
 | `scheduleJobASAP` | `false` | When `true`, schedule indexing jobs immediately; auto-resets to `false` after jobs are queued |
 | `rateLimit.requestsPerSecond` | `10` | Token-bucket rate: maximum CustomGPT API requests per second. The OkHttp client reads this at startup — **a module restart is required** for changes to take effect |
+
+### Indexation server name
+
+The URL a page is indexed under is `<server name>` + the page's outbound-rewritten path. By default the server
+name is derived from the site's `sitemapIndexURL` property. Override it when the site node does not name the host
+its pages are actually served from — a preproduction instance restored from a production export still carries the
+production `sitemapIndexURL`, and a site may carry no `sitemapIndexURL` at all.
+
+```properties
+# every site on this instance
+org.jahia.community.modules.customgpt.serverName=academypp.jahia.com
+# one site only, wins over the above
+org.jahia.community.modules.customgpt.site.academy.serverName=academy.jahia.com
+```
+
+A bare host name is what Jahia's own `j:serverName` holds, so that is the form to reach for. A scheme and a port
+are both accepted (`https://academypp.jahia.com`, `academypp.jahia.com:8443`); a value with no scheme is read as
+`https://`, because the render request carries the Jahia Basic-auth credentials and must not be downgraded to
+cleartext. Set `http://` explicitly if the host really is served over cleartext.
+
+Resolution order: `site.<siteKey>.serverName` → `serverName` → the site's `sitemapIndexURL`.
+
+Both tiers are editable in the admin panel: a **Server name** field and a **Per-site server names** list.
+The panel always submits the whole list, so removing a row removes the override.
+
+> **Saving is not immediately in effect.** `saveSettings` (and a direct `.cfg` edit) hands the new properties to
+> ConfigurationAdmin, which delivers them to the module on its own thread — the Jahia log shows this as
+> `[CM Configuration Updater (Update: pid=org.jahia.community.modules.customgpt)]` followed by
+> `CustomGpt configuration loaded`. An indexation started in the gap runs against the *previous* configuration.
+> After changing a server name, wait for that log line (or re-read the settings) before starting an index,
+> otherwise the first run may still use the old host.
+>
+> Re-indexing the **same node** twice in quick succession is also not two runs: the module coalesces index
+> operations per node, logging `Coalesced N index operation(s) for node(s) already queued in this publication;
+> 0 operation(s) dispatched`. Let the first run finish before asking for the second, or the second is dropped
+> and the page keeps the URL the first run gave it.
+
+The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
+Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
+Leaving the scheme out does not bypass that check. Hostnames are not resolved (a DNS lookup on a configured value would
+itself be a vector), so a *name* that happens to point inward is accepted; the value is admin-supplied, like every
+other property here. Userinfo (`https://user@host`) and any path are dropped, so a sitemap URL can be pasted
+verbatim.
+
+A value that fails validation is logged and ignored. That site then falls back to the instance-wide `serverName`
+if one is set, and only to its own `sitemapIndexURL` if none is.
+
+This server name is used for **both** jobs: it is the host the rendered HTML is fetched from, and it is the
+citation URL stored in CustomGPT. Changing it does not rewrite pages already indexed. To move them, re-index the
+site; `repairPageUrls` recomputes URLs through the same resolution and will pick up the new host, but a host change
+makes *every* page stale, which trips its 25% plan-size ceiling — so a full re-index is the reliable route, and
+`repairPageUrls` is for the scoped case where you pass explicit page ids.
+
+### Rendering user agent
+
+The module fetches each page's rendered HTML from Jahia before handing it to CustomGPT. Some sites sit behind
+bot protection — a WAF rule, a CDN filter — that refuses the HTTP client's default agent. Such a site cannot be
+indexed at all: the fetch is rejected before any content exists, and every node is recorded as a failure with
+nothing identifying the agent as the reason.
+
+```properties
+org.jahia.community.modules.customgpt.userAgent=Mozilla/5.0 (compatible; JahiaIndexer/1.0; +https://academy.jahia.com)
+```
+
+It is editable in the admin panel (**Rendering user agent**) as well as in the `.cfg`.
+
+The header is sent on the rendering request only — never on CustomGPT API calls — and regardless of scheme, since
+it carries no secret. Leaving it empty sends no `User-Agent` override at all rather than an empty one, which is
+itself a bot signature on some filters.
+
+The value must be printable ASCII with no line breaks (tab is allowed inside). Anything else is reported and
+ignored, and pages are fetched with the default agent: OkHttp rejects an illegal header value by throwing while
+building the request, which would otherwise fail every page with nothing pointing back at the `.cfg`.
 
 ## Admin UI
 

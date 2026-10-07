@@ -98,6 +98,28 @@ public final class Utils {
         }
     }
 
+    /**
+     * The server name this site's pages are indexed under: the configured override when there is one, otherwise the
+     * host derived from the site's {@code sitemapIndexURL}.
+     *
+     * <p>The override is what lets a site be indexed under a host its own node does not name — a preproduction
+     * instance restored from a production export still carries the production {@code sitemapIndexURL}, and a site may
+     * carry none at all. See {@link Config#getServerName(String)} for the resolution order.
+     *
+     * @param customGptConfig the module configuration; a null config simply means "no override"
+     * @return {@code scheme://host[:port]}, or an empty string when neither source yields a usable host
+     */
+    public static String getHostName(JCRSiteNode siteNode, Config customGptConfig) {
+        final String configured = customGptConfig == null ? "" : customGptConfig.getServerName(siteNode.getSiteKey());
+        if (StringUtils.isNotEmpty(configured)) {
+            LOGGER.debug("Indexing site {} under the configured server name {}",
+                    SecurityUtils.sanitizeForLog(siteNode.getSiteKey()), SecurityUtils.sanitizeForLog(configured));
+            return configured;
+        }
+        return getHostName(siteNode);
+    }
+
+    /** The host derived from the site's {@code sitemapIndexURL}, ignoring any configured override. */
     public static String getHostName(JCRSiteNode siteNode) {
         final String hostName;
         try {

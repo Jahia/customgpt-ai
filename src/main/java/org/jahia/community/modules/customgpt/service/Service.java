@@ -1201,14 +1201,6 @@ public class Service implements EventHandler {
     }
     
     /**
-     * Records how a site indexation ended.
-     *
-     * <p>The end timestamp is written either way, so the site never appears stuck mid-run - {@code Site} derives
-     * "in progress" from the absence of an end timestamp. What distinguishes the two outcomes is the failure
-     * marker, which the admin status reads: without it a run in which every operation failed was reported as
-     * COMPLETED, because nothing that the status is derived from recorded the failure.
-     */
-    /**
      * Surfaces per-node failures that {@code CustomGptIndexerNodeHandler} caught individually.
      *
      * <p>Without this the run completes normally however many nodes failed, and the site is recorded as
@@ -1221,17 +1213,42 @@ public class Service implements EventHandler {
         }
     }
 
+    /**
+     * Records how a site indexation ended.
+     *
+     * <p>The end timestamp is written either way, so the site never appears stuck mid-run - {@code Site} derives
+     * "in progress" from the absence of an end timestamp. What distinguishes the two outcomes is the failure
+     * marker, which the admin status reads: without it a run in which every operation failed is reported as
+     * COMPLETED, because nothing the status is derived from recorded the failure.
+     *
+     * <p>Both properties are written through ONE session and ONE save. As two saves, a failure to write the
+     * marker left the end timestamp already committed - which is precisely the COMPLETED-looking state the
+     * marker exists to prevent, reached by the error path of the code meant to prevent it. Committing neither
+     * leaves the run visibly unfinished, which is wrong in a way an operator can see.
+     */
     void recordIndexationOutcome(String sitePath, Throwable throwable) {
         final Calendar now = new GregorianCalendar();
         try {
-            updateIndexationTime(sitePath, PROP_INDEXATION_END, now);
+            JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
+                final JCRNodeWrapper node = session.getNode(sitePath);
+                node.setProperty(PROP_INDEXATION_END, now);
+                if (throwable != null) {
+                    node.setProperty(PROP_INDEXATION_FAILED, now);
+                }
+                session.save();
+                return null;
+            });
             if (throwable != null) {
-                updateIndexationTime(sitePath, PROP_INDEXATION_FAILED, now);
                 LOGGER.error("Indexation of site {} ended with at least one failed operation; it is reported as"
                         + " FAILED, not COMPLETED. Re-run it once the cause is fixed.", sitePath, throwable);
             }
         } catch (RepositoryException e) {
-            LOGGER.error("Failed to record the indexation outcome for site {}", sitePath, e);
+            // Nothing was committed, so the site stays without an end timestamp and reads as still running
+            // rather than as a clean success. Say which outcome was lost, since the throwable above is now the
+            // only record of it.
+            LOGGER.error("Failed to record the indexation outcome for site {} (the run {}); the site will keep"
+                    + " reporting as in progress until the next run completes",
+                    sitePath, throwable == null ? "succeeded" : "FAILED", e);
         }
     }
 
@@ -1511,7 +1528,7 @@ public class Service implements EventHandler {
             throw new IOException("CustomGPT HTTP client is not initialised; cannot repair page URLs");
         }
         return new PageUrlRepair(customGptClient, customGptConfig.getCustomGptProjectId(),
-                resolveValidatedApiBaseUrl()).repairSite(siteKey, pageIds, dryRun);
+                resolveValidatedApiBaseUrl(), customGptConfig).repairSite(siteKey, pageIds, dryRun);
     }
 
     /**

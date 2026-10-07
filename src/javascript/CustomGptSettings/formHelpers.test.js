@@ -1,11 +1,4 @@
-import {
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_RATE_LIMIT,
-    buildSaveVariables,
-    coerceNumberInput,
-    settingsToFormState,
-    validateRequiredFields
-} from './formHelpers';
+import {DEFAULT_BATCH_SIZE, DEFAULT_RATE_LIMIT, buildSaveVariables, coerceNumberInput, settingsToFormState, validateRequiredFields, parseSiteServerNames, formatSiteServerNames} from './formHelpers';
 
 describe('coerceNumberInput', () => {
     test('returns the parsed integer for a valid numeric string', () => {
@@ -119,5 +112,118 @@ describe('validateRequiredFields', () => {
         const errors = validateRequiredFields({projectId: 'p', token: ''}, t);
         expect(errors.projectId).toBe('');
         expect(errors.token).toBe('label.validationTokenRequired');
+    });
+});
+
+describe('server name fields', () => {
+    it('defaults both server-name fields to empty strings', () => {
+        const formState = settingsToFormState({});
+
+        expect(formState.serverName).toBe('');
+        expect(formState.siteServerNames).toBe('');
+    });
+
+    it('carries the server name through from the server settings', () => {
+        const formState = settingsToFormState({
+            serverName: 'https://academypp.jahia.com',
+            siteServerNames: 'academy=https://academy.jahia.com'
+        });
+
+        expect(formState.serverName).toBe('https://academypp.jahia.com');
+        expect(formState.siteServerNames).toBe('academy=https://academy.jahia.com');
+    });
+
+    it('sends the server name as null when cleared, leaving the stored value alone', () => {
+        const variables = buildSaveVariables(settingsToFormState({serverName: ''}));
+
+        expect(variables.serverName).toBeNull();
+    });
+
+    it('sends the per-site list as an empty string rather than null when cleared', () => {
+        // Null means "not submitted" on the server and would leave deleted rows in place for ever; an empty
+        // string means "no overrides", which is what clearing every row actually asks for.
+        const variables = buildSaveVariables(settingsToFormState({siteServerNames: ''}));
+
+        expect(variables.siteServerNames).toBe('');
+    });
+
+    it('sends the per-site list verbatim', () => {
+        const variables = buildSaveVariables(
+            settingsToFormState({siteServerNames: 'academy=https://academy.jahia.com\ndigitall=digitall.example.com'})
+        );
+
+        expect(variables.siteServerNames).toBe('academy=https://academy.jahia.com\ndigitall=digitall.example.com');
+    });
+});
+
+describe('per-site server name rows', () => {
+    it('parses one row per line', () => {
+        const rows = parseSiteServerNames('academy=https://academy.jahia.com\ndigitall=digitall.example.com');
+
+        expect(rows).toEqual([
+            {siteKey: 'academy', serverName: 'https://academy.jahia.com'},
+            {siteKey: 'digitall', serverName: 'digitall.example.com'}
+        ]);
+    });
+
+    it('keeps the = inside a value, splitting on the first one only', () => {
+        const rows = parseSiteServerNames('academy=https://host/?a=b');
+
+        expect(rows).toEqual([{siteKey: 'academy', serverName: 'https://host/?a=b'}]);
+    });
+
+    it('ignores blank lines and trims each part', () => {
+        expect(parseSiteServerNames('\n  academy = https://academy.jahia.com  \n\n'))
+            .toEqual([{siteKey: 'academy', serverName: 'https://academy.jahia.com'}]);
+    });
+
+    it('returns no rows for empty, null or undefined input', () => {
+        expect(parseSiteServerNames('')).toEqual([]);
+        expect(parseSiteServerNames(null)).toEqual([]);
+        expect(parseSiteServerNames(undefined)).toEqual([]);
+    });
+
+    it('formats rows back to one line each', () => {
+        const text = formatSiteServerNames([
+            {siteKey: 'academy', serverName: 'https://academy.jahia.com'},
+            {siteKey: 'digitall', serverName: 'digitall.example.com'}
+        ]);
+
+        expect(text).toBe('academy=https://academy.jahia.com\ndigitall=digitall.example.com');
+    });
+
+    it('drops a row that is entirely empty', () => {
+        // An empty row is the one the admin just added and has not filled in; it must not reach the server.
+        expect(formatSiteServerNames([{siteKey: '', serverName: ''}])).toBe('');
+    });
+
+    it('keeps a half-filled row so the admin can see what is incomplete', () => {
+        expect(formatSiteServerNames([{siteKey: 'academy', serverName: ''}])).toBe('academy=');
+    });
+
+    it('round-trips through parse and format', () => {
+        const text = 'academy=https://academy.jahia.com\ndigitall=digitall.example.com';
+
+        expect(formatSiteServerNames(parseSiteServerNames(text))).toBe(text);
+    });
+});
+
+describe('rendering user agent', () => {
+    it('defaults to an empty string', () => {
+        expect(settingsToFormState({}).userAgent).toBe('');
+    });
+
+    it('carries the configured agent through', () => {
+        expect(settingsToFormState({userAgent: 'JahiaIndexer/1.0'}).userAgent).toBe('JahiaIndexer/1.0');
+    });
+
+    it('sends null when cleared, so the stored value is left alone', () => {
+        expect(buildSaveVariables(settingsToFormState({userAgent: ''})).userAgent).toBeNull();
+    });
+
+    it('sends the agent verbatim', () => {
+        const variables = buildSaveVariables(settingsToFormState({userAgent: 'Mozilla/5.0 (compatible; Bot/1.0)'}));
+
+        expect(variables.userAgent).toBe('Mozilla/5.0 (compatible; Bot/1.0)');
     });
 });

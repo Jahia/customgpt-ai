@@ -11,6 +11,15 @@ services:
             - JPDA=true
         extra_hosts:
             - jahia:127.0.0.1
+            # The indexer fetches pages from the host named by the module's server name, and that same name is
+            # stored in CustomGPT as the citation URL. CustomGPT validates it with Laravel's `url` rule, whose
+            # host pattern requires a dot or an IP - so the bare "jahia" is rejected with HTTP 422 "The url is
+            # not a valid URL" and NOTHING can be indexed. A dotted alias for the same loopback satisfies it.
+            - jahia.localhost:127.0.0.1
+            # A SECOND dotted alias for the same loopback. 05-server-name sets the site's sitemapIndexURL to one
+            # and the server-name override to the other, so the URL CustomGPT stores says which of the two won.
+            # With a single host the test would pass whether the override were applied or silently ignored.
+            - override.jahia.localhost:127.0.0.1
         networks:
             - stack
     cypress:

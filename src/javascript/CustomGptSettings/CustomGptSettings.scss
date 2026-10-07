@@ -220,3 +220,79 @@
     gap: 12px;
     justify-content: flex-end;
 }
+
+// Per-site server-name overrides: a list of rows rather than a free-text blob, so each site key and host is
+// separately labelled and reachable by keyboard.
+.cgpt_siteServerNames {
+    // Same shape as .cgpt_fieldGroup, which is the point: this is a div with role="group", not a fieldset, so
+    // there are no user-agent or admin-stylesheet fieldset/legend rules left to reset or to lose a specificity
+    // fight with. See SiteServerNames.jsx for why the element changed.
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cgpt_siteServerNameRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    // Key + value together come to the same width as a plain .cgpt_input (420px), so the row's right edge
+    // lines up with the fields above it rather than running past them.
+    max-width: min(420px, 100%);
+}
+
+.cgpt_siteServerNameKey,
+.cgpt_siteServerNameValue {
+    padding: 0.375rem 0.625rem;
+    border: 1px solid #767676;
+    border-radius: 4px;
+    font-size: 0.875rem;
+
+    &:focus,
+    &:focus-visible {
+        outline: 2px solid #0077cc;
+        outline-offset: 2px;
+        border-color: #0077cc;
+    }
+}
+
+.cgpt_siteServerNameKey {
+    width: min(132px, 100%);
+    flex: 0 0 auto;
+}
+
+.cgpt_siteServerNameValue {
+    // Fills whatever the site key and the remove button leave, down to a usable minimum before wrapping.
+    width: auto;
+    flex: 1 1 160px;
+    min-width: 0;
+}
+
+.cgpt_siteServerNameAdd,
+.cgpt_siteServerNameRemove {
+    // AAA target size: minimum 24×24 px (SC 2.5.8)
+    min-height: 24px;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid #767676;
+    border-radius: 4px;
+    background-color: #fff;
+    // #333 on white > 10:1 — AAA OK
+    color: #333;
+    font-size: 0.8125rem;
+    cursor: pointer;
+
+    &:hover {
+        background-color: #f0f0f0;
+    }
+
+    &:focus,
+    &:focus-visible {
+        outline: 2px solid #0077cc;
+        outline-offset: 2px;
+    }
+}
+
+.cgpt_siteServerNameAdd {
+    align-self: flex-start;
+}

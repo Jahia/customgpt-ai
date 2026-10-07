@@ -32,6 +32,14 @@ describe('CustomGPT.ai Indexing', function () {
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
     const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
+    const metadataFor = (pageId: string) =>
+        cy.request({
+            method: 'GET',
+            url: `${apiBaseUrl()}/projects/${Cypress.env('CUSTOMGPT_PROJECT_ID')}/pages/${pageId}/metadata`,
+            headers: {Authorization: `Bearer ${Cypress.env('CUSTOMGPT_TOKEN')}`},
+            failOnStatusCode: false
+        });
+
     const testPageName = 'cypress-indexing-test';
     const testPagePath = () => `/sites/${siteKey()}/home/${testPageName}`;
 
@@ -84,7 +92,7 @@ describe('CustomGPT.ai Indexing', function () {
 
         cy.apollo({
             mutation: setNodeProperty,
-            variables: {pathOrId: sitePath, propertyName: 'sitemapIndexURL', propertyValue: 'http://jahia:8080'}
+            variables: {pathOrId: sitePath, propertyName: 'sitemapIndexURL', propertyValue: 'http://jahia.localhost:8080'}
         });
 
         cy.apollo({
@@ -122,7 +130,11 @@ describe('CustomGPT.ai Indexing', function () {
                 jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
                 dryRun: false,
                 scheduleJobASAP: true,
-                operationsBatchSize: 500
+                operationsBatchSize: 500,
+                // Hermetic: never inherit an override an earlier spec left behind.
+                serverName: '',
+                siteServerNames: '',
+                userAgent: ''
             }
         });
 
@@ -181,6 +193,32 @@ describe('CustomGPT.ai Indexing', function () {
                     expect(node).to.exist;
                     expect(node.property).to.exist;
                     expect(node.property.value).to.be.a('string').and.not.be.empty;
+                });
+        });
+
+        // A page id alone proves only that CustomGPT MINTED a page - the id is assigned before the metadata
+        // write, so it is present even when that write is rejected. For a long time every node in this harness
+        // failed with HTTP 422 "The url is not a valid URL" (the bare host `jahia` has no dot, which Laravel's
+        // url rule requires) and these tests still passed. Read the URL back out of CustomGPT: it is the only
+        // assertion that distinguishes an indexed page from an empty shell.
+        it('stores the page URL in CustomGPT, not just a page id', () => {
+            cy.apollo({query: getNodeStatus, variables: {path: `/sites/${siteKey()}/home/customgptIndex`}})
+                .its('data.jcr.nodeByPath.property.value')
+                .then(pageId => {
+                    // The metadata read is sampled more than once: this API has been observed returning a
+                    // correct envelope with a dropped `url`, so a single null is not proof of absence.
+                    cy.waitUntil(() => metadataFor(pageId).then(r => r.status === 200 && Boolean(r.body?.data?.url)), {
+                        timeout: 60000,
+                        interval: 5000,
+                        errorMsg: 'CustomGPT never returned a URL for the indexed home page'
+                    });
+
+                    metadataFor(pageId).should(response => {
+                        expect(response.status).to.eq(200);
+                        // The host comes from the site's sitemapIndexURL, set in the before hook.
+                        expect(response.body.data.url).to.contain('jahia.localhost:8080');
+                        expect(response.body.data.url).to.contain(`/sites/${siteKey()}/home`);
+                    });
                 });
         });
     });

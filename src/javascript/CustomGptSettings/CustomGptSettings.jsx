@@ -3,12 +3,15 @@ import {useMutation, useQuery} from '@apollo/client';
 import {useTranslation} from 'react-i18next';
 import {Button, Loader, Typography} from '@jahia/moonstone';
 import styles from './CustomGptSettings.scss';
+import {SiteServerNames} from './SiteServerNames';
 import {GET_SETTINGS, PURGE_ALL_PAGES, SAVE_SETTINGS} from './CustomGptSettings.gql';
 import {
     DEFAULT_BATCH_SIZE,
     DEFAULT_RATE_LIMIT,
     buildSaveVariables,
     coerceNumberInput,
+    formatSiteServerNames,
+    parseSiteServerNames,
     settingsToFormState,
     validateRequiredFields
 } from './formHelpers';
@@ -38,11 +41,16 @@ export const CustomGptSettingsAdmin = () => {
         jahiaServerCookieName: '',
         jahiaServerCookieValue: '',
         jahiaServerCookieDomain: '',
+        userAgent: '',
+        serverName: '',
+        siteServerNames: '',
         dryRun: true,
         scheduleJobASAP: false,
         apiBaseUrl: '',
         rateLimitRequestsPerSecond: DEFAULT_RATE_LIMIT
     });
+
+    const [siteServerNameRows, setSiteServerNameRows] = useState([]);
 
     useEffect(() => {
         document.title = `${t('label.settingsTitle')} - Jahia Administration`;
@@ -69,6 +77,7 @@ export const CustomGptSettingsAdmin = () => {
             initializedRef.current = true;
             setProjectName(s.projectName ?? null);
             setFormState(settingsToFormState(s));
+            setSiteServerNameRows(parseSiteServerNames(s.siteServerNames));
         }
     }, [data]);
 
@@ -83,6 +92,13 @@ export const CustomGptSettingsAdmin = () => {
         if ((field === 'projectId' || field === 'token') && value !== '') {
             setFieldErrors(prev => ({...prev, [field]: ''}));
         }
+    };
+
+    // Rows are the edit surface; formState.siteServerNames stays the single source of truth for saving.
+    const applySiteServerNameRows = rows => {
+        setSaveStatus(null);
+        setSiteServerNameRows(rows);
+        setFormState(prev => ({...prev, siteServerNames: formatSiteServerNames(rows)}));
     };
 
     const handleNumberChange = field => e => {
@@ -443,6 +459,47 @@ export const CustomGptSettingsAdmin = () => {
                             onChange={handleChange('jahiaServerCookieDomain')}
                         />
                     </div>
+
+                    <div className={styles.cgpt_fieldGroup}>
+                        <label className={styles.cgpt_label} htmlFor="cgpt-user-agent">
+                            {t('label.userAgent')}
+                        </label>
+                        <input
+                            type="text"
+                            id="cgpt-user-agent"
+                            className={styles.cgpt_input}
+                            value={formState.userAgent}
+                            placeholder={t('label.userAgentPlaceholder')}
+                            aria-describedby="cgpt-user-agent-hint"
+                            onChange={handleChange('userAgent')}
+                        />
+                        <span id="cgpt-user-agent-hint" className={styles.cgpt_hint}>
+                            {t('label.userAgentHint')}
+                        </span>
+                    </div>
+
+                    <div className={styles.cgpt_fieldGroup}>
+                        <label className={styles.cgpt_label} htmlFor="cgpt-server-name">
+                            {t('label.serverName')}
+                        </label>
+                        <input
+                            type="text"
+                            id="cgpt-server-name"
+                            className={styles.cgpt_input}
+                            value={formState.serverName}
+                            placeholder={t('label.serverNamePlaceholder')}
+                            aria-describedby="cgpt-server-name-hint"
+                            onChange={handleChange('serverName')}
+                        />
+                        <span id="cgpt-server-name-hint" className={styles.cgpt_hint}>
+                            {t('label.serverNameHint')}
+                        </span>
+                    </div>
+
+                    <SiteServerNames
+                        rows={siteServerNameRows}
+                        onChange={applySiteServerNameRows}
+                    />
 
                     <div className={styles.cgpt_fieldGroup}>
                         <label className={styles.cgpt_checkboxLabel} htmlFor="cgpt-dry-run">

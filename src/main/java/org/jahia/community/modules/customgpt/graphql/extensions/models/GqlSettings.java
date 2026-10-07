@@ -20,6 +20,9 @@ public class GqlSettings {
     private final String jahiaPassword;
     private final String jahiaServerCookieName;
     private final String jahiaServerCookieValue;
+    private final String userAgent;
+    private final String serverName;
+    private final String siteServerNames;
     private final String jahiaServerCookieDomain;
     private final boolean dryRun;
     private final boolean scheduleJobASAP;
@@ -39,6 +42,9 @@ public class GqlSettings {
         this.jahiaPassword = b.jahiaPassword;
         this.jahiaServerCookieName = b.jahiaServerCookieName;
         this.jahiaServerCookieValue = b.jahiaServerCookieValue;
+        this.userAgent = b.userAgent;
+        this.serverName = b.serverName;
+        this.siteServerNames = b.siteServerNames;
         this.jahiaServerCookieDomain = b.jahiaServerCookieDomain;
         this.dryRun = b.dryRun;
         this.scheduleJobASAP = b.scheduleJobASAP;
@@ -63,6 +69,9 @@ public class GqlSettings {
         private String jahiaPassword;
         private String jahiaServerCookieName;
         private String jahiaServerCookieValue;
+        private String userAgent;
+        private String serverName;
+        private String siteServerNames;
         private String jahiaServerCookieDomain;
         private boolean dryRun;
         private boolean scheduleJobASAP;
@@ -81,6 +90,9 @@ public class GqlSettings {
         public Builder jahiaPassword(String v) { this.jahiaPassword = v; return this; }
         public Builder jahiaServerCookieName(String v) { this.jahiaServerCookieName = v; return this; }
         public Builder jahiaServerCookieValue(String v) { this.jahiaServerCookieValue = v; return this; }
+        public Builder userAgent(String v) { this.userAgent = v; return this; }
+        public Builder serverName(String v) { this.serverName = v; return this; }
+        public Builder siteServerNames(String v) { this.siteServerNames = v; return this; }
         public Builder jahiaServerCookieDomain(String v) { this.jahiaServerCookieDomain = v; return this; }
         public Builder dryRun(boolean v) { this.dryRun = v; return this; }
         public Builder scheduleJobASAP(boolean v) { this.scheduleJobASAP = v; return this; }
@@ -172,6 +184,27 @@ public class GqlSettings {
     @GraphQLDescription("Jahia server cookie value")
     public String getJahiaServerCookieValue() {
         return jahiaServerCookieValue;
+    }
+
+    @GraphQLField
+    @GraphQLName("userAgent")
+    @GraphQLDescription("User-Agent sent when fetching a page's rendered HTML; empty uses the HTTP client default")
+    public String getUserAgent() {
+        return userAgent;
+    }
+
+    @GraphQLField
+    @GraphQLName("serverName")
+    @GraphQLDescription("Server name all sites are indexed under; empty means each site's own sitemapIndexURL")
+    public String getServerName() {
+        return serverName;
+    }
+
+    @GraphQLField
+    @GraphQLName("siteServerNames")
+    @GraphQLDescription("Per-site server names, one 'siteKey=serverName' per line; wins over serverName")
+    public String getSiteServerNames() {
+        return siteServerNames;
     }
 
     @GraphQLField

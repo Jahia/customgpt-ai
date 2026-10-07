@@ -1,6 +1,7 @@
 package org.jahia.community.modules.customgpt.settings;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NoSuchNodeTypeException;
 import org.apache.commons.lang.StringUtils;
@@ -47,6 +48,17 @@ public class Config implements ManagedService {
     private static final String DRY_RUN = CONFIG_NAMESPACE_PREFIX + ".dryRun";
     private static final String PROP_CUSTOM_GPT_API_BASE_URL = CONFIG_NAMESPACE_PREFIX + ".apiBaseUrl";
     private static final String PROP_RATE_LIMIT_REQUESTS_PER_SECOND = CONFIG_NAMESPACE_PREFIX + ".rateLimit.requestsPerSecond";
+    /** User-Agent sent when fetching a page's rendered HTML; empty leaves the HTTP client default. */
+    private static final String PROP_USER_AGENT = CONFIG_NAMESPACE_PREFIX + ".userAgent";
+    /** Server name applied to every site that has no per-site entry; see {@link #getServerName(String)}. */
+    private static final String PROP_SERVER_NAME = CONFIG_NAMESPACE_PREFIX + ".serverName";
+    /** Per-site server name: {@code <prefix>.site.<siteKey>.serverName}. */
+    private static final String SITE_PROP_PREFIX = CONFIG_NAMESPACE_PREFIX + ".site.";
+    private static final String SITE_PROP_SERVER_NAME_SUFFIX = ".serverName";
+    private static final String SITE_PROP_PREFIX_LOWER = SITE_PROP_PREFIX.toLowerCase(Locale.ROOT);
+    private static final String SITE_PROP_SERVER_NAME_SUFFIX_LOWER = SITE_PROP_SERVER_NAME_SUFFIX.toLowerCase(Locale.ROOT);
+    /** A JCR site key is a single safe segment; anything else in the key is a typo, not a site. */
+    private static final Pattern SITE_KEY_PATTERN = Pattern.compile("^[\\w-]+$");
 
     private Set<String> contentIndexedMainResources;
     private Set<String> contentIndexedSubNodes;
@@ -64,6 +76,13 @@ public class Config implements ManagedService {
     private String jahiaServerCookieDomain;
     private String customGptApiBaseUrl;
     private int rateLimitRequestsPerSecond;
+    private String userAgent;
+    /**
+     * The server-name overrides, published as one immutable snapshot. Written by the ConfigAdmin thread and read by
+     * the indexation threads, so the two halves must swap together: a reader that saw a new instance-wide default
+     * next to the previous per-site map would index a site under a host neither setting ever named.
+     */
+    private volatile ServerNames serverNames = ServerNames.NONE;
 
     /**
      * Called by OSGi ConfigurationAdmin whenever the {@code org.jahia.community.modules.customgpt.cfg} file changes.
@@ -75,7 +94,17 @@ public class Config implements ManagedService {
         if (properties == null) {
             return;
         }
-        parse(properties);
+        try {
+            parse(properties);
+        } catch (RuntimeException e) {
+            // ConfigAdmin redelivers only when the file changes, so a throw here leaves the module unconfigured
+            // for the rest of the JVM's life - and every later failure reports "not configured" from a stack that
+            // names neither this file nor this cause. Say it once, here, with the reason attached.
+            configured = false;
+            LOGGER.error("Failed to read the {}.cfg configuration: the module stays unconfigured and will index"
+                    + " nothing until the file is corrected and saved again", CONFIG_NAMESPACE_PREFIX, e);
+            throw new ConfigurationException(null, "Unable to parse the CustomGpt configuration", e);
+        }
         // The apiBaseUrl travels with the Bearer token on every API call. A .cfg edit bypasses the saveSettings UI
         // gate, so re-validate here: reject anything that is not a public https:// URL and refuse to mark the
         // service configured, rather than letting the token be sent over cleartext or to an internal SSRF target.
@@ -152,6 +181,139 @@ public class Config implements ManagedService {
         jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
         jahiaServerCookieValue = getString(properties, PROP_JAHIA_SERVER_COOKIE_VALUE, "");
         jahiaServerCookieDomain = getString(properties, PROP_JAHIA_SERVER_COOKIE_DOMAIN, "");
+        userAgent = normalizeConfiguredUserAgent(getString(properties, PROP_USER_AGENT, ""));
+
+        // Replaced wholesale on every update rather than merged, so an override removed from the .cfg is forgotten.
+        serverNames = new ServerNames(
+                normalizeConfiguredServerName(getString(properties, PROP_SERVER_NAME, ""), PROP_SERVER_NAME),
+                parseSiteServerNames(properties));
+    }
+
+    /**
+     * Validates and normalises one configured server name, logging and discarding anything unusable.
+     *
+     * <p>Discarding rather than failing is deliberate: the caller then falls back to the site's
+     * {@code sitemapIndexURL}, so a typo degrades to the previous behaviour instead of stopping indexation or,
+     * worse, prefixing every indexed URL with a host that does not resolve.
+     */
+    private String normalizeConfiguredServerName(String configured, String key) {
+        if (StringUtils.isEmpty(StringUtils.trim(configured))) {
+            return "";
+        }
+        final String normalized = SecurityUtils.normalizeServerName(configured);
+        if (normalized.isEmpty()) {
+            // Deliberately not "the sitemapIndexURL will be used": a rejected per-site value leaves the site on the
+            // instance-wide serverName when one is set, and only falls through to sitemapIndexURL when none is.
+            LOGGER.error("Ignoring {}: '{}' is not a host name, host:port or http(s) URL with a public host."
+                    + " This site will be indexed under the instance-wide serverName if one is set, otherwise under"
+                    + " its own sitemapIndexURL.",
+                    key, SecurityUtils.sanitizeForLog(configured));
+        }
+        return normalized;
+    }
+
+    /**
+     * Validates the configured User-Agent, logging and discarding one that could not be sent.
+     *
+     * <p>Discarding rather than failing keeps a typo from stopping indexation outright: the fetch simply goes out
+     * with the HTTP client's own agent, which is the behaviour when none is configured.
+     */
+    private String normalizeConfiguredUserAgent(String configured) {
+        if (StringUtils.isEmpty(StringUtils.trim(configured))) {
+            return "";
+        }
+        final String normalized = SecurityUtils.normalizeHeaderValue(configured);
+        if (normalized.isEmpty()) {
+            LOGGER.error("Ignoring {}: '{}' is not a legal HTTP header value (printable ASCII only, no line"
+                    + " breaks). Pages will be fetched with the default user agent.",
+                    PROP_USER_AGENT, SecurityUtils.sanitizeForLog(configured));
+        }
+        return normalized;
+    }
+
+    /** Collects every {@code <prefix>.site.<siteKey>.serverName} entry that names a plausible site key. */
+    private Map<String, String> parseSiteServerNames(Dictionary<String, ?> properties) {
+        final Map<String, String> parsed = new LinkedHashMap<>();
+        final Enumeration<String> keys = properties.keys();
+        while (keys.hasMoreElements()) {
+            final String key = keys.nextElement();
+            // Matched case-insensitively because ConfigAdmin delivers a case-insensitive dictionary: a key typed
+            // with different casing is readable through get() but would be invisible to a case-sensitive scan,
+            // silently dropping the override. The site key itself is kept verbatim - JCR site keys are not.
+            final String lowerKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
+            if (!lowerKey.startsWith(SITE_PROP_PREFIX_LOWER) || !lowerKey.endsWith(SITE_PROP_SERVER_NAME_SUFFIX_LOWER)) {
+                continue;
+            }
+            // The prefix ends with the same dot the suffix starts with, so ".site.serverName" matches both ends
+            // at once and leaves a negative-length segment. Measure before cutting: an exception raised here
+            // escapes updated() and leaves the whole module unconfigured until the file is edited again.
+            final int siteKeyEnd = key.length() - SITE_PROP_SERVER_NAME_SUFFIX.length();
+            if (siteKeyEnd <= SITE_PROP_PREFIX.length()) {
+                LOGGER.error("Ignoring {}: it carries no site key between '{}' and '{}'",
+                        key, SITE_PROP_PREFIX, SITE_PROP_SERVER_NAME_SUFFIX);
+                continue;
+            }
+            final String siteKey = key.substring(SITE_PROP_PREFIX.length(), siteKeyEnd);
+            if (!SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+                LOGGER.error("Ignoring {}: '{}' is not a valid site key", key, SecurityUtils.sanitizeForLog(siteKey));
+                continue;
+            }
+            final String normalized = normalizeConfiguredServerName(getString(properties, key, ""), key);
+            if (!normalized.isEmpty()) {
+                parsed.put(siteKey, normalized);
+            }
+        }
+        return Collections.unmodifiableMap(parsed);
+    }
+
+    /**
+     * The server name ({@code scheme://host[:port]}) this site's pages must be indexed under, or an empty string
+     * when the site's own {@code sitemapIndexURL} should be used.
+     *
+     * <p>Resolution order: the site's own {@code <prefix>.site.<siteKey>.serverName}, then the instance-wide
+     * {@code <prefix>.serverName}, then empty. The override exists for the cases where the site node does not carry
+     * the host its pages are actually served from — a preproduction instance restored from a production export still
+     * names the production host in {@code sitemapIndexURL}, and a site may carry no {@code sitemapIndexURL} at all.
+     *
+     * <p>The value returned is already normalised and SSRF-checked (see
+     * {@link SecurityUtils#normalizeServerName(String)}); a rejected value reads here as "not configured".
+     *
+     * @param siteKey the key of the site being indexed; null or empty resolves the instance-wide default
+     */
+    public String getServerName(String siteKey) {
+        // Read once: a second read could land on a newer snapshot and mix the two tiers.
+        final ServerNames current = serverNames;
+        if (StringUtils.isNotEmpty(siteKey)) {
+            final String perSite = current.bySite.get(siteKey);
+            if (perSite != null) {
+                return perSite;
+            }
+        }
+        return current.instanceWide;
+    }
+
+    /**
+     * The per-site server-name overrides currently in effect, keyed by site key.
+     *
+     * <p>Exposed for the settings UI, which has to render the overrides it is about to replace. Values are
+     * already normalised, so what is shown is what is actually applied rather than what was typed.
+     */
+    public Map<String, String> getSiteServerNames() {
+        return serverNames.bySite;
+    }
+
+    /** Immutable pair of server-name tiers, swapped as a unit on every configuration update. */
+    private static final class ServerNames {
+
+        private static final ServerNames NONE = new ServerNames("", Collections.emptyMap());
+
+        private final String instanceWide;
+        private final Map<String, String> bySite;
+
+        private ServerNames(String instanceWide, Map<String, String> bySite) {
+            this.instanceWide = instanceWide;
+            this.bySite = bySite;
+        }
     }
 
     private Set<String> splitNodeTypeByComma(String commaSeparated) {
@@ -267,5 +429,17 @@ public class Config implements ManagedService {
 
     public int getRateLimitRequestsPerSecond() {
         return rateLimitRequestsPerSecond;
+    }
+
+    /**
+     * The User-Agent to send when fetching a page's rendered HTML, or an empty string to leave the HTTP client's
+     * own default in place.
+     *
+     * <p>Exists for sites behind bot protection that refuses the default agent: such a site cannot be indexed at
+     * all, because the fetch is rejected before any content is produced. The value is already validated as a
+     * legal header value; a rejected one reads here as "not configured".
+     */
+    public String getUserAgent() {
+        return userAgent == null ? "" : userAgent;
     }
 }

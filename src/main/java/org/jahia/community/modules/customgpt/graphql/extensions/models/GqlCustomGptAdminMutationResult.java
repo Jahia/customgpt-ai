@@ -285,7 +285,10 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("dryRun") @GraphQLDescription("Dry run mode") Boolean dryRun,
             @GraphQLName("scheduleJobASAP") @GraphQLDescription("Schedule indexing jobs immediately") Boolean scheduleJobASAP,
             @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl,
-            @GraphQLName("rateLimitRequestsPerSecond") @GraphQLDescription("Maximum API requests per second (token-bucket rate limit)") Integer rateLimitRequestsPerSecond) {
+            @GraphQLName("rateLimitRequestsPerSecond") @GraphQLDescription("Maximum API requests per second (token-bucket rate limit)") Integer rateLimitRequestsPerSecond,
+            @GraphQLName("userAgent") @GraphQLDescription("User-Agent sent when fetching a page's rendered HTML; empty uses the HTTP client default") String userAgent,
+            @GraphQLName("serverName") @GraphQLDescription("Server name all sites are indexed under; empty means each site's own sitemapIndexURL") String serverName,
+            @GraphQLName("siteServerNames") @GraphQLDescription("Per-site server names, one 'siteKey=serverName' per line; wins over serverName") String siteServerNames) {
         try {
             checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
         } catch (RepositoryException e) {
@@ -323,7 +326,7 @@ public class GqlCustomGptAdminMutationResult {
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.username", jahiaUsername);
             putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.password", jahiaPassword);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.name", jahiaServerCookieName);
-            putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.domain", jahiaServerCookieDomain);
             if (dryRun != null) {
                 props.put("org.jahia.community.modules.customgpt.dryRun", dryRun);
@@ -335,6 +338,9 @@ public class GqlCustomGptAdminMutationResult {
             if (rateLimitRequestsPerSecond != null) {
                 props.put("org.jahia.community.modules.customgpt.rateLimit.requestsPerSecond", rateLimitRequestsPerSecond);
             }
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.userAgent", userAgent);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.serverName", serverName);
+            applySiteServerNames(props, siteServerNames);
             config.update(props);
             return Boolean.TRUE;
         } catch (java.io.IOException e) {
@@ -396,4 +402,54 @@ public class GqlCustomGptAdminMutationResult {
         return indexingJobs;
     }
 
+
+    /**
+     * Replaces every {@code .site.<siteKey>.serverName} entry with the submitted set.
+     *
+     * <p>Replaced, not merged: the panel always submits the complete list, so a row the admin deleted has to
+     * disappear from the configuration. Merging would make removal impossible through the UI - the entry would
+     * survive every save and keep retargeting a site nobody could see listed.
+     *
+     * <p>A null argument means "not submitted" (an older client, or a partial save such as the one the test
+     * harness issues) and leaves the stored overrides untouched.
+     *
+     * @param props the configuration being built
+     * @param siteServerNames one {@code siteKey=serverName} per line, blank lines ignored
+     */
+    static void applySiteServerNames(java.util.Dictionary<String, Object> props, String siteServerNames) {
+        if (siteServerNames == null) {
+            return;
+        }
+        final java.util.List<String> stale = new java.util.ArrayList<>();
+        final java.util.Enumeration<String> keys = props.keys();
+        while (keys.hasMoreElements()) {
+            final String key = keys.nextElement();
+            final String lower = key == null ? "" : key.toLowerCase(java.util.Locale.ROOT);
+            if (lower.startsWith("org.jahia.community.modules.customgpt.site.") && lower.endsWith(".servername")) {
+                stale.add(key);
+            }
+        }
+        stale.forEach(props::remove);
+
+        for (String line : siteServerNames.split("\n")) {
+            final String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            final int eq = trimmed.indexOf('=');
+            if (eq <= 0 || eq == trimmed.length() - 1) {
+                LOGGER.warn("Ignoring malformed per-site server name entry (expected 'siteKey=serverName')");
+                continue;
+            }
+            final String siteKey = trimmed.substring(0, eq).trim();
+            final String value = trimmed.substring(eq + 1).trim();
+            // Config validates and normalises the value on the way back in; the key is checked here because it
+            // becomes part of a property name.
+            if (siteKey.isEmpty() || value.isEmpty() || !SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+                LOGGER.warn("Ignoring per-site server name entry with an unusable site key");
+                continue;
+            }
+            props.put("org.jahia.community.modules.customgpt.site." + siteKey + ".serverName", value);
+        }
+    }
 }
