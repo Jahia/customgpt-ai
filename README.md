@@ -46,7 +46,7 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `jahia.username` | _(empty)_ | Jahia user for rendering pages during indexing |
 | `jahia.password` | _(empty)_ | Jahia password for the rendering user |
 | `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
-| `serverName` | _(empty)_ | Server name (`scheme://host[:port]`) the pages are fetched from and cited under. Empty means each site's own `sitemapIndexURL` host |
+| `serverName` | _(empty)_ | Server name the pages are fetched from and cited under — `host`, `host:port` or a full `scheme://host[:port]`. A bare host is read as `https://`. Empty means each site's own `sitemapIndexURL` host |
 | `site.<siteKey>.serverName` | _(empty)_ | Same, for one site only; wins over `serverName` |
 | `dryRun` | `true` | When `true`, simulate indexing without calling CustomGPT |
 | `scheduleJobASAP` | `false` | When `true`, schedule indexing jobs immediately; auto-resets to `false` after jobs are queued |
@@ -61,16 +61,21 @@ production `sitemapIndexURL`, and a site may carry no `sitemapIndexURL` at all.
 
 ```properties
 # every site on this instance
-org.jahia.community.modules.customgpt.serverName=https://academypp.jahia.com
+org.jahia.community.modules.customgpt.serverName=academypp.jahia.com
 # one site only, wins over the above
-org.jahia.community.modules.customgpt.site.academy.serverName=https://academy.jahia.com
+org.jahia.community.modules.customgpt.site.academy.serverName=academy.jahia.com
 ```
+
+A bare host name is what Jahia's own `j:serverName` holds, so that is the form to reach for. A scheme and a port
+are both accepted (`https://academypp.jahia.com`, `academypp.jahia.com:8443`); a value with no scheme is read as
+`https://`, because the render request carries the Jahia Basic-auth credentials and must not be downgraded to
+cleartext. Set `http://` explicitly if the host really is served over cleartext.
 
 Resolution order: `site.<siteKey>.serverName` → `serverName` → the site's `sitemapIndexURL`.
 
-The value must be an absolute `http(s)` URL whose host is not a **literal** private/loopback/link-local IP
-address — the render request carries the Jahia Basic-auth credentials, so such a host is refused for the same SSRF
-reason one coming from `sitemapIndexURL` is. Hostnames are not resolved (a DNS lookup on a configured value would
+The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
+Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
+Leaving the scheme out does not bypass that check. Hostnames are not resolved (a DNS lookup on a configured value would
 itself be a vector), so a *name* that happens to point inward is accepted; the value is admin-supplied, like every
 other property here. Userinfo (`https://user@host`) and any path are dropped, so a sitemap URL can be pasted
 verbatim.

@@ -82,14 +82,45 @@ public class SecurityUtilsServerNameTest {
         assertThat(SecurityUtils.normalizeServerName("   ")).isEmpty();
     }
 
-    // ---- rejected: not a usable absolute base URL ----
+    // ---- accepted: a bare host name, the form j:serverName uses ----
 
     @Test
-    public void normalizeServerName_rejectsABareHostnameWithNoScheme() {
-        // "academypp.jahia.com" parses as a relative URI with no host at all; concatenating it would produce
-        // "academypp.jahia.com/home.html", which OkHttp cannot even build a request from.
-        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com")).isEmpty();
+    public void normalizeServerName_assumesHttpsForABareHostName() {
+        // Jahia's own j:serverName is a bare host, so that is what an admin will reach for. Rejecting it would
+        // leave the module silently falling back to sitemapIndexURL; https is assumed because the render request
+        // carries the Jahia credentials and must not be downgraded to cleartext.
+        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com")).isEqualTo("https://academypp.jahia.com");
     }
+
+    @Test
+    public void normalizeServerName_keepsThePortOnABareHostName() {
+        // The case that makes a "does it contain a scheme" test necessary: new URI("host:8443") parses "host"
+        // as the SCHEME, so a naive parse would read the port as an opaque scheme-specific part and drop the host.
+        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com:8443"))
+                .isEqualTo("https://academypp.jahia.com:8443");
+    }
+
+    @Test
+    public void normalizeServerName_dropsThePathFromABareHostName() {
+        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com/sitemap.xml"))
+                .isEqualTo("https://academypp.jahia.com");
+    }
+
+    @Test
+    public void normalizeServerName_lowerCasesABareHostName() {
+        assertThat(SecurityUtils.normalizeServerName("  ACADEMYPP.Jahia.COM  "))
+                .isEqualTo("https://academypp.jahia.com");
+    }
+
+    @Test
+    public void normalizeServerName_stillRejectsAnInternalBareHostName() {
+        // The SSRF guard must not be bypassable by leaving the scheme out.
+        assertThat(SecurityUtils.normalizeServerName("127.0.0.1")).isEmpty();
+        assertThat(SecurityUtils.normalizeServerName("10.1.2.3:8080")).isEmpty();
+        assertThat(SecurityUtils.normalizeServerName("2130706433")).isEmpty();
+    }
+
+    // ---- rejected: not a usable absolute base URL ----
 
     @Test
     public void normalizeServerName_rejectsASchemeRelativeUrl() {

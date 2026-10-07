@@ -129,11 +129,25 @@ public class ConfigServerNameTest {
         // A bad value must not become a host: it would be concatenated into every indexed URL. Falling back to
         // sitemapIndexURL keeps indexation working, and Config logs the rejection.
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "ftp://academypp.jahia.com");
 
         callUpdated(props);
 
         assertThat(config.getServerName("academy")).isEmpty();
+    }
+
+    @Test
+    public void getServerName_acceptsABareHostNameAndReturnsAnHttpsOrigin() {
+        // The form an admin will actually type, matching Jahia's own j:serverName. Callers concatenate the result
+        // with a path, so what comes back must be an origin even though what went in was not.
+        final Dictionary<String, Object> props = minimalValidProps();
+        props.put(KEY_SERVER_NAME, "academypp.jahia.com");
+        props.put(KEY_SERVER_NAME_ACADEMY, "academy.jahia.com:8443");
+
+        callUpdated(props);
+
+        assertThat(config.getServerName("digitall")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("academy")).isEqualTo("https://academy.jahia.com:8443");
     }
 
     @Test

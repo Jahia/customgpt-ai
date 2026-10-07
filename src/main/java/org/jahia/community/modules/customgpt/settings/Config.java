@@ -200,7 +200,7 @@ public class Config implements ManagedService {
         if (normalized.isEmpty()) {
             // Deliberately not "the sitemapIndexURL will be used": a rejected per-site value leaves the site on the
             // instance-wide serverName when one is set, and only falls through to sitemapIndexURL when none is.
-            LOGGER.error("Ignoring {}: '{}' is not an absolute http(s) URL whose host is a public address."
+            LOGGER.error("Ignoring {}: '{}' is not a host name, host:port or http(s) URL with a public host."
                     + " This site will be indexed under the instance-wide serverName if one is set, otherwise under"
                     + " its own sitemapIndexURL.",
                     key, SecurityUtils.sanitizeForLog(configured));

@@ -31,6 +31,7 @@ public final class SecurityUtils {
 
     private static final String SCHEME_HTTPS = "https";
     private static final String SCHEME_HTTP = "http";
+    private static final String SCHEME_SEPARATOR = "://";
 
     private SecurityUtils() {
         throw new IllegalStateException("Utility class");
@@ -203,9 +204,16 @@ public final class SecurityUtils {
         if (StringUtils.isBlank(rawServerName)) {
             return "";
         }
+        // A bare host is the form Jahia itself uses for j:serverName, so accept it and assume https. Testing for
+        // "://" rather than for a parsed scheme is deliberate: new URI("host:8443") parses "host" as the scheme and
+        // "8443" as an opaque scheme-specific part, so a bare host carrying a port would otherwise be read as a
+        // non-http scheme and silently rejected. https rather than http because the render request this URL is
+        // fetched with carries the Jahia credentials.
+        final String trimmed = rawServerName.trim();
+        final String absolute = trimmed.contains(SCHEME_SEPARATOR) ? trimmed : SCHEME_HTTPS + SCHEME_SEPARATOR + trimmed;
         final URI uri;
         try {
-            uri = new URI(rawServerName.trim());
+            uri = new URI(absolute);
         } catch (URISyntaxException e) {
             return "";
         }
