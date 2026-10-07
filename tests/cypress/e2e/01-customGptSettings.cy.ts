@@ -56,6 +56,7 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s).to.have.property('dryRun');
                     expect(s).to.have.property('scheduleJobASAP');
                     expect(s).to.have.property('apiBaseUrl');
+                    expect(s).to.have.property('userAgent');
                     expect(s).to.have.property('serverName');
                     expect(s).to.have.property('siteServerNames');
                 });
@@ -95,6 +96,7 @@ describe('CustomGPT.ai Settings', () => {
                     dryRun: false,
                     scheduleJobASAP: true,
                     apiBaseUrl: 'https://app.customgpt.ai/api/v1',
+                    userAgent: 'Mozilla/5.0 (compatible; RoundTrip/1.0)',
                     serverName: 'roundtrip.example.com',
                     siteServerNames: 'academy=https://academy.example.com'
                 }
@@ -124,6 +126,7 @@ describe('CustomGPT.ai Settings', () => {
                     // false after scheduling the indexation jobs, so it never round-trips as true.
                     expect(s.scheduleJobASAP).to.eq(false);
                     expect(s.apiBaseUrl).to.eq('https://app.customgpt.ai/api/v1');
+                    expect(s.userAgent).to.eq('Mozilla/5.0 (compatible; RoundTrip/1.0)');
                     // Normalised on the way in: a bare host is stored as an https origin.
                     expect(s.serverName).to.eq('https://roundtrip.example.com');
                     expect(s.siteServerNames).to.eq('academy=https://academy.example.com');
@@ -215,25 +218,33 @@ describe('CustomGPT.ai Settings', () => {
             cy.get('#cgpt-main-resource-types').should('be.visible');
         });
 
+        it('shows the rendering user agent input field', () => {
+            cy.login();
+            cy.visit(adminPath);
+            cy.get('#cgpt-user-agent').scrollIntoView().should('be.visible');
+        });
+
         it('shows the server name input field', () => {
             cy.login();
             cy.visit(adminPath);
-            cy.get('#cgpt-server-name').should('be.visible');
+            cy.get('#cgpt-server-name').scrollIntoView().should('be.visible');
         });
 
         it('shows the per-site server names editor with an add button', () => {
             cy.login();
             cy.visit(adminPath);
-            cy.contains('button', 'Add a site').should('be.visible').click();
+            // scrollIntoView because these sit near the bottom of a long form: the admin pane clips its
+            // overflow, and Cypress reports an element outside a clipping ancestor's bounds as not visible.
+            cy.contains('button', 'Add a site').scrollIntoView().should('be.visible').click();
             // One click yields one editable row, each part separately labelled.
-            cy.get('#cgpt-site-key-0').should('be.visible');
-            cy.get('#cgpt-site-server-name-0').should('be.visible');
+            cy.get('#cgpt-site-key-0').scrollIntoView().should('be.visible');
+            cy.get('#cgpt-site-server-name-0').scrollIntoView().should('be.visible');
         });
 
         it('shows the server cookie value in clear text, not as a password field', () => {
             cy.login();
             cy.visit(adminPath);
-            cy.get('#cgpt-cookie-value').should('be.visible').should('have.attr', 'type', 'text');
+            cy.get('#cgpt-cookie-value').scrollIntoView().should('be.visible').should('have.attr', 'type', 'text');
         });
 
         it('shows the sub-node types input field', () => {

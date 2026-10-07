@@ -51,6 +51,9 @@
     "siteServerNameSiteKey": "Clé du site",
     "siteServerNameValue": "Nom du serveur",
     "siteServerNameAdd": "Ajouter un site",
-    "siteServerNameRemove": "Supprimer"
+    "siteServerNameRemove": "Supprimer",
+    "userAgent": "Agent utilisateur de rendu",
+    "userAgentPlaceholder": "Mozilla/5.0 (compatible; JahiaIndexer/1.0)",
+    "userAgentHint": "Envoyé lors de la récupération du HTML rendu de chaque page. À renseigner si le site est protégé contre les robots et refuse l'agent par défaut. Laisser vide pour utiliser l'agent par défaut du client HTTP. ASCII imprimable uniquement, sans saut de ligne."
   }
 }

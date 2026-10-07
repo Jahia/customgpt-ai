@@ -207,3 +207,23 @@ describe('per-site server name rows', () => {
         expect(formatSiteServerNames(parseSiteServerNames(text))).toBe(text);
     });
 });
+
+describe('rendering user agent', () => {
+    it('defaults to an empty string', () => {
+        expect(settingsToFormState({}).userAgent).toBe('');
+    });
+
+    it('carries the configured agent through', () => {
+        expect(settingsToFormState({userAgent: 'JahiaIndexer/1.0'}).userAgent).toBe('JahiaIndexer/1.0');
+    });
+
+    it('sends null when cleared, so the stored value is left alone', () => {
+        expect(buildSaveVariables(settingsToFormState({userAgent: ''})).userAgent).toBeNull();
+    });
+
+    it('sends the agent verbatim', () => {
+        const variables = buildSaveVariables(settingsToFormState({userAgent: 'Mozilla/5.0 (compatible; Bot/1.0)'}));
+
+        expect(variables.userAgent).toBe('Mozilla/5.0 (compatible; Bot/1.0)');
+    });
+});

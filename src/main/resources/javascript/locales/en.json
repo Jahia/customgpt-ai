@@ -51,6 +51,9 @@
     "siteServerNameSiteKey": "Site key",
     "siteServerNameValue": "Server name",
     "siteServerNameAdd": "Add a site",
-    "siteServerNameRemove": "Remove"
+    "siteServerNameRemove": "Remove",
+    "userAgent": "Rendering user agent",
+    "userAgentPlaceholder": "Mozilla/5.0 (compatible; JahiaIndexer/1.0)",
+    "userAgentHint": "Sent when fetching each page's rendered HTML. Set it when the site is behind bot protection that refuses the default agent. Leave empty to use the HTTP client default. Printable ASCII only, no line breaks."
   }
 }

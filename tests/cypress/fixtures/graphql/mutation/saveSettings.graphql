@@ -13,6 +13,7 @@ mutation saveSettings(
     $dryRun: Boolean,
     $scheduleJobASAP: Boolean,
     $apiBaseUrl: String,
+    $userAgent: String,
     $serverName: String,
     $siteServerNames: String
 ) {
@@ -33,6 +34,7 @@ mutation saveSettings(
                 dryRun: $dryRun
                 scheduleJobASAP: $scheduleJobASAP
                 apiBaseUrl: $apiBaseUrl
+                userAgent: $userAgent
                 serverName: $serverName
                 siteServerNames: $siteServerNames
             )

@@ -51,6 +51,9 @@
     "siteServerNameSiteKey": "Site-Schlüssel",
     "siteServerNameValue": "Servername",
     "siteServerNameAdd": "Site hinzufügen",
-    "siteServerNameRemove": "Entfernen"
+    "siteServerNameRemove": "Entfernen",
+    "userAgent": "User-Agent für das Rendering",
+    "userAgentPlaceholder": "Mozilla/5.0 (compatible; JahiaIndexer/1.0)",
+    "userAgentHint": "Wird beim Abrufen des gerenderten HTML jeder Seite gesendet. Setzen, wenn die Site durch einen Bot-Schutz den Standard-Agent ablehnt. Leer lassen, um den Standard des HTTP-Clients zu verwenden. Nur druckbares ASCII, keine Zeilenumbrüche."
   }
 }

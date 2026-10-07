@@ -66,7 +66,7 @@ public class AdminQueries {
                     .contentIndexedMainResourceTypes("").contentIndexedSubNodeTypes("").contentIndexedFileExtensions("")
                     .fileMappedNodetypes("").operationsBatchSize(500).projectId("").projectName(null).token("")
                     .jahiaUsername("").jahiaPassword("").jahiaServerCookieName("").jahiaServerCookieValue("")
-                    .jahiaServerCookieDomain("").serverName("").siteServerNames("")
+                    .jahiaServerCookieDomain("").userAgent("").serverName("").siteServerNames("")
                     .dryRun(true).scheduleJobASAP(false)
                     .apiBaseUrl(CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL)
                     .rateLimitRequestsPerSecond(10).build();
@@ -89,6 +89,7 @@ public class AdminQueries {
                     .jahiaServerCookieName(config.getJahiaServerCookieName())
                     .jahiaServerCookieValue(config.getJahiaServerCookieValue())
                     .jahiaServerCookieDomain(config.getJahiaServerCookieDomain())
+                    .userAgent(config.getUserAgent())
                     .serverName(config.getServerName(null))
                     .siteServerNames(formatSiteServerNames(config.getSiteServerNames()))
                     .dryRun(config.isDryRun())

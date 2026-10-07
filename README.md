@@ -74,6 +74,9 @@ cleartext. Set `http://` explicitly if the host really is served over cleartext.
 
 Resolution order: `site.<siteKey>.serverName` → `serverName` → the site's `sitemapIndexURL`.
 
+Both tiers are editable in the admin panel: a **Server name** field and a **Per-site server names** list.
+The panel always submits the whole list, so removing a row removes the override.
+
 The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
 Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
 Leaving the scheme out does not bypass that check. Hostnames are not resolved (a DNS lookup on a configured value would
@@ -100,6 +103,8 @@ nothing identifying the agent as the reason.
 ```properties
 org.jahia.community.modules.customgpt.userAgent=Mozilla/5.0 (compatible; JahiaIndexer/1.0; +https://academy.jahia.com)
 ```
+
+It is editable in the admin panel (**Rendering user agent**) as well as in the `.cfg`.
 
 The header is sent on the rendering request only — never on CustomGPT API calls — and regardless of scheme, since
 it carries no secret. Leaving it empty sends no `User-Agent` override at all rather than an empty one, which is

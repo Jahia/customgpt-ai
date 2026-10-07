@@ -286,6 +286,7 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("scheduleJobASAP") @GraphQLDescription("Schedule indexing jobs immediately") Boolean scheduleJobASAP,
             @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl,
             @GraphQLName("rateLimitRequestsPerSecond") @GraphQLDescription("Maximum API requests per second (token-bucket rate limit)") Integer rateLimitRequestsPerSecond,
+            @GraphQLName("userAgent") @GraphQLDescription("User-Agent sent when fetching a page's rendered HTML; empty uses the HTTP client default") String userAgent,
             @GraphQLName("serverName") @GraphQLDescription("Server name all sites are indexed under; empty means each site's own sitemapIndexURL") String serverName,
             @GraphQLName("siteServerNames") @GraphQLDescription("Per-site server names, one 'siteKey=serverName' per line; wins over serverName") String siteServerNames) {
         try {
@@ -337,6 +338,7 @@ public class GqlCustomGptAdminMutationResult {
             if (rateLimitRequestsPerSecond != null) {
                 props.put("org.jahia.community.modules.customgpt.rateLimit.requestsPerSecond", rateLimitRequestsPerSecond);
             }
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.userAgent", userAgent);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.serverName", serverName);
             applySiteServerNames(props, siteServerNames);
             config.update(props);

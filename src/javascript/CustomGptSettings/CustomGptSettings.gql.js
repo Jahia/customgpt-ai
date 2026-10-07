@@ -17,6 +17,7 @@ export const GET_SETTINGS = gql`
                     jahiaServerCookieName
                     jahiaServerCookieValue
                     jahiaServerCookieDomain
+                    userAgent
                     serverName
                     siteServerNames
                     dryRun
@@ -56,6 +57,7 @@ export const SAVE_SETTINGS = gql`
         $scheduleJobASAP: Boolean,
         $apiBaseUrl: String,
         $rateLimitRequestsPerSecond: Int,
+        $userAgent: String,
         $serverName: String,
         $siteServerNames: String
     ) {
@@ -77,6 +79,7 @@ export const SAVE_SETTINGS = gql`
                     scheduleJobASAP: $scheduleJobASAP,
                     apiBaseUrl: $apiBaseUrl,
                     rateLimitRequestsPerSecond: $rateLimitRequestsPerSecond,
+                    userAgent: $userAgent,
                     serverName: $serverName,
                     siteServerNames: $siteServerNames
                 )

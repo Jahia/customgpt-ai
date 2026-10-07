@@ -41,6 +41,7 @@ export const CustomGptSettingsAdmin = () => {
         jahiaServerCookieName: '',
         jahiaServerCookieValue: '',
         jahiaServerCookieDomain: '',
+        userAgent: '',
         serverName: '',
         siteServerNames: '',
         dryRun: true,
@@ -457,6 +458,24 @@ export const CustomGptSettingsAdmin = () => {
                             value={formState.jahiaServerCookieDomain}
                             onChange={handleChange('jahiaServerCookieDomain')}
                         />
+                    </div>
+
+                    <div className={styles.cgpt_fieldGroup}>
+                        <label className={styles.cgpt_label} htmlFor="cgpt-user-agent">
+                            {t('label.userAgent')}
+                        </label>
+                        <input
+                            type="text"
+                            id="cgpt-user-agent"
+                            className={styles.cgpt_input}
+                            value={formState.userAgent}
+                            placeholder={t('label.userAgentPlaceholder')}
+                            aria-describedby="cgpt-user-agent-hint"
+                            onChange={handleChange('userAgent')}
+                        />
+                        <span id="cgpt-user-agent-hint" className={styles.cgpt_hint}>
+                            {t('label.userAgentHint')}
+                        </span>
                     </div>
 
                     <div className={styles.cgpt_fieldGroup}>

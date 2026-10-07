@@ -17,6 +17,7 @@ export const settingsToFormState = s => ({
     jahiaServerCookieName: s.jahiaServerCookieName ?? '',
     jahiaServerCookieValue: s.jahiaServerCookieValue ?? '',
     jahiaServerCookieDomain: s.jahiaServerCookieDomain ?? '',
+    userAgent: s.userAgent ?? '',
     serverName: s.serverName ?? '',
     siteServerNames: s.siteServerNames ?? '',
     dryRun: s.dryRun ?? true,
@@ -41,6 +42,7 @@ export const buildSaveVariables = formState => {
         jahiaServerCookieName: text(formState.jahiaServerCookieName),
         jahiaServerCookieValue: text(formState.jahiaServerCookieValue),
         jahiaServerCookieDomain: text(formState.jahiaServerCookieDomain),
+        userAgent: text(formState.userAgent),
         serverName: text(formState.serverName),
         // Always a string, never null: null reads as "not submitted" on the server and would leave rows the
         // admin deleted in the configuration for ever. '' is how "no per-site overrides" is expressed.
