@@ -16,8 +16,6 @@
     "token": "API-Token",
     "apiBaseUrl": "API-Basis-URL",
     "apiBaseUrlPlaceholder": "https://app.customgpt.ai/api/v1/",
-    "jahiaUsername": "Jahia-Benutzername",
-    "jahiaPassword": "Jahia-Passwort",
     "jahiaServerCookieName": "Server-Cookie-Name",
     "jahiaServerCookieValue": "Server-Cookie-Wert",
     "jahiaServerCookieDomain": "Server-Cookie-Domain",
@@ -54,6 +52,11 @@
     "siteServerNameRemove": "Entfernen",
     "userAgent": "User-Agent für das Rendering",
     "userAgentPlaceholder": "Mozilla/5.0 (compatible; JahiaIndexer/1.0)",
-    "userAgentHint": "Wird beim Abrufen des gerenderten HTML jeder Seite gesendet. Setzen, wenn die Site durch einen Bot-Schutz den Standard-Agent ablehnt. Leer lassen, um den Standard des HTTP-Clients zu verwenden. Nur druckbares ASCII, keine Zeilenumbrüche."
+    "userAgentHint": "Wird beim Abrufen des gerenderten HTML jeder Seite gesendet. Setzen, wenn die Site durch einen Bot-Schutz den Standard-Agent ablehnt. Leer lassen, um den Standard des HTTP-Clients zu verwenden. Nur druckbares ASCII, keine Zeilenumbrüche.",
+    "jahiaApiToken": "Jahia-API-Token",
+    "jahiaApiTokenHint": "Persönlicher API-Token für das Rendern der Seiten, auf graphql beschränkt. Für ein eigenes Nur-Lese-Konto anlegen: Inhalte, die dieses Konto nicht lesen darf, werden übersprungen statt indiziert. Nur schreibbar gespeichert — unverändert lassen, um den aktuellen Wert zu behalten.",
+    "jahiaGraphqlEndpoint": "Jahia-GraphQL-Endpunkt",
+    "jahiaGraphqlEndpointPlaceholder": "http://localhost:8080/modules/graphql",
+    "jahiaGraphqlEndpointHint": "Von hier werden die Seiten gerendert. Lokal lassen: Auf den öffentlichen Host zu zeigen schickt den Aufruf durch genau den Proxy und Bot-Schutz, die so vermieden werden sollen. Dies ist nicht die Zitat-URL — das ist der Servername oben."
   }
 }

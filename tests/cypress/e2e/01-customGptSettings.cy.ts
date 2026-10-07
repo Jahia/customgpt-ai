@@ -55,8 +55,8 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s).to.have.property('operationsBatchSize');
                     expect(s).to.have.property('projectId');
                     expect(s).to.have.property('token');
-                    expect(s).to.have.property('jahiaUsername');
-                    expect(s).to.have.property('jahiaPassword');
+                    expect(s).to.have.property('jahiaApiToken');
+                    expect(s).to.have.property('jahiaGraphqlEndpoint');
                     expect(s).to.have.property('jahiaServerCookieName');
                     expect(s).to.have.property('jahiaServerCookieValue');
                     expect(s).to.have.property('jahiaServerCookieDomain');
@@ -95,8 +95,8 @@ describe('CustomGPT.ai Settings', () => {
                     operationsBatchSize: 100,
                     projectId: 'roundtrip-project',
                     token: 'roundtrip-token',
-                    jahiaUsername: 'root',
-                    jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
+                    jahiaApiToken: 'roundtrip-token',
+                    jahiaGraphqlEndpoint: 'http://localhost:8080/modules/graphql',
                     jahiaServerCookieName: 'roundtrip-cookie',
                     jahiaServerCookieValue: 'roundtrip-value',
                     jahiaServerCookieDomain: 'roundtrip.local',
@@ -119,9 +119,11 @@ describe('CustomGPT.ai Settings', () => {
                     // Secrets are write-only: a stored value is masked, never echoed back in cleartext (SECURITY-746).
                     expect(s.token).to.eq('********');
                     expect(s.token).to.not.eq('roundtrip-token');
-                    expect(s.jahiaUsername).to.eq('root');
-                    expect(s.jahiaPassword).to.eq('********');
-                    expect(s.jahiaPassword).to.not.eq(Cypress.env('SUPER_USER_PASSWORD'));
+                    // Write-only, like the CustomGPT token: a stored value is masked, never echoed back.
+                    expect(s.jahiaApiToken).to.eq('********');
+                    expect(s.jahiaApiToken).to.not.eq('roundtrip-token');
+                    // The endpoint is ordinary configuration, not a secret.
+                    expect(s.jahiaGraphqlEndpoint).to.eq('http://localhost:8080/modules/graphql');
                     expect(s.jahiaServerCookieName).to.eq('roundtrip-cookie');
                     // NOT masked, unlike the token and the password: the cookie value pins a request to a
                     // node, it is not a credential, and masking it left the admin unable to read back what
@@ -296,16 +298,20 @@ describe('CustomGPT.ai Settings', () => {
             cy.get('#cgpt-api-base-url').should('be.visible');
         });
 
-        it('shows the Jahia username input field', () => {
+        it('shows the Jahia API token input field, masked', () => {
             cy.login();
             cy.visit(adminPath);
-            cy.get('#cgpt-jahia-username').should('be.visible');
+            cy.get('#cgpt-jahia-api-token').scrollIntoView();
+            cy.get('#cgpt-jahia-api-token').should('be.visible');
+            // A write-only secret, unlike the server cookie value next to it.
+            cy.get('#cgpt-jahia-api-token').should('have.attr', 'type', 'password');
         });
 
-        it('shows the Jahia password input field', () => {
+        it('shows the Jahia GraphQL endpoint input field', () => {
             cy.login();
             cy.visit(adminPath);
-            cy.get('#cgpt-jahia-password').should('be.visible');
+            cy.get('#cgpt-jahia-graphql-endpoint').scrollIntoView();
+            cy.get('#cgpt-jahia-graphql-endpoint').should('be.visible');
         });
 
         it('shows the server cookie name input field', () => {

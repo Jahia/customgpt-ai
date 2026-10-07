@@ -1,4 +1,5 @@
 import {DocumentNode} from 'graphql';
+import {configureIndexer} from '../utils/indexer';
 
 describe('CustomGPT.ai new page indexing', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -17,6 +18,8 @@ describe('CustomGPT.ai new page indexing', function () {
     const addSite: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSite.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const createToken: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createToken.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const startIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startIndex.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -63,23 +66,7 @@ describe('CustomGPT.ai new page indexing', function () {
         // Both were imported into this spec and never called, so it depended entirely on 02-indexing running
         // first. Every mutation here is idempotent, so running the spec alone now works.
         beforeEach(() => {
-            cy.apollo({
-                mutation: saveSettings,
-                variables: {
-                    contentIndexedMainResourceTypes: 'jnt:page,jmix:mainResource',
-                    projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
-                    token: Cypress.env('CUSTOMGPT_TOKEN'),
-                    jahiaUsername: 'root',
-                    jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
-                    dryRun: false,
-                    scheduleJobASAP: false,
-                    operationsBatchSize: 500,
-                    // Hermetic: never inherit an override an earlier spec left behind.
-                    serverName: '',
-                    siteServerNames: '',
-                    userAgent: ''
-                }
-            });
+            configureIndexer(siteKey(), saveSettings, createToken, {scheduleJobASAP: false});
 
             const sitePath = `/sites/${siteKey()}`;
 

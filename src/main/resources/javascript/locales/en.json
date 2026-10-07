@@ -16,8 +16,6 @@
     "token": "API Token",
     "apiBaseUrl": "API Base URL",
     "apiBaseUrlPlaceholder": "https://app.customgpt.ai/api/v1/",
-    "jahiaUsername": "Jahia Username",
-    "jahiaPassword": "Jahia Password",
     "jahiaServerCookieName": "Server Cookie Name",
     "jahiaServerCookieValue": "Server Cookie Value",
     "jahiaServerCookieDomain": "Server Cookie Domain",
@@ -54,6 +52,11 @@
     "siteServerNameRemove": "Remove",
     "userAgent": "Rendering user agent",
     "userAgentPlaceholder": "Mozilla/5.0 (compatible; JahiaIndexer/1.0)",
-    "userAgentHint": "Sent when fetching each page's rendered HTML. Set it when the site is behind bot protection that refuses the default agent. Leave empty to use the HTTP client default. Printable ASCII only, no line breaks."
+    "userAgentHint": "Sent when fetching each page's rendered HTML. Set it when the site is behind bot protection that refuses the default agent. Leave empty to use the HTTP client default. Printable ASCII only, no line breaks.",
+    "jahiaApiToken": "Jahia API token",
+    "jahiaApiTokenHint": "Personal API token the indexer renders pages with, scoped to graphql. Create it for a dedicated read-only account: content that account cannot read is skipped rather than indexed. Stored write-only — leave untouched to keep the current value.",
+    "jahiaGraphqlEndpoint": "Jahia GraphQL endpoint",
+    "jahiaGraphqlEndpointPlaceholder": "http://localhost:8080/modules/graphql",
+    "jahiaGraphqlEndpointHint": "Where pages are rendered from. Keep it local: pointing it at the public host sends the call back through the proxy and bot protection this is meant to avoid. It is not the citation URL — that is the server name above."
   }
 }
