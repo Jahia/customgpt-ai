@@ -228,6 +228,46 @@ public class ConfigServerNameTest {
         assertThat(config.getServerName("academy")).isEmpty();
     }
 
+    // ---- malformed property names must not abort the whole configuration ----
+
+    @Test
+    public void updated_stillConfiguresWhenASiteKeyIsMissingFromThePropertyName() {
+        // Arrange: the prefix and the suffix overlap on their shared dot, so the site-key segment has
+        // negative length. A hand-typed ".site.serverName" is the likeliest way to reach it.
+        final Dictionary<String, Object> props = minimalValidProps();
+        props.put(NS + ".site.serverName", "https://academy.jahia.com");
+
+        // Act: updated() must survive it - an exception here leaves the module unconfigured for good,
+        // because ConfigAdmin only redelivers when the file changes again.
+        callUpdated(props);
+
+        // Assert
+        assertThat(config.isConfigured()).isTrue();
+        assertThat(config.getServerName("academy")).isEmpty();
+    }
+
+    @Test
+    public void updated_stillConfiguresWhenTheSiteKeySegmentIsEmpty() {
+        final Dictionary<String, Object> props = minimalValidProps();
+        props.put(NS + ".site..serverName", "https://academy.jahia.com");
+
+        callUpdated(props);
+
+        assertThat(config.isConfigured()).isTrue();
+        assertThat(config.getServerName("")).isEmpty();
+    }
+
+    @Test
+    public void updated_stillConfiguresWhenTheSiteKeyIsMissingFromADifferentlyCasedPropertyName() {
+        // The name is matched case-insensitively, so the overlapping-dot case is reachable this way too.
+        final Dictionary<String, Object> props = minimalValidProps();
+        props.put(NS + ".Site.ServerName", "https://academy.jahia.com");
+
+        callUpdated(props);
+
+        assertThat(config.isConfigured()).isTrue();
+    }
+
     // ---- helpers ----
 
     private static Dictionary<String, Object> minimalValidProps() {

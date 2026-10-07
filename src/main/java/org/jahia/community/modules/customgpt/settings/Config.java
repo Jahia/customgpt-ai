@@ -91,7 +91,17 @@ public class Config implements ManagedService {
         if (properties == null) {
             return;
         }
-        parse(properties);
+        try {
+            parse(properties);
+        } catch (RuntimeException e) {
+            // ConfigAdmin redelivers only when the file changes, so a throw here leaves the module unconfigured
+            // for the rest of the JVM's life - and every later failure reports "not configured" from a stack that
+            // names neither this file nor this cause. Say it once, here, with the reason attached.
+            configured = false;
+            LOGGER.error("Failed to read the {}.cfg configuration: the module stays unconfigured and will index"
+                    + " nothing until the file is corrected and saved again", CONFIG_NAMESPACE_PREFIX, e);
+            throw new ConfigurationException(null, "Unable to parse the CustomGpt configuration", e);
+        }
         // The apiBaseUrl travels with the Bearer token on every API call. A .cfg edit bypasses the saveSettings UI
         // gate, so re-validate here: reject anything that is not a public https:// URL and refuse to mark the
         // service configured, rather than letting the token be sent over cleartext or to an internal SSRF target.
@@ -211,8 +221,16 @@ public class Config implements ManagedService {
             if (!lowerKey.startsWith(SITE_PROP_PREFIX_LOWER) || !lowerKey.endsWith(SITE_PROP_SERVER_NAME_SUFFIX_LOWER)) {
                 continue;
             }
-            final String siteKey = key.substring(SITE_PROP_PREFIX.length(),
-                    key.length() - SITE_PROP_SERVER_NAME_SUFFIX.length());
+            // The prefix ends with the same dot the suffix starts with, so ".site.serverName" matches both ends
+            // at once and leaves a negative-length segment. Measure before cutting: an exception raised here
+            // escapes updated() and leaves the whole module unconfigured until the file is edited again.
+            final int siteKeyEnd = key.length() - SITE_PROP_SERVER_NAME_SUFFIX.length();
+            if (siteKeyEnd <= SITE_PROP_PREFIX.length()) {
+                LOGGER.error("Ignoring {}: it carries no site key between '{}' and '{}'",
+                        key, SITE_PROP_PREFIX, SITE_PROP_SERVER_NAME_SUFFIX);
+                continue;
+            }
+            final String siteKey = key.substring(SITE_PROP_PREFIX.length(), siteKeyEnd);
             if (!SITE_KEY_PATTERN.matcher(siteKey).matches()) {
                 LOGGER.error("Ignoring {}: '{}' is not a valid site key", key, SecurityUtils.sanitizeForLog(siteKey));
                 continue;
