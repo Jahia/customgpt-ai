@@ -6,7 +6,12 @@ import styles from './CustomGptSettings.scss';
  * Editor for the per-site server-name overrides.
  *
  * Rows rather than a free-text blob so each site key and host is separately labelled, reachable by keyboard and
- * announced on its own. The rows are owned by the parent, which serialises them into the single
+ * announced on its own.
+ *
+ * A div with role="group" and aria-labelledby, NOT a fieldset with a legend. The two are equivalent in the
+ * accessibility tree - fieldset/legend maps to exactly this - but a bare fieldset also picks up whatever
+ * Jahia's server-administration stylesheet does to fieldsets, which outranked this module's class and indented
+ * the whole group past every other field. A div matches .cgpt_fieldGroup, which demonstrably aligns. The rows are owned by the parent, which serialises them into the single
  * `siteServerNames` form field that is actually saved — keeping them as component state here would let the
  * displayed rows and the value about to be submitted drift apart.
  *
@@ -28,8 +33,14 @@ export const SiteServerNames = ({rows, onChange}) => {
     const handleRemove = index => () => onChange(rows.filter((row, i) => i !== index));
 
     return (
-        <fieldset className={styles.cgpt_siteServerNames}>
-            <legend className={styles.cgpt_label}>{t('label.siteServerNames')}</legend>
+        <div
+            role="group"
+            aria-labelledby="cgpt-site-server-names-label"
+            className={styles.cgpt_siteServerNames}
+        >
+            <span id="cgpt-site-server-names-label" className={styles.cgpt_label}>
+                {t('label.siteServerNames')}
+            </span>
             <span id="cgpt-site-server-names-hint" className={styles.cgpt_hint}>
                 {t('label.siteServerNamesHint')}
             </span>
@@ -82,6 +93,6 @@ export const SiteServerNames = ({rows, onChange}) => {
             >
                 {t('label.siteServerNameAdd')}
             </button>
-        </fieldset>
+        </div>
     );
 };
