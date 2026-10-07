@@ -19,16 +19,13 @@ describe('CustomGPT.ai indexation server name', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const setNodeProperty: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/setNodeProperty.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const startIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startIndex.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const addSite: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/addSite.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const listSites: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/listSites.graphql');
+    const startNodeIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startNodeIndex.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getNodeStatus: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeStatus.graphql');
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
     const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
+    const homePath = () => `/sites/${siteKey()}/home`;
 
     // Both resolve to the same loopback inside the Jahia container (see docker-compose extra_hosts), so either
     // can actually be fetched. Only the stored citation URL tells them apart — which is the point.
@@ -43,32 +40,40 @@ describe('CustomGPT.ai indexation server name', function () {
             failOnStatusCode: false
         });
 
-    const reindexAndReadStoredUrl = () => {
-        cy.apollo({mutation: addSite, variables: {siteKey: siteKey()}});
-        cy.apollo({mutation: startIndex, variables: {siteKeys: [siteKey()], force: true}});
+    /**
+     * Re-indexes the home page alone and returns the URL CustomGPT ends up storing for it.
+     *
+     * Deliberately NOT a whole-site index. This spec runs last, so a site-wide run inherits every node the
+     * earlier specs left behind - the created-then-deleted cypress-indexing-test page among them - and a single
+     * failed node now (correctly) fails the whole run. Indexing one page tests exactly what this spec is about,
+     * is isolated from the other specs, and takes seconds instead of five minutes.
+     *
+     * @param expectedHost the host the stored URL must end up carrying; polled for, because a re-index updates
+     *                     the metadata of the SAME page id and the previous value is briefly still there
+     */
+    const reindexHomeAndReadStoredUrl = (expectedHost: string) => {
+        cy.apollo({mutation: startNodeIndex, variables: {nodePaths: [homePath()]}});
+
         cy.waitUntil(
             () =>
-                cy.apollo({query: listSites}).then(result => {
-                    const sites = result.data.admin.customGpt.listSites.sites as Array<{
-                        siteKey: string;
-                        indexationStatus: string;
-                    }>;
-                    return sites.find(s => s.siteKey === siteKey())?.indexationStatus === 'COMPLETED';
-                }),
-            {timeout: 300000, interval: 10000, errorMsg: 'Timed out waiting for site indexation to complete'}
+                cy
+                    .apollo({query: getNodeStatus, variables: {path: `${homePath()}/customgptIndex`}})
+                    .then(result => Boolean(result.data?.jcr?.nodeByPath?.property?.value)),
+            {timeout: 120000, interval: 2000, errorMsg: 'Timed out waiting for customGptPageId on the home page'}
         );
 
         return cy
-            .apollo({query: getNodeStatus, variables: {path: `/sites/${siteKey()}/home/customgptIndex`}})
+            .apollo({query: getNodeStatus, variables: {path: `${homePath()}/customgptIndex`}})
             .its('data.jcr.nodeByPath.property.value')
             .then(pageId => {
-                // Sampled until a URL appears: this API has been observed returning a correct envelope with a
-                // dropped `url`, so one null read is not proof of absence.
-                cy.waitUntil(() => metadataFor(pageId).then(r => r.status === 200 && Boolean(r.body?.data?.url)), {
-                    timeout: 60000,
-                    interval: 5000,
-                    errorMsg: 'CustomGPT never returned a URL for the indexed home page'
-                });
+                cy.waitUntil(
+                    () => metadataFor(pageId).then(r => r.status === 200 && String(r.body?.data?.url ?? '').includes(expectedHost)),
+                    {
+                        timeout: 120000,
+                        interval: 5000,
+                        errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for the home page`
+                    }
+                );
                 return metadataFor(pageId).then(r => r.body.data.url as string);
             });
     };
@@ -96,7 +101,7 @@ describe('CustomGPT.ai indexation server name', function () {
                 jahiaUsername: 'root',
                 jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
                 dryRun: false,
-                scheduleJobASAP: true,
+                scheduleJobASAP: false,
                 serverName: '',
                 siteServerNames: ''
             }
@@ -112,7 +117,7 @@ describe('CustomGPT.ai indexation server name', function () {
     });
 
     it('falls back to the site sitemapIndexURL when no override is set', () => {
-        reindexAndReadStoredUrl().should(url => {
+        reindexHomeAndReadStoredUrl('jahia.localhost:8080').should(url => {
             expect(url).to.contain('jahia.localhost:8080');
             expect(url).to.not.contain('override.');
         });
@@ -121,10 +126,10 @@ describe('CustomGPT.ai indexation server name', function () {
     it('indexes under the per-site override instead of the sitemapIndexURL', () => {
         cy.apollo({
             mutation: saveSettings,
-            variables: {scheduleJobASAP: true, siteServerNames: `${siteKey()}=${OVERRIDE_HOST}`}
+            variables: {siteServerNames: `${siteKey()}=${OVERRIDE_HOST}`}
         });
 
-        reindexAndReadStoredUrl().should(url => {
+        reindexHomeAndReadStoredUrl('override.jahia.localhost:8080').should(url => {
             // The site node still says jahia.localhost; the override is what reached CustomGPT.
             expect(url).to.contain('override.jahia.localhost:8080');
         });
