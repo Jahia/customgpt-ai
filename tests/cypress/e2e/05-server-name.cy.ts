@@ -90,17 +90,22 @@ describe('CustomGPT.ai indexation server name', function () {
      *                     the metadata of the SAME page id and the previous value is briefly still there
      */
     const reindexAndReadStoredUrl = (nodePath: string, expectedHost: string) => {
-        cy.apollo({mutation: startNodeIndex, variables: {nodePaths: [nodePath]}});
-
         const seen: {url: string} = {url: ''};
 
         // The page id is re-read on EVERY attempt, not captured once up front. A re-index does not patch the
         // existing CustomGPT page - the log shows "Removing page with the id ..." followed by a fresh one - so
         // an id read before the swap is a 404 by the time the new URL exists, and the poll could never see it.
         // The id changing is part of what is being waited for.
+        // The index request is re-issued on EVERY attempt rather than once up front. The module coalesces
+        // operations per node and holds the key until the in-flight indexation FUTURE completes - later than
+        // the page id appearing - so a request sent just after publishing is silently dropped ("Coalesced 1
+        // index operation(s); 0 operation(s) dispatched") and the page keeps the URL the previous run gave it.
+        // There is no external signal for that window, so the test stops trying to time it and simply asks
+        // again until one request gets through.
         cy.waitUntil(
-            () =>
-                cy
+            () => {
+                cy.apollo({mutation: startNodeIndex, variables: {nodePaths: [nodePath]}});
+                return cy
                     .apollo({query: getNodeStatus, variables: {path: `${nodePath}/customgptIndex`}})
                     .then(result => {
                         const pageId = result.data?.jcr?.nodeByPath?.property?.value as string | undefined;
@@ -119,10 +124,13 @@ describe('CustomGPT.ai indexation server name', function () {
 
                             return false;
                         });
-                    }),
+                    });
+            },
             {
-                timeout: 120000,
-                interval: 3000,
+                timeout: 180000,
+                // Each attempt issues an index request, so poll gently: most are coalesced no-ops until the
+                // pending key clears.
+                interval: 6000,
                 errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for ${nodePath}`
             }
         );

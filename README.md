@@ -86,8 +86,10 @@ The panel always submits the whole list, so removing a row removes the override.
 >
 > Re-indexing the **same node** twice in quick succession is also not two runs: the module coalesces index
 > operations per node, logging `Coalesced N index operation(s) for node(s) already queued in this publication;
-> 0 operation(s) dispatched`. Let the first run finish before asking for the second, or the second is dropped
-> and the page keeps the URL the first run gave it.
+> 0 operation(s) dispatched`. The node's key is held until the in-flight indexation *completes*, which is later
+> than its `customGptPageId` appearing — so publishing a page and immediately re-indexing it drops the second
+> request, and the page keeps the URL the first run gave it. Re-issue the request until one gets through, or
+> wait for the first run to finish.
 
 The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
 Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
