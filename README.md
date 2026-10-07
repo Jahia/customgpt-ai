@@ -83,6 +83,11 @@ The panel always submits the whole list, so removing a row removes the override.
 > `CustomGpt configuration loaded`. An indexation started in the gap runs against the *previous* configuration.
 > After changing a server name, wait for that log line (or re-read the settings) before starting an index,
 > otherwise the first run may still use the old host.
+>
+> Re-indexing the **same node** twice in quick succession is also not two runs: the module coalesces index
+> operations per node, logging `Coalesced N index operation(s) for node(s) already queued in this publication;
+> 0 operation(s) dispatched`. Let the first run finish before asking for the second, or the second is dropped
+> and the page keeps the URL the first run gave it.
 
 The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
 Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.

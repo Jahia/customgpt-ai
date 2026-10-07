@@ -25,7 +25,12 @@ describe('CustomGPT.ai indexation server name', function () {
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
     const apiBaseUrl = () => Cypress.env('CUSTOMGPT_API_BASE_URL') as string;
-    const homePath = () => `/sites/${siteKey()}/home`;
+    // Each test indexes a DIFFERENT page. The module coalesces index operations per node - the log says
+    // "Coalesced 1 index operation(s) for node(s) already queued in this publication; 0 operation(s)
+    // dispatched" - so asking for the same page twice in quick succession dispatches only the first, and the
+    // second test would assert against a page that was never re-indexed under the new override.
+    const fallbackPath = () => `/sites/${siteKey()}/home`;
+    const overridePath = () => `/sites/${siteKey()}/home/about`;
 
     // Both resolve to the same loopback inside the Jahia container (see docker-compose extra_hosts), so either
     // can actually be fetched. Only the stored citation URL tells them apart — which is the point.
@@ -74,8 +79,8 @@ describe('CustomGPT.ai indexation server name', function () {
      * @param expectedHost the host the stored URL must end up carrying; polled for, because a re-index updates
      *                     the metadata of the SAME page id and the previous value is briefly still there
      */
-    const reindexHomeAndReadStoredUrl = (expectedHost: string) => {
-        cy.apollo({mutation: startNodeIndex, variables: {nodePaths: [homePath()]}});
+    const reindexAndReadStoredUrl = (nodePath: string, expectedHost: string) => {
+        cy.apollo({mutation: startNodeIndex, variables: {nodePaths: [nodePath]}});
 
         const seen: {url: string} = {url: ''};
 
@@ -86,7 +91,7 @@ describe('CustomGPT.ai indexation server name', function () {
         cy.waitUntil(
             () =>
                 cy
-                    .apollo({query: getNodeStatus, variables: {path: `${homePath()}/customgptIndex`}})
+                    .apollo({query: getNodeStatus, variables: {path: `${nodePath}/customgptIndex`}})
                     .then(result => {
                         const pageId = result.data?.jcr?.nodeByPath?.property?.value as string | undefined;
                         if (!pageId) {
@@ -108,7 +113,7 @@ describe('CustomGPT.ai indexation server name', function () {
             {
                 timeout: 120000,
                 interval: 3000,
-                errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for the home page`
+                errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for ${nodePath}`
             }
         );
 
@@ -154,7 +159,7 @@ describe('CustomGPT.ai indexation server name', function () {
     });
 
     it('falls back to the site sitemapIndexURL when no override is set', () => {
-        reindexHomeAndReadStoredUrl('jahia.localhost:8080').should(url => {
+        reindexAndReadStoredUrl(fallbackPath(), 'jahia.localhost:8080').should(url => {
             expect(url).to.contain('jahia.localhost:8080');
             expect(url).to.not.contain('override.');
         });
@@ -163,7 +168,7 @@ describe('CustomGPT.ai indexation server name', function () {
     it('indexes under the per-site override instead of the sitemapIndexURL', () => {
         saveAndAwait({siteServerNames: `${siteKey()}=${OVERRIDE_HOST}`}, `${siteKey()}=${OVERRIDE_HOST}`);
 
-        reindexHomeAndReadStoredUrl('override.jahia.localhost:8080').should(url => {
+        reindexAndReadStoredUrl(overridePath(), 'override.jahia.localhost:8080').should(url => {
             // The site node still says jahia.localhost; the override is what reached CustomGPT.
             expect(url).to.contain('override.jahia.localhost:8080');
         });
