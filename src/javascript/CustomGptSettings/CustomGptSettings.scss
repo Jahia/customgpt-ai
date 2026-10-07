@@ -226,14 +226,19 @@
 .cgpt_siteServerNames {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    // Matches .cgpt_fieldGroup exactly: every sibling in the form is a borderless, unpadded column, so a box
+    // here would indent the legend and every input past the fields above and below it. Browser defaults are
+    // reset explicitly - a fieldset ships with its own margin, padding and border, and a legend with its own
+    // horizontal padding, each of which shifts the left edge off the form's.
+    gap: 6px;
     margin: 0;
-    padding: 14px 16px;
-    border: 1px solid #c6c6c6;
-    border-radius: 4px;
+    padding: 0;
+    border: 0;
 
     legend {
-        padding: 0 6px;
+        padding: 0;
+        // A legend is not a flex item: it is taken out of flow, so the gap above the first row comes from here.
+        margin-bottom: 6px;
     }
 }
 
@@ -242,6 +247,9 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+    // Key + value together come to the same width as a plain .cgpt_input (420px), so the row's right edge
+    // lines up with the fields above it rather than running past them.
+    max-width: min(420px, 100%);
 }
 
 .cgpt_siteServerNameKey,
@@ -260,12 +268,15 @@
 }
 
 .cgpt_siteServerNameKey {
-    width: min(160px, 100%);
+    width: min(132px, 100%);
+    flex: 0 0 auto;
 }
 
 .cgpt_siteServerNameValue {
-    width: min(320px, 100%);
-    flex: 1 1 220px;
+    // Fills whatever the site key and the remove button leave, down to a usable minimum before wrapping.
+    width: auto;
+    flex: 1 1 160px;
+    min-width: 0;
 }
 
 .cgpt_siteServerNameAdd,
