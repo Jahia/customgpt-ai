@@ -79,37 +79,40 @@ describe('CustomGPT.ai indexation server name', function () {
 
         const seen: {url: string} = {url: ''};
 
+        // The page id is re-read on EVERY attempt, not captured once up front. A re-index does not patch the
+        // existing CustomGPT page - the log shows "Removing page with the id ..." followed by a fresh one - so
+        // an id read before the swap is a 404 by the time the new URL exists, and the poll could never see it.
+        // The id changing is part of what is being waited for.
         cy.waitUntil(
             () =>
                 cy
                     .apollo({query: getNodeStatus, variables: {path: `${homePath()}/customgptIndex`}})
-                    .then(result => Boolean(result.data?.jcr?.nodeByPath?.property?.value)),
-            {timeout: 120000, interval: 2000, errorMsg: 'Timed out waiting for customGptPageId on the home page'}
-        );
+                    .then(result => {
+                        const pageId = result.data?.jcr?.nodeByPath?.property?.value as string | undefined;
+                        if (!pageId) {
+                            return false;
+                        }
 
-        return cy
-            .apollo({query: getNodeStatus, variables: {path: `${homePath()}/customgptIndex`}})
-            .its('data.jcr.nodeByPath.property.value')
-            .then(pageId => {
-                cy.waitUntil(
-                    () =>
-                        metadataFor(pageId).then(r => {
-                            const url = String(r.body?.data?.url ?? '');
-                            if (r.status === 200 && url.includes(expectedHost)) {
+                        return metadataFor(pageId).then(response => {
+                            const url = String(response.body?.data?.url ?? '');
+                            // Captured here rather than re-read afterwards: this API intermittently returns a
+                            // correct envelope with a dropped payload, so a second request can yield no data.
+                            if (response.status === 200 && url.includes(expectedHost)) {
                                 seen.url = url;
                                 return true;
                             }
 
                             return false;
-                        }),
-                    {
-                        timeout: 120000,
-                        interval: 5000,
-                        errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for the home page`
-                    }
-                );
-                return cy.wrap(seen).its('url');
-            });
+                        });
+                    }),
+            {
+                timeout: 120000,
+                interval: 3000,
+                errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for the home page`
+            }
+        );
+
+        return cy.wrap(seen).its('url');
     };
 
     before(function () {
