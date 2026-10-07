@@ -65,7 +65,11 @@ describe('CustomGPT.ai new page indexing', function () {
                     jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
                     dryRun: false,
                     scheduleJobASAP: false,
-                    operationsBatchSize: 500
+                    operationsBatchSize: 500,
+                    // Hermetic: never inherit an override an earlier spec left behind.
+                    serverName: '',
+                    siteServerNames: '',
+                    userAgent: ''
                 }
             });
 
