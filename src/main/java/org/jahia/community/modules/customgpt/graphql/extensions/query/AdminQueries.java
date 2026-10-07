@@ -66,7 +66,8 @@ public class AdminQueries {
                     .contentIndexedMainResourceTypes("").contentIndexedSubNodeTypes("").contentIndexedFileExtensions("")
                     .fileMappedNodetypes("").operationsBatchSize(500).projectId("").projectName(null).token("")
                     .jahiaUsername("").jahiaPassword("").jahiaServerCookieName("").jahiaServerCookieValue("")
-                    .jahiaServerCookieDomain("").dryRun(true).scheduleJobASAP(false)
+                    .jahiaServerCookieDomain("").serverName("").siteServerNames("")
+                    .dryRun(true).scheduleJobASAP(false)
                     .apiBaseUrl(CustomGptConstants.DEFAULT_CUSTOM_GPT_API_BASE_URL)
                     .rateLimitRequestsPerSecond(10).build();
         }
@@ -86,8 +87,10 @@ public class AdminQueries {
                     .jahiaUsername(config.getJahiaUsername())
                     .jahiaPassword(SecurityUtils.maskSecretForDisplay(config.getJahiaPassword()))
                     .jahiaServerCookieName(config.getJahiaServerCookieName())
-                    .jahiaServerCookieValue(SecurityUtils.maskSecretForDisplay(config.getJahiaServerCookieValue()))
+                    .jahiaServerCookieValue(config.getJahiaServerCookieValue())
                     .jahiaServerCookieDomain(config.getJahiaServerCookieDomain())
+                    .serverName(config.getServerName(null))
+                    .siteServerNames(formatSiteServerNames(config.getSiteServerNames()))
                     .dryRun(config.isDryRun())
                     .scheduleJobASAP(config.isScheduleJobASAP())
                     .apiBaseUrl(config.getCustomGptApiBaseUrl())
@@ -103,5 +106,21 @@ public class AdminQueries {
         if (!JCRSessionFactory.getInstance().getCurrentUserSession().getNode(path).hasPermission(permission)) {
             throw new AccessDeniedException(permission);
         }
+    }
+
+    /**
+     * Renders the per-site overrides as one {@code siteKey=serverName} per line.
+     *
+     * <p>A flat string rather than a GraphQL list type on purpose: the settings panel edits these as rows, but
+     * sending them as text keeps the schema free of a new input type - and a bad input type registration takes
+     * down the whole DXGraphQLProvider schema, not just this field.
+     */
+    private static String formatSiteServerNames(java.util.Map<String, String> bySite) {
+        if (bySite == null || bySite.isEmpty()) {
+            return "";
+        }
+        return bySite.entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(java.util.stream.Collectors.joining("\n"));
     }
 }

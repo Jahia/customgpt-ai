@@ -292,6 +292,16 @@ public class Config implements ManagedService {
         return current.instanceWide;
     }
 
+    /**
+     * The per-site server-name overrides currently in effect, keyed by site key.
+     *
+     * <p>Exposed for the settings UI, which has to render the overrides it is about to replace. Values are
+     * already normalised, so what is shown is what is actually applied rather than what was typed.
+     */
+    public Map<String, String> getSiteServerNames() {
+        return serverNames.bySite;
+    }
+
     /** Immutable pair of server-name tiers, swapped as a unit on every configuration update. */
     private static final class ServerNames {
 

@@ -42,6 +42,15 @@
     "requiredFieldsNote": "Les champs marqués d'un * sont obligatoires",
     "validationProjectIdRequired": "L'ID du projet est obligatoire.",
     "validationTokenRequired": "Le jeton API est obligatoire.",
-    "purging": "Suppression en cours…"
+    "purging": "Suppression en cours…",
+    "serverName": "Nom du serveur",
+    "serverNamePlaceholder": "academy.jahia.com",
+    "serverNameHint": "Hôte depuis lequel les pages indexées sont récupérées et sous lequel elles sont citées. Laisser vide pour utiliser le sitemapIndexURL de chaque site. Un nom d'hôte seul est interprété comme https:// ; indiquer http:// explicitement si le site est servi en clair.",
+    "siteServerNames": "Noms de serveur par site",
+    "siteServerNamesHint": "Remplace le nom de serveur ci-dessus, pour un site chacun. Laisser la liste vide pour appliquer le nom de serveur ci-dessus à tous les sites.",
+    "siteServerNameSiteKey": "Clé du site",
+    "siteServerNameValue": "Nom du serveur",
+    "siteServerNameAdd": "Ajouter un site",
+    "siteServerNameRemove": "Supprimer"
   }
 }

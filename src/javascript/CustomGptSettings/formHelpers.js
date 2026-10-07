@@ -17,6 +17,8 @@ export const settingsToFormState = s => ({
     jahiaServerCookieName: s.jahiaServerCookieName ?? '',
     jahiaServerCookieValue: s.jahiaServerCookieValue ?? '',
     jahiaServerCookieDomain: s.jahiaServerCookieDomain ?? '',
+    serverName: s.serverName ?? '',
+    siteServerNames: s.siteServerNames ?? '',
     dryRun: s.dryRun ?? true,
     scheduleJobASAP: s.scheduleJobASAP ?? false,
     apiBaseUrl: s.apiBaseUrl ?? '',
@@ -39,6 +41,10 @@ export const buildSaveVariables = formState => {
         jahiaServerCookieName: text(formState.jahiaServerCookieName),
         jahiaServerCookieValue: text(formState.jahiaServerCookieValue),
         jahiaServerCookieDomain: text(formState.jahiaServerCookieDomain),
+        serverName: text(formState.serverName),
+        // Always a string, never null: null reads as "not submitted" on the server and would leave rows the
+        // admin deleted in the configuration for ever. '' is how "no per-site overrides" is expressed.
+        siteServerNames: formState.siteServerNames ?? '',
         dryRun: formState.dryRun,
         scheduleJobASAP: formState.scheduleJobASAP,
         apiBaseUrl: text(formState.apiBaseUrl),
@@ -63,3 +69,27 @@ export const validateRequiredFields = (formState, t) => ({
     projectId: formState.projectId === '' ? t('label.validationProjectIdRequired') : '',
     token: formState.token === '' ? t('label.validationTokenRequired') : ''
 });
+
+// The per-site server names travel as one `siteKey=serverName` per line, but the panel edits them as rows.
+// Splitting on the FIRST `=` only: a server name may legitimately contain one (a query string, for instance),
+// and the site key never may.
+export const parseSiteServerNames = text =>
+    (text ?? '')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line !== '')
+        .map(line => {
+            const eq = line.indexOf('=');
+            return eq < 0 ?
+                {siteKey: line, serverName: ''} :
+                {siteKey: line.slice(0, eq).trim(), serverName: line.slice(eq + 1).trim()};
+        });
+
+// Inverse of parseSiteServerNames. A wholly empty row is the one just added and not yet filled in, so it is
+// dropped; a half-filled row is kept, so the admin can see which part is still missing instead of it vanishing.
+export const formatSiteServerNames = rows =>
+    (rows ?? [])
+        .map(row => ({siteKey: (row.siteKey ?? '').trim(), serverName: (row.serverName ?? '').trim()}))
+        .filter(row => row.siteKey !== '' || row.serverName !== '')
+        .map(row => `${row.siteKey}=${row.serverName}`)
+        .join('\n');
