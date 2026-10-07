@@ -1,4 +1,5 @@
 import {DocumentNode} from 'graphql';
+import {configureIndexer} from '../utils/indexer';
 
 /**
  * End-to-end coverage for the indexation server-name override.
@@ -14,6 +15,8 @@ import {DocumentNode} from 'graphql';
 describe('CustomGPT.ai indexation server name', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const createToken: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createToken.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getSettings.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -161,20 +164,7 @@ describe('CustomGPT.ai indexation server name', function () {
             variables: {pathOrId: overridePath(), languages: ['en'], publishSubNodes: true, includeSubTree: true}
         });
 
-        cy.apollo({
-            mutation: saveSettings,
-            variables: {
-                contentIndexedMainResourceTypes: 'jnt:page,jmix:mainResource',
-                projectId: Cypress.env('CUSTOMGPT_PROJECT_ID'),
-                token: Cypress.env('CUSTOMGPT_TOKEN'),
-                jahiaUsername: 'root',
-                jahiaPassword: Cypress.env('SUPER_USER_PASSWORD'),
-                dryRun: false,
-                scheduleJobASAP: false,
-                serverName: '',
-                siteServerNames: ''
-            }
-        });
+        configureIndexer(siteKey(), saveSettings, createToken, {scheduleJobASAP: false});
     });
 
     after(() => {

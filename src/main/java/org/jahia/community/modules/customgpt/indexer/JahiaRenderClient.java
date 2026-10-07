@@ -44,15 +44,26 @@ public final class JahiaRenderClient {
     private static final String TOKEN_SCHEME = "APIToken ";
 
     /**
-     * {@code contextConfiguration: "page"} yields the complete document - doctype, head and body - rather than a
-     * fragment. Measured against the public URL for the same page: 22,332 bytes versus 21,951, and 4,190 visible
-     * characters versus 4,185.
+     * {@code "page"} yields the complete document - doctype, head and body. Measured against the public URL for
+     * the same page: 22,332 bytes versus 21,951, and 4,190 visible characters versus 4,185.
      */
+    public static final String CONTEXT_PAGE = "page";
+
+    /**
+     * {@code "module"} renders a content node on its own.
+     *
+     * <p>Not every indexed node is a page: the module also indexes {@code jmix:mainResource} content, and asking
+     * for a page configuration on one of those resolves a page template it does not have -
+     * {@code TemplateNotFoundException}. A content node rendered as a module also carries no page furniture,
+     * which is what belongs in a knowledge base anyway.
+     */
+    public static final String CONTEXT_MODULE = "module";
+
     private static final String RENDER_QUERY =
-            "query($path:String!,$language:String!){"
+            "query($path:String!,$language:String!,$context:String!){"
             + "jcr(workspace: LIVE){"
             + "nodeByPath(path:$path){"
-            + "renderedContent(templateType:\"html\",contextConfiguration:\"page\",language:$language){output}"
+            + "renderedContent(templateType:\"html\",contextConfiguration:$context,language:$language){output}"
             + "}}}";
 
     private JahiaRenderClient() {
@@ -74,11 +85,12 @@ public final class JahiaRenderClient {
      *
      * @param nodePath the LIVE path of the node to render
      * @param language the language to render in
+     * @param contextConfiguration {@link #CONTEXT_PAGE} for a page, {@link #CONTEXT_MODULE} for content
      * @throws NotVisibleToIndexerException when the indexing account may not read the node
      * @throws IOException on a transport or protocol failure, which IS an indexing failure
      */
-    public static String render(OkHttpClient jahiaClient, Config config, String nodePath, String language)
-            throws IOException, NotVisibleToIndexerException {
+    public static String render(OkHttpClient jahiaClient, Config config, String nodePath, String language,
+            String contextConfiguration) throws IOException, NotVisibleToIndexerException {
         final String endpoint = config.getJahiaGraphqlEndpoint();
         if (StringUtils.isEmpty(endpoint)) {
             throw new IOException("No Jahia GraphQL endpoint is configured; cannot render " + nodePath);
@@ -88,7 +100,10 @@ public final class JahiaRenderClient {
             throw new IOException("No Jahia API token is configured; cannot render " + nodePath);
         }
 
-        final JSONObject variables = new JSONObject().put("path", nodePath).put("language", language);
+        final JSONObject variables = new JSONObject()
+                .put("path", nodePath)
+                .put("language", language)
+                .put("context", contextConfiguration);
         final JSONObject payload = new JSONObject().put("query", RENDER_QUERY).put("variables", variables);
 
         final Request.Builder builder = new Request.Builder()

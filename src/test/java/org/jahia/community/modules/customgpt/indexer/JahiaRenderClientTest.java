@@ -99,4 +99,28 @@ public class JahiaRenderClientTest {
         assertThatThrownBy(() -> JahiaRenderClient.extractOutput(envelope("{}"), PATH))
                 .isInstanceOf(java.io.IOException.class);
     }
+
+    // ---- render context selection ----
+
+    @Test
+    public void contextConstants_distinguishAPageFromContent() {
+        // Not cosmetic: asking for a page configuration on a jmix:mainResource content node resolves a page
+        // template it does not have, and Jahia answers TemplateNotFoundException. /sites/digitall/contents/
+        // person-portrait-1 failed exactly that way until the two were told apart.
+        assertThat(JahiaRenderClient.CONTEXT_PAGE).isEqualTo("page");
+        assertThat(JahiaRenderClient.CONTEXT_MODULE).isEqualTo("module");
+    }
+
+    @Test
+    public void extractOutput_raisesOnATemplateFailureRatherThanSkipping() {
+        // A missing template is a real failure, not an access decision: it must not be quietly skipped, or a
+        // node silently stops being indexed and the run still reports success.
+        final JSONObject body = envelope("{\"errors\":[{\"message\":"
+                + "\"RenderFilterException: TemplateNotFoundException: event\","
+                + "\"extensions\":{\"classification\":\"DataFetchingException\"}}],\"data\":null}");
+
+        assertThatThrownBy(() -> JahiaRenderClient.extractOutput(body, PATH))
+                .isInstanceOf(java.io.IOException.class)
+                .hasMessageContaining("TemplateNotFoundException");
+    }
 }

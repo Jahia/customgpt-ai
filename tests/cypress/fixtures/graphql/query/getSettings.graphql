@@ -9,8 +9,8 @@ query {
                 projectId
                 projectName
                 token
-                jahiaUsername
-                jahiaPassword
+                jahiaApiToken
+                jahiaGraphqlEndpoint
                 jahiaServerCookieName
                 jahiaServerCookieValue
                 jahiaServerCookieDomain

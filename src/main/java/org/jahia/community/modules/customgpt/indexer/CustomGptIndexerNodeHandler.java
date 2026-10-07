@@ -67,6 +67,7 @@ final class CustomGptIndexerNodeHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(CustomGptIndexerNodeHandler.class);
     private static final String HEADER_ACCEPT = "accept";
     private static final String HEADER_USER_AGENT = "User-Agent";
+    private static final String PAGE_NODE_TYPE = "jnt:page";
     private static final String HEADER_CONTENT_TYPE = "content-type";
     private static final String MEDIA_TYPE_JSON = "application/json";
     private static final String VALUE_FALSE = "false";
@@ -262,7 +263,12 @@ final class CustomGptIndexerNodeHandler {
             // Rendered through Jahia's GraphQL endpoint with a personal API token: no password on the wire, and
             // content the indexing account cannot read raises NotVisibleToIndexerException instead of coming
             // back as a login form or an authorization notice that would be indexed as if it were content.
-            payload = JahiaRenderClient.render(jahiaClient, config, liveNode.getPath(), language)
+            // A page gets the full document; anything else is content and is rendered on its own. Asking for a
+            // page configuration on a content node resolves a page template it does not have.
+            final String context = liveNode.isNodeType(PAGE_NODE_TYPE)
+                    ? JahiaRenderClient.CONTEXT_PAGE
+                    : JahiaRenderClient.CONTEXT_MODULE;
+            payload = JahiaRenderClient.render(jahiaClient, config, liveNode.getPath(), language, context)
                     .getBytes(StandardCharsets.UTF_8);
             partType = MEDIA_TYPE_HTML;
         }
