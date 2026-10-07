@@ -41,6 +41,25 @@ describe('CustomGPT.ai indexation server name', function () {
         });
 
     /**
+     * Saves settings and waits until the running Config actually reflects them.
+     *
+     * config.update() returns before ConfigurationAdmin has delivered the new properties - the delivery happens
+     * on its own thread, visible in the Jahia log as "CM Configuration Updater". Triggering an index straight
+     * after a save therefore races it, and the index reads the PREVIOUS configuration. Polling the settings
+     * query is what makes the save observable, since it reads the same Config the indexer does.
+     */
+    const saveAndAwait = (variables: Record<string, unknown>, expectedSiteServerNames: string) => {
+        cy.apollo({mutation: saveSettings, variables});
+        cy.waitUntil(
+            () =>
+                cy
+                    .apollo({query: getSettings})
+                    .then(r => r.data?.admin?.customGpt?.settings?.siteServerNames === expectedSiteServerNames),
+            {timeout: 30000, interval: 1000, errorMsg: `Config never picked up siteServerNames='${expectedSiteServerNames}'`}
+        );
+    };
+
+    /**
      * Re-indexes the home page alone and returns the URL CustomGPT ends up storing for it.
      *
      * Deliberately NOT a whole-site index. This spec runs last, so a site-wide run inherits every node the
@@ -48,11 +67,17 @@ describe('CustomGPT.ai indexation server name', function () {
      * failed node now (correctly) fails the whole run. Indexing one page tests exactly what this spec is about,
      * is isolated from the other specs, and takes seconds instead of five minutes.
      *
+     * The URL is captured inside the poll rather than re-read afterwards: this API has been observed returning
+     * a correct envelope with a dropped payload, so a second request can hand back no `data` at all even though
+     * the first succeeded.
+     *
      * @param expectedHost the host the stored URL must end up carrying; polled for, because a re-index updates
      *                     the metadata of the SAME page id and the previous value is briefly still there
      */
     const reindexHomeAndReadStoredUrl = (expectedHost: string) => {
         cy.apollo({mutation: startNodeIndex, variables: {nodePaths: [homePath()]}});
+
+        const seen: {url: string} = {url: ''};
 
         cy.waitUntil(
             () =>
@@ -67,14 +92,23 @@ describe('CustomGPT.ai indexation server name', function () {
             .its('data.jcr.nodeByPath.property.value')
             .then(pageId => {
                 cy.waitUntil(
-                    () => metadataFor(pageId).then(r => r.status === 200 && String(r.body?.data?.url ?? '').includes(expectedHost)),
+                    () =>
+                        metadataFor(pageId).then(r => {
+                            const url = String(r.body?.data?.url ?? '');
+                            if (r.status === 200 && url.includes(expectedHost)) {
+                                seen.url = url;
+                                return true;
+                            }
+
+                            return false;
+                        }),
                     {
                         timeout: 120000,
                         interval: 5000,
                         errorMsg: `CustomGPT never stored a URL containing ${expectedHost} for the home page`
                     }
                 );
-                return metadataFor(pageId).then(r => r.body.data.url as string);
+                return cy.wrap(seen).its('url');
             });
     };
 
@@ -124,10 +158,7 @@ describe('CustomGPT.ai indexation server name', function () {
     });
 
     it('indexes under the per-site override instead of the sitemapIndexURL', () => {
-        cy.apollo({
-            mutation: saveSettings,
-            variables: {siteServerNames: `${siteKey()}=${OVERRIDE_HOST}`}
-        });
+        saveAndAwait({siteServerNames: `${siteKey()}=${OVERRIDE_HOST}`}, `${siteKey()}=${OVERRIDE_HOST}`);
 
         reindexHomeAndReadStoredUrl('override.jahia.localhost:8080').should(url => {
             // The site node still says jahia.localhost; the override is what reached CustomGPT.

@@ -77,6 +77,13 @@ Resolution order: `site.<siteKey>.serverName` → `serverName` → the site's `s
 Both tiers are editable in the admin panel: a **Server name** field and a **Per-site server names** list.
 The panel always submits the whole list, so removing a row removes the override.
 
+> **Saving is not immediately in effect.** `saveSettings` (and a direct `.cfg` edit) hands the new properties to
+> ConfigurationAdmin, which delivers them to the module on its own thread — the Jahia log shows this as
+> `[CM Configuration Updater (Update: pid=org.jahia.community.modules.customgpt)]` followed by
+> `CustomGpt configuration loaded`. An indexation started in the gap runs against the *previous* configuration.
+> After changing a server name, wait for that log line (or re-read the settings) before starting an index,
+> otherwise the first run may still use the old host.
+
 The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
 Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
 Leaving the scheme out does not bypass that check. Hostnames are not resolved (a DNS lookup on a configured value would
