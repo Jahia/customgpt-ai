@@ -230,15 +230,26 @@
     // here would indent the legend and every input past the fields above and below it. Browser defaults are
     // reset explicitly - a fieldset ships with its own margin, padding and border, and a legend with its own
     // horizontal padding, each of which shifts the left edge off the form's.
+    // Logical properties and explicit zeros on BOTH axes: this panel renders inside Jahia's server
+    // administration, whose global stylesheet also styles bare fieldset/legend, and a rule that sets only
+    // padding leaves an inherited margin in place. Everything that could offset the left edge is reset here.
     gap: 6px;
     margin: 0;
     padding: 0;
+    padding-inline: 0;
     border: 0;
+    // A fieldset's default min-inline-size is min-content, which stops it shrinking inside a flex column.
+    min-inline-size: 0;
 
     legend {
+        margin: 0 0 6px;
+        margin-inline: 0;
         padding: 0;
-        // A legend is not a flex item: it is taken out of flow, so the gap above the first row comes from here.
-        margin-bottom: 6px;
+        padding-inline: 0;
+        // Chrome renders a legend out of flow at the fieldset's block-start; floating it would take it out of
+        // that slot and misalign it again.
+        float: none;
+        inline-size: auto;
     }
 }
 
