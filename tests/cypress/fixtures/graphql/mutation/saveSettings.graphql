@@ -12,7 +12,9 @@ mutation saveSettings(
     $jahiaServerCookieDomain: String,
     $dryRun: Boolean,
     $scheduleJobASAP: Boolean,
-    $apiBaseUrl: String
+    $apiBaseUrl: String,
+    $serverName: String,
+    $siteServerNames: String
 ) {
     admin {
         customGpt {
@@ -31,6 +33,8 @@ mutation saveSettings(
                 dryRun: $dryRun
                 scheduleJobASAP: $scheduleJobASAP
                 apiBaseUrl: $apiBaseUrl
+                serverName: $serverName
+                siteServerNames: $siteServerNames
             )
         }
     }

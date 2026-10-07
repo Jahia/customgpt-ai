@@ -83,7 +83,7 @@ describe('CustomGPT.ai new page indexing', function () {
 
             cy.apollo({
                 mutation: setNodeProperty,
-                variables: {pathOrId: sitePath, propertyName: 'sitemapIndexURL', propertyValue: 'http://jahia:8080'}
+                variables: {pathOrId: sitePath, propertyName: 'sitemapIndexURL', propertyValue: 'http://jahia.localhost:8080'}
             });
 
             cy.apollo({

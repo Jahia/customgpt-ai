@@ -56,6 +56,8 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s).to.have.property('dryRun');
                     expect(s).to.have.property('scheduleJobASAP');
                     expect(s).to.have.property('apiBaseUrl');
+                    expect(s).to.have.property('serverName');
+                    expect(s).to.have.property('siteServerNames');
                 });
         });
 
@@ -92,7 +94,9 @@ describe('CustomGPT.ai Settings', () => {
                     jahiaServerCookieDomain: 'roundtrip.local',
                     dryRun: false,
                     scheduleJobASAP: true,
-                    apiBaseUrl: 'https://app.customgpt.ai/api/v1'
+                    apiBaseUrl: 'https://app.customgpt.ai/api/v1',
+                    serverName: 'roundtrip.example.com',
+                    siteServerNames: 'academy=https://academy.example.com'
                 }
             });
             cy.apollo({query: getSettings})
@@ -110,13 +114,50 @@ describe('CustomGPT.ai Settings', () => {
                     expect(s.jahiaPassword).to.eq('********');
                     expect(s.jahiaPassword).to.not.eq(Cypress.env('SUPER_USER_PASSWORD'));
                     expect(s.jahiaServerCookieName).to.eq('roundtrip-cookie');
-                    expect(s.jahiaServerCookieValue).to.eq('********');
+                    // NOT masked, unlike the token and the password: the cookie value pins a request to a
+                    // node, it is not a credential, and masking it left the admin unable to read back what
+                    // was stored.
+                    expect(s.jahiaServerCookieValue).to.eq('roundtrip-value');
                     expect(s.jahiaServerCookieDomain).to.eq('roundtrip.local');
                     expect(s.dryRun).to.eq(false);
                     // The scheduleJobASAP flag is a one-shot trigger: the service resets it to
                     // false after scheduling the indexation jobs, so it never round-trips as true.
                     expect(s.scheduleJobASAP).to.eq(false);
                     expect(s.apiBaseUrl).to.eq('https://app.customgpt.ai/api/v1');
+                    // Normalised on the way in: a bare host is stored as an https origin.
+                    expect(s.serverName).to.eq('https://roundtrip.example.com');
+                    expect(s.siteServerNames).to.eq('academy=https://academy.example.com');
+                });
+        });
+
+        it('removes a per-site server name when the list no longer contains it', () => {
+            // The panel always submits the whole list, so a deleted row must disappear from the configuration.
+            // Merging instead of replacing would leave it retargeting a site nobody can see listed.
+            cy.apollo({
+                mutation: saveSettings,
+                variables: {siteServerNames: 'academy=https://academy.example.com\ndigitall=https://digitall.example.com'}
+            });
+            cy.apollo({
+                mutation: saveSettings,
+                variables: {siteServerNames: 'academy=https://academy.example.com'}
+            });
+            cy.apollo({query: getSettings})
+                .its('data.admin.customGpt.settings')
+                .should(s => {
+                    expect(s.siteServerNames).to.eq('academy=https://academy.example.com');
+                });
+        });
+
+        it('clears every per-site server name when an empty list is submitted', () => {
+            cy.apollo({
+                mutation: saveSettings,
+                variables: {siteServerNames: 'academy=https://academy.example.com'}
+            });
+            cy.apollo({mutation: saveSettings, variables: {siteServerNames: ''}});
+            cy.apollo({query: getSettings})
+                .its('data.admin.customGpt.settings')
+                .should(s => {
+                    expect(s.siteServerNames).to.be.empty;
                 });
         });
 
@@ -172,6 +213,27 @@ describe('CustomGPT.ai Settings', () => {
             cy.login();
             cy.visit(adminPath);
             cy.get('#cgpt-main-resource-types').should('be.visible');
+        });
+
+        it('shows the server name input field', () => {
+            cy.login();
+            cy.visit(adminPath);
+            cy.get('#cgpt-server-name').should('be.visible');
+        });
+
+        it('shows the per-site server names editor with an add button', () => {
+            cy.login();
+            cy.visit(adminPath);
+            cy.contains('button', 'Add a site').should('be.visible').click();
+            // One click yields one editable row, each part separately labelled.
+            cy.get('#cgpt-site-key-0').should('be.visible');
+            cy.get('#cgpt-site-server-name-0').should('be.visible');
+        });
+
+        it('shows the server cookie value in clear text, not as a password field', () => {
+            cy.login();
+            cy.visit(adminPath);
+            cy.get('#cgpt-cookie-value').should('be.visible').should('have.attr', 'type', 'text');
         });
 
         it('shows the sub-node types input field', () => {
