@@ -253,27 +253,36 @@ final class CustomGptIndexerNodeHandler {
             if (jahiaResponse.body() == null) {
                 throw new IOException("Jahia returned an empty body for " + url);
             }
-            final String output = jahiaResponse.body().string();
+            final boolean binary = liveNode.isFile();
+            // Read ONCE, and as bytes when the node is a file. A response body can only be consumed once, so
+            // this has to be decided before touching it.
+            final byte[] payload = binary
+                    ? jahiaResponse.body().bytes()
+                    : jahiaResponse.body().string().getBytes(StandardCharsets.UTF_8);
+            final MediaType partType = uploadMediaType(binary, jahiaResponse.body().contentType(), mimeTypeOf(liveNode));
             final String title = liveNode.hasProperty(Constants.JCR_TITLE)
                     ? liveNode.getPropertyAsString(Constants.JCR_TITLE)
                     : liveNode.getName();
+            final String partFileName = uploadFileName(binary, liveNode.getName(), title);
             // The URL actually fetched, after any same-origin redirect. Storing the pre-redirect one would give
             // the reader a citation that costs them a hop, and is how raw .html paths came to sit in the corpus.
             final String finalUrl = jahiaResponse.request().url().toString();
             if (!finalUrl.equals(url)) {
                 LOGGER.info("Indexing {} under its canonical URL {} rather than {}", liveNode.getPath(), finalUrl, url);
             }
-            uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title, output, finalUrl, language);
+            uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title,
+                    partFileName, payload, partType, finalUrl, language);
         }
     }
 
     @SuppressWarnings("java:S107")
     private static void uploadAndUpdateMetadata(OkHttpClient customGptClient, Indexer customGptIndexer, String apiBaseUrl,
-            JahiaUser rootUser, JCRNodeWrapper liveNode, String title, String output, String url, String language)
+            JahiaUser rootUser, JCRNodeWrapper liveNode, String title, String fileName, byte[] payload,
+            MediaType mediaType, String url, String language)
             throws IOException, RepositoryException {
         final String projectId = customGptIndexer.getCustomGptConfig().getCustomGptProjectId();
         LOGGER.debug("Adding page in customGPT for {}", url);
-        try (Response addDocResponse = addPage(customGptClient, projectId, title, output, apiBaseUrl)) {
+        try (Response addDocResponse = addPage(customGptClient, projectId, fileName, payload, mediaType, apiBaseUrl)) {
             if (!addDocResponse.isSuccessful()) {
                 throw new IOException("Impossible to add the page for the URL " + url + ", following response received, " + addDocResponse);
             }
@@ -533,16 +542,66 @@ final class CustomGptIndexerNodeHandler {
         return (deleteStatus >= 200 && deleteStatus < 300) || deleteStatus == 403;
     }
 
-    private static Response addPage(OkHttpClient customGptClient, String customGptProject, String title, String output, String apiBaseUrl) throws IOException {
-        // Build multipart body
-        final MediaType mediaType = MediaType.parse("text/html");
+    /** Fallback media type when neither the response nor the node names one. */
+    private static final MediaType MEDIA_TYPE_HTML = MediaType.parse("text/html");
+    private static final MediaType MEDIA_TYPE_BINARY = MediaType.parse("application/octet-stream");
+
+    /**
+     * The media type to announce for the uploaded part.
+     *
+     * <p>A rendered page is always {@code text/html}. A file keeps whatever Jahia served it as, because that is
+     * what tells CustomGPT how to extract text from it; labelling a PDF as {@code text/html} asks it to parse
+     * the bytes as markup.
+     *
+     * @param binary whether the node is a file rather than a rendered page
+     * @param fromResponse the Content-Type Jahia answered with, may be null
+     * @param nodeMimeType the node's own {@code jcr:mimeType}, may be null or empty
+     */
+    static MediaType uploadMediaType(boolean binary, MediaType fromResponse, String nodeMimeType) {
+        if (!binary) {
+            return MEDIA_TYPE_HTML;
+        }
+        if (fromResponse != null) {
+            return fromResponse;
+        }
+        final MediaType declared = StringUtils.isEmpty(nodeMimeType) ? null : MediaType.parse(nodeMimeType);
+        return declared == null ? MEDIA_TYPE_BINARY : declared;
+    }
+
+    /**
+     * The file name to send in the multipart part.
+     *
+     * <p>For a file this is the node name, which carries the extension. The display title does not: a PDF whose
+     * {@code jcr:title} is "Digitall Financial Report" would be uploaded under a name with no extension at all,
+     * leaving CustomGPT nothing to go on when the Content-Type is generic.
+     */
+    static String uploadFileName(boolean binary, String nodeName, String title) {
+        if (binary && StringUtils.isNotEmpty(nodeName)) {
+            return nodeName;
+        }
+        return title;
+    }
+
+    /** The node's declared mime type, or null when it is not a file or does not declare one. */
+    private static String mimeTypeOf(JCRNodeWrapper node) {
+        try {
+            return node.isFile() && node.getFileContent() != null ? node.getFileContent().getContentType() : null;
+        } catch (RuntimeException e) {
+            LOGGER.debug("Could not read the mime type of {}", node.getPath(), e);
+            return null;
+        }
+    }
+
+    private static Response addPage(OkHttpClient customGptClient, String customGptProject, String fileName,
+            byte[] payload, MediaType mediaType, String apiBaseUrl) throws IOException {
+        // Build multipart body. The payload is bytes, never a String: a binary file put through
+        // String.getBytes(UTF_8) is not the file that was fetched - see uploadPayload.
         final RequestBody addDocBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file_data_retension", VALUE_FALSE)
                 .addFormDataPart("is_ocr_enabled", VALUE_FALSE)
                 .addFormDataPart("is_anonymized", VALUE_FALSE)
-                .addFormDataPart("file", title,
-                        RequestBody.create(output.getBytes(StandardCharsets.UTF_8), mediaType))
+                .addFormDataPart("file", fileName, RequestBody.create(payload, mediaType))
                 .build();
         final Request request = new Request.Builder()
                 .url(String.format("%s/projects/%s/sources", apiBaseUrl, customGptProject))
