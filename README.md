@@ -46,9 +46,43 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `jahia.username` | _(empty)_ | Jahia user for rendering pages during indexing |
 | `jahia.password` | _(empty)_ | Jahia password for the rendering user |
 | `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
+| `serverName` | _(empty)_ | Server name (`scheme://host[:port]`) the pages are fetched from and cited under. Empty means each site's own `sitemapIndexURL` host |
+| `site.<siteKey>.serverName` | _(empty)_ | Same, for one site only; wins over `serverName` |
 | `dryRun` | `true` | When `true`, simulate indexing without calling CustomGPT |
 | `scheduleJobASAP` | `false` | When `true`, schedule indexing jobs immediately; auto-resets to `false` after jobs are queued |
 | `rateLimit.requestsPerSecond` | `10` | Token-bucket rate: maximum CustomGPT API requests per second. The OkHttp client reads this at startup — **a module restart is required** for changes to take effect |
+
+### Indexation server name
+
+The URL a page is indexed under is `<server name>` + the page's outbound-rewritten path. By default the server
+name is derived from the site's `sitemapIndexURL` property. Override it when the site node does not name the host
+its pages are actually served from — a preproduction instance restored from a production export still carries the
+production `sitemapIndexURL`, and a site may carry no `sitemapIndexURL` at all.
+
+```properties
+# every site on this instance
+org.jahia.community.modules.customgpt.serverName=https://academypp.jahia.com
+# one site only, wins over the above
+org.jahia.community.modules.customgpt.site.academy.serverName=https://academy.jahia.com
+```
+
+Resolution order: `site.<siteKey>.serverName` → `serverName` → the site's `sitemapIndexURL`.
+
+The value must be an absolute `http(s)` URL whose host is not a **literal** private/loopback/link-local IP
+address — the render request carries the Jahia Basic-auth credentials, so such a host is refused for the same SSRF
+reason one coming from `sitemapIndexURL` is. Hostnames are not resolved (a DNS lookup on a configured value would
+itself be a vector), so a *name* that happens to point inward is accepted; the value is admin-supplied, like every
+other property here. Userinfo (`https://user@host`) and any path are dropped, so a sitemap URL can be pasted
+verbatim.
+
+A value that fails validation is logged and ignored. That site then falls back to the instance-wide `serverName`
+if one is set, and only to its own `sitemapIndexURL` if none is.
+
+This server name is used for **both** jobs: it is the host the rendered HTML is fetched from, and it is the
+citation URL stored in CustomGPT. Changing it does not rewrite pages already indexed. To move them, re-index the
+site; `repairPageUrls` recomputes URLs through the same resolution and will pick up the new host, but a host change
+makes *every* page stale, which trips its 25% plan-size ceiling — so a full re-index is the reliable route, and
+`repairPageUrls` is for the scoped case where you pass explicit page ids.
 
 ## Admin UI
 

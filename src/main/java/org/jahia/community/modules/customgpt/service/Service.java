@@ -1511,7 +1511,7 @@ public class Service implements EventHandler {
             throw new IOException("CustomGPT HTTP client is not initialised; cannot repair page URLs");
         }
         return new PageUrlRepair(customGptClient, customGptConfig.getCustomGptProjectId(),
-                resolveValidatedApiBaseUrl()).repairSite(siteKey, pageIds, dryRun);
+                resolveValidatedApiBaseUrl(), customGptConfig).repairSite(siteKey, pageIds, dryRun);
     }
 
     /**

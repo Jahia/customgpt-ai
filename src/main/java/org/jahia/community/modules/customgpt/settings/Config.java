@@ -1,6 +1,7 @@
 package org.jahia.community.modules.customgpt.settings;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import javax.jcr.RepositoryException;
 import javax.jcr.nodetype.NoSuchNodeTypeException;
 import org.apache.commons.lang.StringUtils;
@@ -47,6 +48,15 @@ public class Config implements ManagedService {
     private static final String DRY_RUN = CONFIG_NAMESPACE_PREFIX + ".dryRun";
     private static final String PROP_CUSTOM_GPT_API_BASE_URL = CONFIG_NAMESPACE_PREFIX + ".apiBaseUrl";
     private static final String PROP_RATE_LIMIT_REQUESTS_PER_SECOND = CONFIG_NAMESPACE_PREFIX + ".rateLimit.requestsPerSecond";
+    /** Server name applied to every site that has no per-site entry; see {@link #getServerName(String)}. */
+    private static final String PROP_SERVER_NAME = CONFIG_NAMESPACE_PREFIX + ".serverName";
+    /** Per-site server name: {@code <prefix>.site.<siteKey>.serverName}. */
+    private static final String SITE_PROP_PREFIX = CONFIG_NAMESPACE_PREFIX + ".site.";
+    private static final String SITE_PROP_SERVER_NAME_SUFFIX = ".serverName";
+    private static final String SITE_PROP_PREFIX_LOWER = SITE_PROP_PREFIX.toLowerCase(Locale.ROOT);
+    private static final String SITE_PROP_SERVER_NAME_SUFFIX_LOWER = SITE_PROP_SERVER_NAME_SUFFIX.toLowerCase(Locale.ROOT);
+    /** A JCR site key is a single safe segment; anything else in the key is a typo, not a site. */
+    private static final Pattern SITE_KEY_PATTERN = Pattern.compile("^[\\w-]+$");
 
     private Set<String> contentIndexedMainResources;
     private Set<String> contentIndexedSubNodes;
@@ -64,6 +74,12 @@ public class Config implements ManagedService {
     private String jahiaServerCookieDomain;
     private String customGptApiBaseUrl;
     private int rateLimitRequestsPerSecond;
+    /**
+     * The server-name overrides, published as one immutable snapshot. Written by the ConfigAdmin thread and read by
+     * the indexation threads, so the two halves must swap together: a reader that saw a new instance-wide default
+     * next to the previous per-site map would index a site under a host neither setting ever named.
+     */
+    private volatile ServerNames serverNames = ServerNames.NONE;
 
     /**
      * Called by OSGi ConfigurationAdmin whenever the {@code org.jahia.community.modules.customgpt.cfg} file changes.
@@ -152,6 +168,101 @@ public class Config implements ManagedService {
         jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
         jahiaServerCookieValue = getString(properties, PROP_JAHIA_SERVER_COOKIE_VALUE, "");
         jahiaServerCookieDomain = getString(properties, PROP_JAHIA_SERVER_COOKIE_DOMAIN, "");
+
+        // Replaced wholesale on every update rather than merged, so an override removed from the .cfg is forgotten.
+        serverNames = new ServerNames(
+                normalizeConfiguredServerName(getString(properties, PROP_SERVER_NAME, ""), PROP_SERVER_NAME),
+                parseSiteServerNames(properties));
+    }
+
+    /**
+     * Validates and normalises one configured server name, logging and discarding anything unusable.
+     *
+     * <p>Discarding rather than failing is deliberate: the caller then falls back to the site's
+     * {@code sitemapIndexURL}, so a typo degrades to the previous behaviour instead of stopping indexation or,
+     * worse, prefixing every indexed URL with a host that does not resolve.
+     */
+    private String normalizeConfiguredServerName(String configured, String key) {
+        if (StringUtils.isEmpty(StringUtils.trim(configured))) {
+            return "";
+        }
+        final String normalized = SecurityUtils.normalizeServerName(configured);
+        if (normalized.isEmpty()) {
+            // Deliberately not "the sitemapIndexURL will be used": a rejected per-site value leaves the site on the
+            // instance-wide serverName when one is set, and only falls through to sitemapIndexURL when none is.
+            LOGGER.error("Ignoring {}: '{}' is not an absolute http(s) URL whose host is a public address."
+                    + " This site will be indexed under the instance-wide serverName if one is set, otherwise under"
+                    + " its own sitemapIndexURL.",
+                    key, SecurityUtils.sanitizeForLog(configured));
+        }
+        return normalized;
+    }
+
+    /** Collects every {@code <prefix>.site.<siteKey>.serverName} entry that names a plausible site key. */
+    private Map<String, String> parseSiteServerNames(Dictionary<String, ?> properties) {
+        final Map<String, String> parsed = new LinkedHashMap<>();
+        final Enumeration<String> keys = properties.keys();
+        while (keys.hasMoreElements()) {
+            final String key = keys.nextElement();
+            // Matched case-insensitively because ConfigAdmin delivers a case-insensitive dictionary: a key typed
+            // with different casing is readable through get() but would be invisible to a case-sensitive scan,
+            // silently dropping the override. The site key itself is kept verbatim - JCR site keys are not.
+            final String lowerKey = key == null ? "" : key.toLowerCase(Locale.ROOT);
+            if (!lowerKey.startsWith(SITE_PROP_PREFIX_LOWER) || !lowerKey.endsWith(SITE_PROP_SERVER_NAME_SUFFIX_LOWER)) {
+                continue;
+            }
+            final String siteKey = key.substring(SITE_PROP_PREFIX.length(),
+                    key.length() - SITE_PROP_SERVER_NAME_SUFFIX.length());
+            if (!SITE_KEY_PATTERN.matcher(siteKey).matches()) {
+                LOGGER.error("Ignoring {}: '{}' is not a valid site key", key, SecurityUtils.sanitizeForLog(siteKey));
+                continue;
+            }
+            final String normalized = normalizeConfiguredServerName(getString(properties, key, ""), key);
+            if (!normalized.isEmpty()) {
+                parsed.put(siteKey, normalized);
+            }
+        }
+        return Collections.unmodifiableMap(parsed);
+    }
+
+    /**
+     * The server name ({@code scheme://host[:port]}) this site's pages must be indexed under, or an empty string
+     * when the site's own {@code sitemapIndexURL} should be used.
+     *
+     * <p>Resolution order: the site's own {@code <prefix>.site.<siteKey>.serverName}, then the instance-wide
+     * {@code <prefix>.serverName}, then empty. The override exists for the cases where the site node does not carry
+     * the host its pages are actually served from — a preproduction instance restored from a production export still
+     * names the production host in {@code sitemapIndexURL}, and a site may carry no {@code sitemapIndexURL} at all.
+     *
+     * <p>The value returned is already normalised and SSRF-checked (see
+     * {@link SecurityUtils#normalizeServerName(String)}); a rejected value reads here as "not configured".
+     *
+     * @param siteKey the key of the site being indexed; null or empty resolves the instance-wide default
+     */
+    public String getServerName(String siteKey) {
+        // Read once: a second read could land on a newer snapshot and mix the two tiers.
+        final ServerNames current = serverNames;
+        if (StringUtils.isNotEmpty(siteKey)) {
+            final String perSite = current.bySite.get(siteKey);
+            if (perSite != null) {
+                return perSite;
+            }
+        }
+        return current.instanceWide;
+    }
+
+    /** Immutable pair of server-name tiers, swapped as a unit on every configuration update. */
+    private static final class ServerNames {
+
+        private static final ServerNames NONE = new ServerNames("", Collections.emptyMap());
+
+        private final String instanceWide;
+        private final Map<String, String> bySite;
+
+        private ServerNames(String instanceWide, Map<String, String> bySite) {
+            this.instanceWide = instanceWide;
+            this.bySite = bySite;
+        }
     }
 
     private Set<String> splitNodeTypeByComma(String commaSeparated) {

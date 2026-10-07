@@ -19,6 +19,7 @@ import javax.servlet.ServletException;
 import okhttp3.OkHttpClient;
 import org.jahia.api.Constants;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
+import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRTemplate;
 import org.jahia.services.query.QueryWrapper;
@@ -59,16 +60,19 @@ public class PageUrlRepair {
     private final OkHttpClient customGptClient;
     private final String projectId;
     private final String apiBaseUrl;
+    /** Supplies the configured server-name override, so a repair recomputes the same URL indexation would. */
+    private final Config customGptConfig;
 
     private int repaired;
     private int intact;
     private int failed;
     private int dangling;
 
-    public PageUrlRepair(OkHttpClient customGptClient, String projectId, String apiBaseUrl) {
+    public PageUrlRepair(OkHttpClient customGptClient, String projectId, String apiBaseUrl, Config customGptConfig) {
         this.customGptClient = customGptClient;
         this.projectId = projectId;
         this.apiBaseUrl = apiBaseUrl;
+        this.customGptConfig = customGptConfig;
     }
 
     /** @return the number of pages whose URL was repaired */
@@ -308,7 +312,7 @@ public class PageUrlRepair {
             // readPage throws when the node is gone, which counts the page as unexaminable and names it in the
             // log. That is the right outcome: a page whose node no longer exists needs deleting from the corpus,
             // not a rewritten URL, and this makes those visible instead of silently passing as intact.
-            final PageToRepair page = readPage(nodePath, rootUser, siteLocale);
+            final PageToRepair page = readPage(nodePath, rootUser, siteLocale, customGptConfig);
             if (!needsRepair(stored, page.url)) {
                 intact++;
                 return;
@@ -344,8 +348,8 @@ public class PageUrlRepair {
     }
 
     /** The title and public URL to write back, read from the live workspace in one session. */
-    private static PageToRepair readPage(String nodePath, JahiaUser rootUser, Locale siteLocale)
-            throws RepositoryException {
+    private static PageToRepair readPage(String nodePath, JahiaUser rootUser, Locale siteLocale,
+            Config customGptConfig) throws RepositoryException {
         return JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser, Constants.LIVE_WORKSPACE, siteLocale,
                 session -> {
                     final JCRNodeWrapper node = session.getNode(nodePath);
@@ -353,7 +357,8 @@ public class PageUrlRepair {
                             ? node.getPropertyAsString(Constants.JCR_TITLE) : node.getName();
                     try {
                         return new PageToRepair(title,
-                                CustomGptIndexerNodeHandler.resolvePublicUrl(node, node.getResolveSite(), rootUser));
+                                CustomGptIndexerNodeHandler.resolvePublicUrl(node, node.getResolveSite(), rootUser,
+                                        customGptConfig));
                     } catch (IOException | ServletException | InvocationTargetException | URISyntaxException e) {
                         throw new RepositoryException("Cannot resolve the public URL of " + nodePath, e);
                     }

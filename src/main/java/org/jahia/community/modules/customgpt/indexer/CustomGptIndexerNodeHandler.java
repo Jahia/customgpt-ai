@@ -163,7 +163,7 @@ final class CustomGptIndexerNodeHandler {
             // Raises rather than returning when the site's sitemapIndexURL is missing or malformed. That used to
             // be two silent early returns, which meant a site with a broken sitemapIndexURL indexed nothing at
             // all and still reported success - the same silent-success shape as the skipped render below.
-            final String url = resolvePublicUrl(liveNode, siteNode, rootUser);
+            final String url = resolvePublicUrl(liveNode, siteNode, rootUser, customGptIndexer.getCustomGptConfig());
             removeExistingPage(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode.getPath(), url, language);
             indexJahiaPage(customGptClient, jahiaClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, url, language);
         } catch (InterruptedException ex) {
@@ -177,24 +177,30 @@ final class CustomGptIndexerNodeHandler {
     }
 
     /**
-     * The public URL this module indexes {@code liveNode} under: the site's host plus the node's outbound-rewritten
-     * path, with the thread user bound so vanity URLs resolve.
+     * The public URL this module indexes {@code liveNode} under: the site's server name plus the node's
+     * outbound-rewritten path, with the thread user bound so vanity URLs resolve.
      *
      * <p>Shared by the indexation path and the URL repair pass, so a repaired URL is by construction the same URL
-     * indexation would have produced.
+     * indexation would have produced. That sharing is why {@code customGptConfig} is threaded all the way here
+     * rather than read on the indexation path alone: were the configured server-name override applied only when
+     * indexing, the repair pass would recompute every URL against the sitemap host, judge all of them stale, and
+     * rewrite the whole corpus back.
+     *
+     * @param customGptConfig supplies the optional server-name override; null means "use the sitemapIndexURL host"
      */
-    static String resolvePublicUrl(JCRNodeWrapper liveNode, JCRSiteNode siteNode, JahiaUser rootUser)
+    static String resolvePublicUrl(JCRNodeWrapper liveNode, JCRSiteNode siteNode, JahiaUser rootUser,
+            Config customGptConfig)
             throws IOException, ServletException, InvocationTargetException, URISyntaxException {
-        final String hostName = Utils.getHostName(siteNode);
+        final String hostName = Utils.getHostName(siteNode, customGptConfig);
         if (StringUtils.isEmpty(hostName)) {
-            throw new IOException("The host name cannot be extracted from the sitemapIndexURL property of site "
-                    + siteNode.getName());
+            throw new IOException("No server name for site " + siteNode.getName()
+                    + ": no serverName is configured for it and its sitemapIndexURL property yields no usable host");
         }
         final URL serverUrl;
         try {
             serverUrl = URI.create(hostName).toURL();
         } catch (MalformedURLException | IllegalArgumentException e) {
-            throw new IOException("The sitemapIndexURL property of site " + siteNode.getName()
+            throw new IOException("The server name resolved for site " + siteNode.getName()
                     + " does not match a URL pattern", e);
         }
         return hostName + Utils.encode(liveNode.getUrl(), buildRenderContext(serverUrl, siteNode, rootUser), rootUser);
