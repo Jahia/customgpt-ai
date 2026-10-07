@@ -21,6 +21,12 @@ describe('CustomGPT.ai indexation server name', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const startNodeIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startNodeIndex.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const createPage: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createPage.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const publishNode: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/publishNode.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const deletePage: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/deletePage.graphql');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getNodeStatus: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getNodeStatus.graphql');
 
     const siteKey = () => Cypress.env('JAHIA_SITE_KEY') as string;
@@ -30,7 +36,11 @@ describe('CustomGPT.ai indexation server name', function () {
     // dispatched" - so asking for the same page twice in quick succession dispatches only the first, and the
     // second test would assert against a page that was never re-indexed under the new override.
     const fallbackPath = () => `/sites/${siteKey()}/home`;
-    const overridePath = () => `/sites/${siteKey()}/home/about`;
+    // This spec creates its own page rather than borrowing one from Digitall. /sites/digitall/home/about was
+    // the obvious candidate and is exactly wrong: 02-indexing DELETES it in its pre-indexing cleanup, so by
+    // the time this spec runs startNodeIndex fails with PathNotFoundException on it.
+    const OVERRIDE_PAGE = 'cypress-server-name-test';
+    const overridePath = () => `/sites/${siteKey()}/home/${OVERRIDE_PAGE}`;
 
     // Both resolve to the same loopback inside the Jahia container (see docker-compose extra_hosts), so either
     // can actually be fetched. Only the stored citation URL tells them apart — which is the point.
@@ -135,6 +145,15 @@ describe('CustomGPT.ai indexation server name', function () {
             }
         });
         cy.apollo({
+            mutation: createPage,
+            variables: {parentPathOrId: `/sites/${siteKey()}/home`, name: OVERRIDE_PAGE}
+        });
+        cy.apollo({
+            mutation: publishNode,
+            variables: {pathOrId: overridePath(), languages: ['en'], publishSubNodes: true, includeSubTree: true}
+        });
+
+        cy.apollo({
             mutation: saveSettings,
             variables: {
                 contentIndexedMainResourceTypes: 'jnt:page,jmix:mainResource',
@@ -151,6 +170,7 @@ describe('CustomGPT.ai indexation server name', function () {
     });
 
     after(() => {
+        cy.apollo({mutation: deletePage, variables: {path: overridePath()}});
         // Leave no override behind: a later spec indexing this site would otherwise inherit it.
         cy.apollo({
             mutation: saveSettings,
