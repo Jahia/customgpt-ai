@@ -48,6 +48,7 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
 | `serverName` | _(empty)_ | Server name the pages are fetched from and cited under — `host`, `host:port` or a full `scheme://host[:port]`. A bare host is read as `https://`. Empty means each site's own `sitemapIndexURL` host |
 | `site.<siteKey>.serverName` | _(empty)_ | Same, for one site only; wins over `serverName` |
+| `userAgent` | _(empty)_ | User-Agent sent when fetching a page's rendered HTML. Set it when the site is behind bot protection that refuses the default agent. Printable ASCII, no line breaks |
 | `dryRun` | `true` | When `true`, simulate indexing without calling CustomGPT |
 | `scheduleJobASAP` | `false` | When `true`, schedule indexing jobs immediately; auto-resets to `false` after jobs are queued |
 | `rateLimit.requestsPerSecond` | `10` | Token-bucket rate: maximum CustomGPT API requests per second. The OkHttp client reads this at startup — **a module restart is required** for changes to take effect |
@@ -88,6 +89,25 @@ citation URL stored in CustomGPT. Changing it does not rewrite pages already ind
 site; `repairPageUrls` recomputes URLs through the same resolution and will pick up the new host, but a host change
 makes *every* page stale, which trips its 25% plan-size ceiling — so a full re-index is the reliable route, and
 `repairPageUrls` is for the scoped case where you pass explicit page ids.
+
+### Rendering user agent
+
+The module fetches each page's rendered HTML from Jahia before handing it to CustomGPT. Some sites sit behind
+bot protection — a WAF rule, a CDN filter — that refuses the HTTP client's default agent. Such a site cannot be
+indexed at all: the fetch is rejected before any content exists, and every node is recorded as a failure with
+nothing identifying the agent as the reason.
+
+```properties
+org.jahia.community.modules.customgpt.userAgent=Mozilla/5.0 (compatible; JahiaIndexer/1.0; +https://academy.jahia.com)
+```
+
+The header is sent on the rendering request only — never on CustomGPT API calls — and regardless of scheme, since
+it carries no secret. Leaving it empty sends no `User-Agent` override at all rather than an empty one, which is
+itself a bot signature on some filters.
+
+The value must be printable ASCII with no line breaks (tab is allowed inside). Anything else is reported and
+ignored, and pages are fetched with the default agent: OkHttp rejects an illegal header value by throwing while
+building the request, which would otherwise fail every page with nothing pointing back at the `.cfg`.
 
 ## Admin UI
 

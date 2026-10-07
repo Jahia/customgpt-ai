@@ -29,12 +29,27 @@ public class ServiceIndexationOutcomeTest {
     private static final String END = "customGptIndexationEnd";
     private static final String FAILED = "customGptIndexationFailed";
 
+    private JCRSessionWrapper lastSession;
+
     /** Runs {@code recordIndexationOutcome} against a mocked JCR and returns the site node it wrote to. */
     private JCRNodeWrapper record(Throwable throwable) throws Exception {
+        return record(throwable, null);
+    }
+
+    /**
+     * As above, but {@code failOn} names a property whose write blows up - standing in for the
+     * ConstraintViolationException a property missing from the CND raises.
+     */
+    private JCRNodeWrapper record(Throwable throwable, String failOn) throws Exception {
         final Service service = Service.class.getDeclaredConstructor().newInstance();
         final JCRNodeWrapper siteNode = mock(JCRNodeWrapper.class);
         final JCRSessionWrapper session = mock(JCRSessionWrapper.class);
+        lastSession = session;
         when(session.getNode(SITE)).thenReturn(siteNode);
+        if (failOn != null) {
+            org.mockito.Mockito.doThrow(new javax.jcr.nodetype.ConstraintViolationException("no such property: " + failOn))
+                    .when(siteNode).setProperty(eq(failOn), any(Calendar.class));
+        }
 
         final JCRTemplate template = mock(JCRTemplate.class);
         when(template.doExecuteWithSystemSession(any())).thenAnswer(invocation -> {
@@ -55,6 +70,29 @@ public class ServiceIndexationOutcomeTest {
 
         verify(siteNode).setProperty(eq(END), any(Calendar.class));
         verify(siteNode, never()).setProperty(eq(FAILED), any(Calendar.class));
+    }
+
+    /**
+     * The failure marker and the end timestamp must be committed together.
+     *
+     * <p>They were two separate sessions, each with its own save. customGptIndexationFailed was also missing from
+     * the CND, so its write raised ConstraintViolationException AFTER the end timestamp had already been saved -
+     * leaving a site that had failed every node looking exactly like one that finished cleanly. One session, one
+     * save: if either property cannot be written, neither is.
+     */
+    @Test
+    public void recordIndexationOutcome_onFailure_commitsNothingWhenTheMarkerCannotBeWritten() throws Exception {
+        record(new IllegalStateException("indexation blew up"), FAILED);
+
+        verify(lastSession, never()).save();
+    }
+
+    @Test
+    public void recordIndexationOutcome_writesBothPropertiesInASingleSave() throws Exception {
+        record(new IllegalStateException("indexation blew up"));
+
+        // One save, not one per property - a half-written outcome is the bug being fixed.
+        verify(lastSession).save();
     }
 
     /** The point of the fix: a failed run must not be indistinguishable from a successful one. */

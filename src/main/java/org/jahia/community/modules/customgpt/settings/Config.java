@@ -48,6 +48,8 @@ public class Config implements ManagedService {
     private static final String DRY_RUN = CONFIG_NAMESPACE_PREFIX + ".dryRun";
     private static final String PROP_CUSTOM_GPT_API_BASE_URL = CONFIG_NAMESPACE_PREFIX + ".apiBaseUrl";
     private static final String PROP_RATE_LIMIT_REQUESTS_PER_SECOND = CONFIG_NAMESPACE_PREFIX + ".rateLimit.requestsPerSecond";
+    /** User-Agent sent when fetching a page's rendered HTML; empty leaves the HTTP client default. */
+    private static final String PROP_USER_AGENT = CONFIG_NAMESPACE_PREFIX + ".userAgent";
     /** Server name applied to every site that has no per-site entry; see {@link #getServerName(String)}. */
     private static final String PROP_SERVER_NAME = CONFIG_NAMESPACE_PREFIX + ".serverName";
     /** Per-site server name: {@code <prefix>.site.<siteKey>.serverName}. */
@@ -74,6 +76,7 @@ public class Config implements ManagedService {
     private String jahiaServerCookieDomain;
     private String customGptApiBaseUrl;
     private int rateLimitRequestsPerSecond;
+    private String userAgent;
     /**
      * The server-name overrides, published as one immutable snapshot. Written by the ConfigAdmin thread and read by
      * the indexation threads, so the two halves must swap together: a reader that saw a new instance-wide default
@@ -178,6 +181,7 @@ public class Config implements ManagedService {
         jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
         jahiaServerCookieValue = getString(properties, PROP_JAHIA_SERVER_COOKIE_VALUE, "");
         jahiaServerCookieDomain = getString(properties, PROP_JAHIA_SERVER_COOKIE_DOMAIN, "");
+        userAgent = normalizeConfiguredUserAgent(getString(properties, PROP_USER_AGENT, ""));
 
         // Replaced wholesale on every update rather than merged, so an override removed from the .cfg is forgotten.
         serverNames = new ServerNames(
@@ -204,6 +208,25 @@ public class Config implements ManagedService {
                     + " This site will be indexed under the instance-wide serverName if one is set, otherwise under"
                     + " its own sitemapIndexURL.",
                     key, SecurityUtils.sanitizeForLog(configured));
+        }
+        return normalized;
+    }
+
+    /**
+     * Validates the configured User-Agent, logging and discarding one that could not be sent.
+     *
+     * <p>Discarding rather than failing keeps a typo from stopping indexation outright: the fetch simply goes out
+     * with the HTTP client's own agent, which is the behaviour when none is configured.
+     */
+    private String normalizeConfiguredUserAgent(String configured) {
+        if (StringUtils.isEmpty(StringUtils.trim(configured))) {
+            return "";
+        }
+        final String normalized = SecurityUtils.normalizeHeaderValue(configured);
+        if (normalized.isEmpty()) {
+            LOGGER.error("Ignoring {}: '{}' is not a legal HTTP header value (printable ASCII only, no line"
+                    + " breaks). Pages will be fetched with the default user agent.",
+                    PROP_USER_AGENT, SecurityUtils.sanitizeForLog(configured));
         }
         return normalized;
     }
@@ -396,5 +419,17 @@ public class Config implements ManagedService {
 
     public int getRateLimitRequestsPerSecond() {
         return rateLimitRequestsPerSecond;
+    }
+
+    /**
+     * The User-Agent to send when fetching a page's rendered HTML, or an empty string to leave the HTTP client's
+     * own default in place.
+     *
+     * <p>Exists for sites behind bot protection that refuses the default agent: such a site cannot be indexed at
+     * all, because the fetch is rejected before any content is produced. The value is already validated as a
+     * legal header value; a rejected one reads here as "not configured".
+     */
+    public String getUserAgent() {
+        return userAgent == null ? "" : userAgent;
     }
 }

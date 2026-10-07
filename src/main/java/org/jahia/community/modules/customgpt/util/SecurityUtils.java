@@ -200,6 +200,36 @@ public final class SecurityUtils {
      * @param rawServerName the configured value, possibly null, blank or malformed
      * @return {@code scheme://host[:port]}, or an empty string when nothing usable was configured
      */
+    /**
+     * Validates an admin-supplied HTTP header value, returning it trimmed or an empty string when it cannot be
+     * sent safely.
+     *
+     * <p>OkHttp rejects any value containing a character outside {@code \u0020..\u007e} (tab excepted) by
+     * throwing {@link IllegalArgumentException} while building the request. On the indexation path that would
+     * surface as a per-node failure on every single page, with nothing pointing at the {@code .cfg} as the
+     * cause. Dropping the header instead costs only the header.
+     *
+     * <p>This also closes header injection: a CR or LF in the value would otherwise let a configuration entry
+     * append headers of its own to the request.
+     *
+     * @param rawValue the configured value, possibly null
+     * @return the trimmed value, or {@code ""} if it is blank or not a legal header value
+     */
+    public static String normalizeHeaderValue(String rawValue) {
+        if (StringUtils.isBlank(rawValue)) {
+            return "";
+        }
+        // Scan BEFORE trimming. String.trim() cuts every char <= U+0020, so it quietly removes the NUL, CR and
+        // LF this is here to reject - validating the trimmed value would launder exactly what it screens for.
+        for (int i = 0; i < rawValue.length(); i++) {
+            final char c = rawValue.charAt(i);
+            if (c != '\t' && c != ' ' && (c <= '\u001f' || c >= '\u007f')) {
+                return "";
+            }
+        }
+        return rawValue.trim();
+    }
+
     public static String normalizeServerName(String rawServerName) {
         if (StringUtils.isBlank(rawServerName)) {
             return "";
