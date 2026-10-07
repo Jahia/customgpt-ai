@@ -7,6 +7,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -14,6 +15,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 import javax.jcr.RepositoryException;
+import org.apache.commons.io.IOUtils;
+import org.jahia.services.content.decorator.JCRFileContent;
 import javax.servlet.ServletException;
 import okhttp3.Credentials;
 import okhttp3.FormBody;
@@ -167,9 +170,12 @@ final class CustomGptIndexerNodeHandler {
             final String url = resolvePublicUrl(liveNode, siteNode, rootUser, customGptIndexer.getCustomGptConfig());
             removeExistingPage(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode.getPath(), url, language);
             indexJahiaPage(customGptClient, jahiaClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, url, language);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            customGptIndexer.recordFailure(nodeToIndex.getPath(), language, ex);
+        } catch (JahiaRenderClient.NotVisibleToIndexerException ex) {
+            // Expected, not a failure. The indexing account is deliberately restricted, so some content is out
+            // of its reach; recording that as a failure would mark every site FAILED on every run and bury the
+            // failures that matter. The page is simply not indexed - and crucially not indexed as an
+            // authorization notice, which is what fetching it over HTTP as an unauthorised user produced.
+            JahiaRenderClient.logSkipped(nodeToIndex.getPath(), ex);
         } catch (RepositoryException | IOException | ServletException | InvocationTargetException | URISyntaxException ex) {
             // Recorded, not just logged: this used to be a bare "Issue:" with no node path, and because it was
             // swallowed here the surrounding run still completed normally and the site was reported as indexed.
@@ -239,39 +245,51 @@ final class CustomGptIndexerNodeHandler {
     @SuppressWarnings("java:S107")
     static void indexJahiaPage(OkHttpClient customGptClient, OkHttpClient jahiaClient, Indexer customGptIndexer,
             String apiBaseUrl, JahiaUser rootUser, JCRNodeWrapper liveNode, String url, String language)
-            throws RepositoryException, IOException, InterruptedException {
+            throws RepositoryException, IOException, JahiaRenderClient.NotVisibleToIndexerException {
         LOGGER.debug("Adding url {}", url);
-        try (Response jahiaResponse = getJahiaPageContent(jahiaClient, url, customGptIndexer.getCustomGptConfig())) {
-            if (jahiaResponse == null || !jahiaResponse.isSuccessful()) {
-                // Raised, not logged-and-skipped. Returning here left the enclosing run reporting success over a
-                // page that was never uploaded, which is how the vanity-URL defect stayed invisible: the raw .html
-                // path answers 302, this module does not follow redirects, and nothing counted a failure.
-                throw new IOException("Impossible to retrieve content from " + url
-                        + (jahiaResponse == null ? " (no response)" : " (HTTP " + jahiaResponse.code() + ")"));
+        final Config config = customGptIndexer.getCustomGptConfig();
+        final boolean binary = liveNode.isFile();
+
+        final byte[] payload;
+        final MediaType partType;
+        if (binary) {
+            // Read straight out of the repository. The module runs inside Jahia, so fetching a file's own bytes
+            // over HTTP was always a round trip through the front door for something already in hand - and it
+            // was the round trip that corrupted them.
+            payload = readFileBytes(liveNode);
+            partType = uploadMediaType(true, null, mimeTypeOf(liveNode));
+        } else {
+            // Rendered through Jahia's GraphQL endpoint with a personal API token: no password on the wire, and
+            // content the indexing account cannot read raises NotVisibleToIndexerException instead of coming
+            // back as a login form or an authorization notice that would be indexed as if it were content.
+            payload = JahiaRenderClient.render(jahiaClient, config, liveNode.getPath(), language)
+                    .getBytes(StandardCharsets.UTF_8);
+            partType = MEDIA_TYPE_HTML;
+        }
+
+        final String title = liveNode.hasProperty(Constants.JCR_TITLE)
+                ? liveNode.getPropertyAsString(Constants.JCR_TITLE)
+                : liveNode.getName();
+        final String partFileName = uploadFileName(binary, liveNode.getName(), title);
+        uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title,
+                partFileName, payload, partType, url, language);
+    }
+
+    /**
+     * A file's bytes, read from the repository rather than fetched over HTTP.
+     *
+     * @throws IOException when the node carries no readable binary
+     */
+    private static byte[] readFileBytes(JCRNodeWrapper liveNode) throws IOException {
+        final JCRFileContent content = liveNode.getFileContent();
+        if (content == null) {
+            throw new IOException("No file content on " + liveNode.getPath());
+        }
+        try (InputStream in = content.downloadFile()) {
+            if (in == null) {
+                throw new IOException("No binary stream on " + liveNode.getPath());
             }
-            LOGGER.debug("Retrieve Jahia page content is successful for {}", url);
-            if (jahiaResponse.body() == null) {
-                throw new IOException("Jahia returned an empty body for " + url);
-            }
-            final boolean binary = liveNode.isFile();
-            // Read ONCE, and as bytes when the node is a file. A response body can only be consumed once, so
-            // this has to be decided before touching it.
-            final byte[] payload = binary
-                    ? jahiaResponse.body().bytes()
-                    : jahiaResponse.body().string().getBytes(StandardCharsets.UTF_8);
-            final MediaType partType = uploadMediaType(binary, jahiaResponse.body().contentType(), mimeTypeOf(liveNode));
-            final String title = liveNode.hasProperty(Constants.JCR_TITLE)
-                    ? liveNode.getPropertyAsString(Constants.JCR_TITLE)
-                    : liveNode.getName();
-            final String partFileName = uploadFileName(binary, liveNode.getName(), title);
-            // The URL actually fetched, after any same-origin redirect. Storing the pre-redirect one would give
-            // the reader a citation that costs them a hop, and is how raw .html paths came to sit in the corpus.
-            final String finalUrl = jahiaResponse.request().url().toString();
-            if (!finalUrl.equals(url)) {
-                LOGGER.info("Indexing {} under its canonical URL {} rather than {}", liveNode.getPath(), finalUrl, url);
-            }
-            uploadAndUpdateMetadata(customGptClient, customGptIndexer, apiBaseUrl, rootUser, liveNode, title,
-                    partFileName, payload, partType, finalUrl, language);
+            return IOUtils.toByteArray(in);
         }
     }
 
@@ -649,102 +667,6 @@ final class CustomGptIndexerNodeHandler {
         final Set<String> languages = Utils.getPropertyValuesAsSet(site, SitesSettings.LANGUAGES);
         languages.removeAll(Utils.getPropertyValuesAsSet(site, SitesSettings.INACTIVE_LIVE_LANGUAGES));
         return languages;
-    }
-
-    /**
-     * Fetches the rendered page, following a redirect only when it stays on the same origin.
-     *
-     * <p>Jahia answers the raw {@code .html} path with a 301 to its canonical form, so refusing every redirect
-     * meant a first publish failed outright and the node was never indexed.
-     *
-     * <p>The client is deliberately built {@code .followRedirects(false)}, and that stays: this request carries
-     * Basic credentials, and OkHttp would replay them to wherever the redirect pointed. Following them here
-     * explicitly, and only within the same scheme, host and port, keeps the credentials on the host they were
-     * issued for. A cross-origin redirect is returned unfollowed and the caller raises on it.
-     */
-    private static Response getJahiaPageContent(OkHttpClient jahiaClient, String url, Config config)
-            throws IOException, InterruptedException {
-        Response response = null;
-        for (int attempts = 0; attempts < CustomGptConstants.MAX_RETRIES; attempts++) {
-            response = fetchFollowingSameOriginRedirects(jahiaClient, url, config);
-            if (response.isSuccessful()) {
-                return response;
-            }
-            // A redirect that survived the hop loop is either cross-origin or past the hop limit. Either way it
-            // is a routing fact rather than a blip, and retrying it only burns the retry budget.
-            if (isRedirect(response.code())) {
-                return response;
-            }
-            if (attempts < CustomGptConstants.MAX_RETRIES - 1) {
-                // Close the failed response before retrying so its body/connection is not leaked; the last
-                // (still unsuccessful) response is returned for the caller to inspect and close.
-                response.close();
-                Thread.sleep(RETRY_DELAY_MS);
-            }
-        }
-        return response;
-    }
-
-    private static Response fetchFollowingSameOriginRedirects(OkHttpClient jahiaClient, String url, Config config)
-            throws IOException {
-        Response response = jahiaClient.newCall(buildRenderRequest(url, config)).execute();
-        for (int hop = 1; hop <= MAX_REDIRECT_HOPS && isRedirect(response.code()); hop++) {
-            final String location = response.header(HEADER_LOCATION);
-            final HttpUrl next = location == null ? null : response.request().url().resolve(location);
-            if (next == null || !isSameOrigin(response.request().url(), next)) {
-                LOGGER.warn("Not following a redirect from {} to {}: it leaves the origin, and this request"
-                        + " carries credentials that must not be replayed to another host",
-                        response.request().url(), location);
-                return response;
-            }
-            LOGGER.debug("Following same-origin redirect {} -> {}", response.request().url(), next);
-            response.close();
-            response = jahiaClient.newCall(buildRenderRequest(next.toString(), config)).execute();
-        }
-        return response;
-    }
-
-    /** Whether a redirect may be followed: identical scheme, host and port, so credentials stay put. */
-    static boolean isSameOrigin(HttpUrl from, HttpUrl to) {
-        return from.scheme().equals(to.scheme())
-                && from.host().equals(to.host())
-                && from.port() == to.port();
-    }
-
-    static boolean isRedirect(int status) {
-        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
-    }
-
-    /**
-     * Builds the request that fetches a page's rendered HTML from Jahia.
-     *
-     * <p>Package-private so the header handling can be asserted directly; the agent and the credentials are both
-     * conditional, and getting either wrong fails every page rather than one.
-     */
-    static Request buildRenderRequest(String url, Config config) {
-        final Request.Builder requestBuilder = new Request.Builder()
-                .url(url)
-                .get()
-                .addHeader(HEADER_CONTENT_TYPE, "text/html;charset=UTF-8");
-
-        // Sent regardless of scheme: it carries no secret, and bot protection is as likely on an http host.
-        // Left absent rather than empty when unconfigured - an empty User-Agent is itself a bot signature.
-        final String userAgent = config.getUserAgent();
-        if (StringUtils.isNotEmpty(userAgent)) {
-            requestBuilder.header(HEADER_USER_AGENT, userAgent);
-        }
-
-        if (StringUtils.isNotEmpty(config.getJahiaUsername()) && StringUtils.isNotEmpty(config.getJahiaPassword())) {
-            // Only attach Basic auth over HTTPS - the URL host comes from the site's sitemapIndexURL property,
-            // which may be http://; sending the Jahia password over cleartext would expose it on the wire.
-            if (SecurityUtils.isHttpsUrl(url)) {
-                requestBuilder.addHeader("Authorization",
-                        Credentials.basic(config.getJahiaUsername(), config.getJahiaPassword(), StandardCharsets.UTF_8));
-            } else {
-                LOGGER.warn("Skipping Basic authentication for non-https rendering URL to avoid sending credentials in cleartext: {}", url);
-            }
-        }
-        return requestBuilder.build();
     }
 
     private static String getApiBaseUrl(Indexer customGptIndexer) {

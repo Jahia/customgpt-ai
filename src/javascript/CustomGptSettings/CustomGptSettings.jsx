@@ -36,8 +36,8 @@ export const CustomGptSettingsAdmin = () => {
         operationsBatchSize: DEFAULT_BATCH_SIZE,
         projectId: '',
         token: '',
-        jahiaUsername: '',
-        jahiaPassword: '',
+        jahiaApiToken: '',
+        jahiaGraphqlEndpoint: '',
         jahiaServerCookieName: '',
         jahiaServerCookieValue: '',
         jahiaServerCookieDomain: '',
@@ -394,31 +394,39 @@ export const CustomGptSettingsAdmin = () => {
                     </div>
 
                     <div className={styles.cgpt_fieldGroup}>
-                        <label className={styles.cgpt_label} htmlFor="cgpt-jahia-username">
-                            {t('label.jahiaUsername')}
-                        </label>
-                        <input
-                            type="text"
-                            id="cgpt-jahia-username"
-                            className={styles.cgpt_input}
-                            autoComplete="username"
-                            value={formState.jahiaUsername}
-                            onChange={handleChange('jahiaUsername')}
-                        />
-                    </div>
-
-                    <div className={styles.cgpt_fieldGroup}>
-                        <label className={styles.cgpt_label} htmlFor="cgpt-jahia-password">
-                            {t('label.jahiaPassword')}
+                        <label className={styles.cgpt_label} htmlFor="cgpt-jahia-api-token">
+                            {t('label.jahiaApiToken')}
                         </label>
                         <input
                             type="password"
-                            id="cgpt-jahia-password"
+                            id="cgpt-jahia-api-token"
                             className={styles.cgpt_input}
-                            autoComplete="current-password"
-                            value={formState.jahiaPassword}
-                            onChange={handleChange('jahiaPassword')}
+                            autoComplete="off"
+                            value={formState.jahiaApiToken}
+                            aria-describedby="cgpt-jahia-api-token-hint"
+                            onChange={handleChange('jahiaApiToken')}
                         />
+                        <span id="cgpt-jahia-api-token-hint" className={styles.cgpt_hint}>
+                            {t('label.jahiaApiTokenHint')}
+                        </span>
+                    </div>
+
+                    <div className={styles.cgpt_fieldGroup}>
+                        <label className={styles.cgpt_label} htmlFor="cgpt-jahia-graphql-endpoint">
+                            {t('label.jahiaGraphqlEndpoint')}
+                        </label>
+                        <input
+                            type="text"
+                            id="cgpt-jahia-graphql-endpoint"
+                            className={styles.cgpt_input}
+                            value={formState.jahiaGraphqlEndpoint}
+                            placeholder={t('label.jahiaGraphqlEndpointPlaceholder')}
+                            aria-describedby="cgpt-jahia-graphql-endpoint-hint"
+                            onChange={handleChange('jahiaGraphqlEndpoint')}
+                        />
+                        <span id="cgpt-jahia-graphql-endpoint-hint" className={styles.cgpt_hint}>
+                            {t('label.jahiaGraphqlEndpointHint')}
+                        </span>
                     </div>
 
                     <div className={styles.cgpt_fieldGroup}>

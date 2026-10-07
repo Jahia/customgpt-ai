@@ -12,8 +12,8 @@ export const GET_SETTINGS = gql`
                     projectId
                     projectName
                     token
-                    jahiaUsername
-                    jahiaPassword
+                    jahiaApiToken
+                    jahiaGraphqlEndpoint
                     jahiaServerCookieName
                     jahiaServerCookieValue
                     jahiaServerCookieDomain
@@ -48,8 +48,8 @@ export const SAVE_SETTINGS = gql`
         $operationsBatchSize: Int,
         $projectId: String,
         $token: String,
-        $jahiaUsername: String,
-        $jahiaPassword: String,
+        $jahiaApiToken: String,
+        $jahiaGraphqlEndpoint: String,
         $jahiaServerCookieName: String,
         $jahiaServerCookieValue: String,
         $jahiaServerCookieDomain: String,
@@ -70,8 +70,8 @@ export const SAVE_SETTINGS = gql`
                     operationsBatchSize: $operationsBatchSize,
                     projectId: $projectId,
                     token: $token,
-                    jahiaUsername: $jahiaUsername,
-                    jahiaPassword: $jahiaPassword,
+                    jahiaApiToken: $jahiaApiToken,
+                    jahiaGraphqlEndpoint: $jahiaGraphqlEndpoint,
                     jahiaServerCookieName: $jahiaServerCookieName,
                     jahiaServerCookieValue: $jahiaServerCookieValue,
                     jahiaServerCookieDomain: $jahiaServerCookieDomain,

@@ -37,8 +37,11 @@ public class Config implements ManagedService {
     private static final String PROP_CONTENT_INDEXED_MAIN_RESOURCE_TYPES = CONFIG_NAMESPACE_PREFIX + ".content.indexedMainResourceTypes";
     private static final String PROP_CUSTOM_GPT_PROJECT_ID = CONFIG_NAMESPACE_PREFIX + ".projectId";
     private static final String PROP_CUSTOM_GPT_TOKEN = CONFIG_NAMESPACE_PREFIX + ".token";
-    private static final String PROP_JAHIA_USERNAME = CONFIG_NAMESPACE_PREFIX + ".jahia.username";
-    private static final String PROP_JAHIA_PASSWORD = CONFIG_NAMESPACE_PREFIX + ".jahia.password";
+    /** Personal API token the indexer authenticates its GraphQL render calls with. */
+    private static final String PROP_JAHIA_API_TOKEN = CONFIG_NAMESPACE_PREFIX + ".jahia.apiToken";
+    /** Where the module calls Jahia's GraphQL endpoint; local by design, see {@link #getJahiaGraphqlEndpoint()}. */
+    private static final String PROP_JAHIA_GRAPHQL_ENDPOINT = CONFIG_NAMESPACE_PREFIX + ".jahia.graphqlEndpoint";
+    private static final String DEFAULT_JAHIA_GRAPHQL_ENDPOINT = "http://localhost:8080/modules/graphql";
     private static final String PROP_JAHIA_SERVER_COOKIE_NAME = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.name";
     private static final String PROP_JAHIA_SERVER_COOKIE_VALUE = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.value";
     private static final String PROP_JAHIA_SERVER_COOKIE_DOMAIN = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.domain";
@@ -69,8 +72,8 @@ public class Config implements ManagedService {
     private int bulkOperationsBatchSize;
     private String customGptProjectId;
     private String customGptToken;
-    private String jahiaUsername;
-    private String jahiaPassword;
+    private String jahiaApiToken;
+    private String jahiaGraphqlEndpoint;
     private String jahiaServerCookieName;
     private String jahiaServerCookieValue;
     private String jahiaServerCookieDomain;
@@ -176,8 +179,8 @@ public class Config implements ManagedService {
 
         customGptProjectId = getString(properties, PROP_CUSTOM_GPT_PROJECT_ID, "");
         customGptToken = getString(properties, PROP_CUSTOM_GPT_TOKEN, "");
-        jahiaUsername = getString(properties, PROP_JAHIA_USERNAME, "");
-        jahiaPassword = getString(properties, PROP_JAHIA_PASSWORD, "");
+        jahiaApiToken = getString(properties, PROP_JAHIA_API_TOKEN, "");
+        jahiaGraphqlEndpoint = getString(properties, PROP_JAHIA_GRAPHQL_ENDPOINT, DEFAULT_JAHIA_GRAPHQL_ENDPOINT);
         jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
         jahiaServerCookieValue = getString(properties, PROP_JAHIA_SERVER_COOKIE_VALUE, "");
         jahiaServerCookieDomain = getString(properties, PROP_JAHIA_SERVER_COOKIE_DOMAIN, "");
@@ -404,12 +407,30 @@ public class Config implements ManagedService {
         return customGptToken;
     }
 
-    public String getJahiaUsername() {
-        return jahiaUsername;
+    /**
+     * The personal API token the module presents to Jahia's GraphQL endpoint, as
+     * {@code Authorization: APIToken <value>}.
+     *
+     * <p>It replaces the username/password pair the rendering request used to carry. A token is minted for a
+     * dedicated read-only indexing account, is scoped to {@code graphql}, and is revocable on its own - none of
+     * which a reusable password allowed. The account deliberately does not see everything: content it cannot
+     * read is skipped rather than indexed, so the corpus never receives an authorization notice as if it were
+     * page content.
+     */
+    public String getJahiaApiToken() {
+        return jahiaApiToken;
     }
 
-    public String getJahiaPassword() {
-        return jahiaPassword;
+    /**
+     * The Jahia GraphQL endpoint the module renders through.
+     *
+     * <p>Local by default, and deliberately NOT derived from {@code serverName}. The two answer different
+     * questions: {@code serverName} is the public URL stored as a citation, while this is where the module
+     * fetches content from. Pointing the fetch at the public host would send it back out through the very
+     * proxy, WAF and bot protection that rendering through GraphQL exists to avoid.
+     */
+    public String getJahiaGraphqlEndpoint() {
+        return jahiaGraphqlEndpoint;
     }
 
     public String getJahiaServerCookieName() {
