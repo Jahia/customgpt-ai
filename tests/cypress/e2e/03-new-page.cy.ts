@@ -19,8 +19,6 @@ describe('CustomGPT.ai new page indexing', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const createToken: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createToken.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const startIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startIndex.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const startNodeIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startNodeIndex.graphql');
@@ -66,7 +64,7 @@ describe('CustomGPT.ai new page indexing', function () {
         // Both were imported into this spec and never called, so it depended entirely on 02-indexing running
         // first. Every mutation here is idempotent, so running the spec alone now works.
         beforeEach(() => {
-            configureIndexer(siteKey(), saveSettings, createToken, {scheduleJobASAP: false});
+            configureIndexer(siteKey(), saveSettings, {scheduleJobASAP: false});
 
             const sitePath = `/sites/${siteKey()}`;
 

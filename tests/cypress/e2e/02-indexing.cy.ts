@@ -19,8 +19,6 @@ describe('CustomGPT.ai Indexing', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const createToken: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createToken.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const startIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startIndex.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const startNodeIndex: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/startNodeIndex.graphql');
@@ -123,7 +121,7 @@ describe('CustomGPT.ai Indexing', function () {
         );
 
         // ── CustomGPT setup ────────────────────────────────────────────────────
-        configureIndexer(siteKey(), saveSettings, createToken, {scheduleJobASAP: true});
+        configureIndexer(siteKey(), saveSettings, {scheduleJobASAP: true});
 
         cy.apollo({
             mutation: addSite,
