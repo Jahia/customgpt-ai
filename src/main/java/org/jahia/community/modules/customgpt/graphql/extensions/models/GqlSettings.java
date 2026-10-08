@@ -16,8 +16,8 @@ public class GqlSettings {
     private final String projectId;
     private final String projectName;
     private final String token;
-    private final String jahiaUsername;
-    private final String jahiaPassword;
+    private final String jahiaApiToken;
+    private final String jahiaGraphqlEndpoint;
     private final String jahiaServerCookieName;
     private final String jahiaServerCookieValue;
     private final String userAgent;
@@ -38,8 +38,8 @@ public class GqlSettings {
         this.projectId = b.projectId;
         this.projectName = b.projectName;
         this.token = b.token;
-        this.jahiaUsername = b.jahiaUsername;
-        this.jahiaPassword = b.jahiaPassword;
+        this.jahiaApiToken = b.jahiaApiToken;
+        this.jahiaGraphqlEndpoint = b.jahiaGraphqlEndpoint;
         this.jahiaServerCookieName = b.jahiaServerCookieName;
         this.jahiaServerCookieValue = b.jahiaServerCookieValue;
         this.userAgent = b.userAgent;
@@ -65,8 +65,8 @@ public class GqlSettings {
         private String projectId;
         private String projectName;
         private String token;
-        private String jahiaUsername;
-        private String jahiaPassword;
+        private String jahiaApiToken;
+        private String jahiaGraphqlEndpoint;
         private String jahiaServerCookieName;
         private String jahiaServerCookieValue;
         private String userAgent;
@@ -86,8 +86,8 @@ public class GqlSettings {
         public Builder projectId(String v) { this.projectId = v; return this; }
         public Builder projectName(String v) { this.projectName = v; return this; }
         public Builder token(String v) { this.token = v; return this; }
-        public Builder jahiaUsername(String v) { this.jahiaUsername = v; return this; }
-        public Builder jahiaPassword(String v) { this.jahiaPassword = v; return this; }
+        public Builder jahiaApiToken(String v) { this.jahiaApiToken = v; return this; }
+        public Builder jahiaGraphqlEndpoint(String v) { this.jahiaGraphqlEndpoint = v; return this; }
         public Builder jahiaServerCookieName(String v) { this.jahiaServerCookieName = v; return this; }
         public Builder jahiaServerCookieValue(String v) { this.jahiaServerCookieValue = v; return this; }
         public Builder userAgent(String v) { this.userAgent = v; return this; }
@@ -159,17 +159,17 @@ public class GqlSettings {
     }
 
     @GraphQLField
-    @GraphQLName("jahiaUsername")
-    @GraphQLDescription("Jahia username for content retrieval")
+    @GraphQLName("jahiaApiToken")
+    @GraphQLDescription("Personal API token used to render pages through GraphQL (write-only)")
     public String getJahiaUsername() {
-        return jahiaUsername;
+        return jahiaApiToken;
     }
 
     @GraphQLField
-    @GraphQLName("jahiaPassword")
-    @GraphQLDescription("Jahia password for content retrieval")
+    @GraphQLName("jahiaGraphqlEndpoint")
+    @GraphQLDescription("Jahia GraphQL endpoint the module renders through; local by default")
     public String getJahiaPassword() {
-        return jahiaPassword;
+        return jahiaGraphqlEndpoint;
     }
 
     @GraphQLField

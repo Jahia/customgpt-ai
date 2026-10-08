@@ -5,8 +5,14 @@
       - 'mvn:org.jahia.modules/graphql-dxm-provider/LATEST'
       - 'mvn:org.jahia.modules/serverSettings/LATEST'
       - 'mvn:org.jahia.modules/sitemap/LATEST'
+      # The module renders pages through GraphQL with a personal API token, so the token module has to be
+      # present AND its GraphQL extension has to register. The version bundled with the Jahia image (1.9.0)
+      # starts cleanly but never registers `admin.personalApiTokens`, so minting a token fails with
+      # "Field 'personalApiTokens' in type 'AdminMutation' is undefined" - a silent capability gap rather than
+      # an error at startup. uninstallPreviousVersion matters here: the bundled copy must go, not coexist.
+      - 'mvn:org.jahia.modules/personal-api-tokens/1.10.0'
   autoStart: true
-  uninstallPreviousVersion: false
+  uninstallPreviousVersion: true
 - karafCommand: "log:log 'END - Install customgpt-ai dependencies'"
 
 - karafCommand: "log:log 'START - Install Digitall bundles'"

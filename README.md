@@ -43,8 +43,8 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `content.indexedSubNodeTypes` | `jmix:droppableContent` | Comma-separated sub-node types whose text content is included |
 | `content.indexedFileExtensions` | `pdf` | Comma-separated file extensions to index |
 | `operations.batch.size` | `500` | Batch size for concurrent deletions and indexing jobs |
-| `jahia.username` | _(empty)_ | Jahia user for rendering pages during indexing |
-| `jahia.password` | _(empty)_ | Jahia password for the rendering user |
+| `jahia.apiToken` | _(empty)_ | Personal API token the indexer renders pages with. Create it for a dedicated read-only account, scoped to `graphql`. Write-only |
+| `jahia.graphqlEndpoint` | `http://localhost:8080/modules/graphql` | Where pages are rendered from. Keep it local |
 | `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
 | `serverName` | _(empty)_ | Server name the pages are fetched from and cited under — `host`, `host:port` or a full `scheme://host[:port]`. A bare host is read as `https://`. Empty means each site's own `sitemapIndexURL` host |
 | `site.<siteKey>.serverName` | _(empty)_ | Same, for one site only; wins over `serverName` |
@@ -52,6 +52,54 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `dryRun` | `true` | When `true`, simulate indexing without calling CustomGPT |
 | `scheduleJobASAP` | `false` | When `true`, schedule indexing jobs immediately; auto-resets to `false` after jobs are queued |
 | `rateLimit.requestsPerSecond` | `10` | Token-bucket rate: maximum CustomGPT API requests per second. The OkHttp client reads this at startup — **a module restart is required** for changes to take effect |
+
+### How pages are rendered
+
+Pages are rendered through Jahia's own GraphQL endpoint, not fetched from their public URL:
+
+```properties
+org.jahia.community.modules.customgpt.jahia.apiToken=<token>
+org.jahia.community.modules.customgpt.jahia.graphqlEndpoint=http://localhost:8080/modules/graphql
+```
+
+The token is a **personal API token**, sent as `Authorization: APIToken <value>`. Create it in Jahia for a
+dedicated read-only account — `customgpt-indexer` — and scope it to `graphql`. No password is stored or
+transmitted, and the token is revocable on its own.
+
+**The endpoint is deliberately local, and deliberately not derived from `serverName`.** The two answer different
+questions: `serverName` is the public URL stored as the citation, while this is where content is fetched from.
+Pointing the fetch at the public host sends it back out through the proxy, WAF and bot protection that rendering
+through GraphQL exists to avoid.
+
+#### Render as a read-only account, not as an administrator
+
+Whatever is rendered is what ends up in the knowledge base, and the account doing the rendering changes it:
+
+| Rendered as | What lands in the corpus |
+|---|---|
+| An administrator | `Preview`, `Page Composer`, `Logout` and the account name |
+| Nobody (unauthenticated) | The login form — `Username`, `Password`, `Remember Me` |
+| A read-only account | The page |
+
+Both of the first two were measured on the Digitall home page; they differ by exactly those words.
+
+#### The indexer does not need to see everything
+
+Content the account cannot read is **skipped**, logged at `INFO` as
+`Skipping <path>: ... is not readable by the indexing account`, and is **not** counted as a failure — a
+restricted indexer is the intended state, so treating it as an error would mark every site `FAILED` on every
+run. GraphQL returns a structured access denial for those nodes, which is what makes the distinction reliable;
+fetching the same page over HTTP answered `200` with a login form that was then indexed as if it were content.
+
+Grant the account read access to whatever should be in the knowledge base, and nothing else.
+
+#### Pages and content are rendered differently
+
+A `jnt:page` is rendered as a complete document. Any other indexed node — `jmix:mainResource` content — is
+rendered on its own, because a content node has no page template and asking for one raises
+`TemplateNotFoundException`. A content fragment also carries no page furniture, which suits a knowledge base.
+
+Files are not rendered at all: their bytes are read straight from the repository.
 
 ### Indexation server name
 
@@ -69,7 +117,7 @@ org.jahia.community.modules.customgpt.site.academy.serverName=academy.jahia.com
 
 A bare host name is what Jahia's own `j:serverName` holds, so that is the form to reach for. A scheme and a port
 are both accepted (`https://academypp.jahia.com`, `academypp.jahia.com:8443`); a value with no scheme is read as
-`https://`, because the render request carries the Jahia Basic-auth credentials and must not be downgraded to
+`https://`, because the indexer's API token travels with the request and must not be downgraded to
 cleartext. Set `http://` explicitly if the host really is served over cleartext.
 
 Resolution order: `site.<siteKey>.serverName` → `serverName` → the site's `sitemapIndexURL`.
@@ -92,7 +140,7 @@ The panel always submits the whole list, so removing a row removes the override.
 > wait for the first run to finish.
 
 The host must not be a **literal** private/loopback/link-local IP address — the render request carries the Jahia
-Basic-auth credentials, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
+API token, so such a host is refused for the same SSRF reason one coming from `sitemapIndexURL` is.
 Leaving the scheme out does not bypass that check. Hostnames are not resolved (a DNS lookup on a configured value would
 itself be a vector), so a *name* that happens to point inward is accepted; the value is admin-supplied, like every
 other property here. Userinfo (`https://user@host`) and any path are dropped, so a sitemap URL can be pasted

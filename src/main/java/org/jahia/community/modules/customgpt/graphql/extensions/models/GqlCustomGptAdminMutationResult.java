@@ -277,8 +277,8 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("operationsBatchSize") @GraphQLDescription("Batch size for bulk operations") Integer operationsBatchSize,
             @GraphQLName("projectId") @GraphQLDescription("CustomGPT project ID") String projectId,
             @GraphQLName("token") @GraphQLDescription("CustomGPT API token") String token,
-            @GraphQLName("jahiaUsername") @GraphQLDescription("Jahia username for content retrieval") String jahiaUsername,
-            @GraphQLName("jahiaPassword") @GraphQLDescription("Jahia password for content retrieval") String jahiaPassword,
+            @GraphQLName("jahiaApiToken") @GraphQLDescription("Personal API token used to render pages through GraphQL") String jahiaApiToken,
+            @GraphQLName("jahiaGraphqlEndpoint") @GraphQLDescription("Jahia GraphQL endpoint the module renders through") String jahiaGraphqlEndpoint,
             @GraphQLName("jahiaServerCookieName") @GraphQLDescription("Jahia server cookie name") String jahiaServerCookieName,
             @GraphQLName("jahiaServerCookieValue") @GraphQLDescription("Jahia server cookie value") String jahiaServerCookieValue,
             @GraphQLName("jahiaServerCookieDomain") @GraphQLDescription("Jahia server cookie domain") String jahiaServerCookieDomain,
@@ -323,8 +323,10 @@ public class GqlCustomGptAdminMutationResult {
             // Secrets: persist only when the admin actually supplied a new value. A blank or the masking
             // placeholder echoed back from the settings query leaves the stored secret untouched.
             putSecretIfChanged(props, "org.jahia.community.modules.customgpt.token", token);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.username", jahiaUsername);
-            putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.password", jahiaPassword);
+            // The token is write-only, like the CustomGPT one: the settings query returns a placeholder,
+            // and echoing that placeback back must leave the stored value untouched.
+            putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.apiToken", jahiaApiToken);
+            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.graphqlEndpoint", jahiaGraphqlEndpoint);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.name", jahiaServerCookieName);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.domain", jahiaServerCookieDomain);
