@@ -56,7 +56,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Internal utility that executes the actual HTTP interactions for one indexing cycle.
  * For each node to index it follows a three-step flow:
- * 1. Render the Jahia page HTML via {@code jahiaClient} (with Basic auth or optional cookie).
+ * 1. Render the Jahia page HTML through Jahia's GraphQL endpoint via {@code jahiaClient}, authenticated
+ * with the indexer's personal API token.
  * 2. POST the HTML as a multipart upload to {@code POST /projects/{id}/sources} to create a CustomGPT page.
  * 3. PATCH the returned page's metadata (title + canonical URL) via {@code PUT .../pages/{pageId}/metadata}.
  * The CustomGPT page ID is persisted on a {@code jnt:customGptIndexEntry} child node so that subsequent

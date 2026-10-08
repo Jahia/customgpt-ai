@@ -45,7 +45,6 @@ Drop a `.cfg` file in `$JAHIA_HOME/digital-factory-data/karaf/etc/` or edit from
 | `operations.batch.size` | `500` | Batch size for concurrent deletions and indexing jobs |
 | `jahia.apiToken` | _(empty)_ | Personal API token the indexer renders pages with. Create it for a dedicated read-only account, scoped to `graphql`. Write-only |
 | `jahia.graphqlEndpoint` | `http://localhost:8080/modules/graphql` | Where pages are rendered from. Keep it local |
-| `jahia.serverCookie.name/value/domain` | _(empty)_ | Optional server cookie injected during rendering |
 | `serverName` | _(empty)_ | Server name the pages are fetched from and cited under — `host`, `host:port` or a full `scheme://host[:port]`. A bare host is read as `https://`. Empty means each site's own `sitemapIndexURL` host |
 | `site.<siteKey>.serverName` | _(empty)_ | Same, for one site only; wins over `serverName` |
 | `userAgent` | _(empty)_ | User-Agent sent when fetching a page's rendered HTML. Set it when the site is behind bot protection that refuses the default agent. Printable ASCII, no line breaks |
