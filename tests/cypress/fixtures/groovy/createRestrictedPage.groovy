@@ -36,35 +36,6 @@ final Locale LOCALE = Locale.ENGLISH
     } as JCRCallback)
 }
 
-/*
- * Clear live-only orphans under home before indexing.
- *
- * Earlier specs create a page, publish it, then delete it from `default` without unpublishing, leaving a node
- * that exists in `live` alone. Such a node renders perfectly well, so it is collected and uploaded - and then
- * the customGptPageId write-back, which targets `default`, fails and marks the whole site FAILED.
- *
- * That has nothing to do with restricted content, but it would fail the assertion below for the wrong reason
- * and make this spec depend on what ran before it. Removing them is what gives this spec a baseline where the
- * ONLY thing that should be skipped is the restricted page.
- */
-JCRTemplate.instance.doExecuteWithSystemSession(null, "live", null, { liveSession ->
-    final def orphans = []
-    liveSession.getNode("/sites/@@SITE_KEY@@/home").nodes.each { child ->
-        if (child.isNodeType("jnt:page")) {
-            orphans << child.path
-        }
-    }
-    JCRTemplate.instance.doExecuteWithSystemSession(null, "default", null, { defaultSession ->
-        orphans.findAll { !defaultSession.nodeExists(it) }.each { orphan ->
-            liveSession.getNode(orphan).remove()
-            liveSession.save()
-            LOG.info("Removed live-only orphan {} left by an earlier spec", orphan)
-        }
-        return null
-    } as JCRCallback)
-    return null
-} as JCRCallback)
-
 final String uuid = JCRTemplate.instance.doExecuteWithSystemSession(null, "default", LOCALE, { session ->
     final def page = session.getNode("/sites/@@SITE_KEY@@/home").addNode("@@PAGE_NAME@@", "jnt:page")
     page.setProperty("j:templateName", "simple")
