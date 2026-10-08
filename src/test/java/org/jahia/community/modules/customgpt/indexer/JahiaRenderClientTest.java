@@ -42,12 +42,18 @@ public class JahiaRenderClientTest {
     }
 
     @Test
-    public void extractOutput_skipsWhenTheIndexingAccountMayNotReadTheNode() {
-        // Matched on the classification, not the message: the message is human-facing and may be reworded or
-        // localised, and this decision must not hinge on prose.
-        final JSONObject body = envelope("{\"errors\":[{\"message\":\"Permission denied\","
-                + "\"extensions\":{\"classification\":\"GqlAccessDeniedException\"},"
-                + "\"errorType\":\"GqlAccessDeniedException\"}],\"data\":null}");
+    public void extractOutput_skipsANodeJahiaHidesFromTheIndexingAccount() {
+        // Measured on 8.2.3.2 against a page with ACL inheritance broken and no grant: Jahia does NOT report a
+        // denial for content the caller may not read, it hides the node, so the render resolves to
+        // PathNotFoundException. That is the real shape of "restricted" on the wire.
+        //
+        // Matched on the exception class name in the message. That is a Java type rather than prose, and it has
+        // to be the discriminator because the classification here is the generic DataFetchingException - which a
+        // template failure also carries, and which must stay a failure.
+        final JSONObject body = envelope("{\"errors\":[{\"message\":"
+                + "\"javax.jcr.PathNotFoundException: /sites/academy/home\","
+                + "\"extensions\":{\"classification\":\"DataFetchingException\"}}],"
+                + "\"data\":{\"jcr\":{\"nodeByPath\":null}}}");
 
         assertThatThrownBy(() -> JahiaRenderClient.extractOutput(body, PATH))
                 .isInstanceOf(JahiaRenderClient.NotVisibleToIndexerException.class)
@@ -55,12 +61,38 @@ public class JahiaRenderClientTest {
     }
 
     @Test
-    public void extractOutput_recognisesAccessDenialFromTheErrorTypeAlone() {
+    public void extractOutput_skipsANodeThatDisappearedBetweenCollectionAndRender() {
+        // Nodes are collected as root and rendered as the indexer, so a node deleted in between answers the same
+        // way as a restricted one. Both mean there is nothing to fetch; neither should fail the site.
+        final JSONObject body = envelope("{\"errors\":[{\"message\":"
+                + "\"javax.jcr.PathNotFoundException: /sites/academy/home/gone\"}],"
+                + "\"data\":{\"jcr\":{\"nodeByPath\":null}}}");
+
+        assertThatThrownBy(() -> JahiaRenderClient.extractOutput(body, PATH))
+                .isInstanceOf(JahiaRenderClient.NotVisibleToIndexerException.class);
+    }
+
+    @Test
+    public void extractOutput_failsWhenTheAccountMayNotUseTheApiAtAll() {
+        // GqlAccessDeniedException is not a per-node decision. It is raised at the ROOT jcr field when the
+        // account lacks the api-access permission, so it applies to every node equally. Treating it as a skip
+        // empties the index while reporting success - which is precisely what this module used to do.
+        final JSONObject body = envelope("{\"errors\":[{\"message\":\"Permission denied\","
+                + "\"extensions\":{\"classification\":\"GqlAccessDeniedException\"},"
+                + "\"errorType\":\"GqlAccessDeniedException\"}],\"data\":null}");
+
+        assertThatThrownBy(() -> JahiaRenderClient.extractOutput(body, PATH))
+                .isInstanceOf(java.io.IOException.class)
+                .hasMessageContaining("api-access");
+    }
+
+    @Test
+    public void extractOutput_failsOnAccessDenialCarriedOnlyByTheErrorType() {
         final JSONObject body = envelope("{\"errors\":[{\"message\":\"nope\","
                 + "\"errorType\":\"GqlAccessDeniedException\"}],\"data\":null}");
 
         assertThatThrownBy(() -> JahiaRenderClient.extractOutput(body, PATH))
-                .isInstanceOf(JahiaRenderClient.NotVisibleToIndexerException.class);
+                .isInstanceOf(java.io.IOException.class);
     }
 
     @Test

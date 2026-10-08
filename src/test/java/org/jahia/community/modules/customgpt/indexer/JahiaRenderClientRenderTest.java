@@ -47,6 +47,11 @@ public class JahiaRenderClientRenderTest {
             "{\"data\":{\"jcr\":{\"nodeByPath\":{\"renderedContent\":{\"output\":\"<html>hi</html>\"}}}}}";
     private static final String ACCESS_DENIED =
             "{\"errors\":[{\"message\":\"Permission denied\",\"errorType\":\"GqlAccessDeniedException\"}],\"data\":null}";
+    /** What a node the indexing account may not read actually looks like: Jahia hides it rather than denying it. */
+    private static final String NODE_HIDDEN =
+            "{\"errors\":[{\"message\":\"javax.jcr.PathNotFoundException: /sites/academy/home\","
+            + "\"extensions\":{\"classification\":\"DataFetchingException\"}}],"
+            + "\"data\":{\"jcr\":{\"nodeByPath\":null}}}";
 
     /** The last request the client was asked to execute, so headers and body can be asserted. */
     private final AtomicReference<Request> sent = new AtomicReference<>();
@@ -86,10 +91,22 @@ public class JahiaRenderClientRenderTest {
     // ---- the skip decision ----
 
     @Test
-    public void render_skipsWhenA200CarriesAGraphqlAccessDenial() {
-        assertThatThrownBy(() -> render(clientReturning(200, ACCESS_DENIED), JahiaRenderClient.CONTEXT_PAGE))
+    public void render_skipsWhenA200SaysTheNodeIsNotThere() {
+        // The real shape of a restricted node. Jahia hides content the caller may not read, so the render
+        // resolves to PathNotFoundException rather than to any kind of access error.
+        assertThatThrownBy(() -> render(clientReturning(200, NODE_HIDDEN), JahiaRenderClient.CONTEXT_PAGE))
                 .isInstanceOf(JahiaRenderClient.NotVisibleToIndexerException.class)
                 .hasMessageContaining(PATH);
+    }
+
+    @Test
+    public void render_treatsA200GraphqlAccessDenialAsAConfigurationFaultRatherThanASkip() {
+        // GqlAccessDeniedException comes from the ROOT jcr field when the account lacks api-access, so it
+        // affects every node. Skipping on it would empty the corpus and still report the run successful.
+        assertThatThrownBy(() -> render(clientReturning(200, ACCESS_DENIED), JahiaRenderClient.CONTEXT_PAGE))
+                .isInstanceOf(IOException.class)
+                .isNotInstanceOf(JahiaRenderClient.NotVisibleToIndexerException.class)
+                .hasMessageContaining("api-access");
     }
 
     @Test

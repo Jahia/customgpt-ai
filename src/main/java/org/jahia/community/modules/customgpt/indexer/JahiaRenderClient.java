@@ -2,6 +2,7 @@ package org.jahia.community.modules.customgpt.indexer;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.function.Predicate;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -59,6 +60,9 @@ public final class JahiaRenderClient {
      */
     public static final String CONTEXT_MODULE = "module";
 
+    /** Jahia hides unreadable content, so this - not an access error - is what a restricted node looks like. */
+    private static final String PATH_NOT_FOUND = "PathNotFoundException";
+
     private static final String RENDER_QUERY =
             "query($path:String!,$language:String!,$context:String!){"
             + "jcr(workspace: LIVE){"
@@ -70,7 +74,7 @@ public final class JahiaRenderClient {
         // Utility class.
     }
 
-    /** Raised when the indexing account cannot see the node: expected, and not an indexing failure. */
+    /** Raised when the node is not there to be rendered - restricted or deleted: expected, and not an indexing failure. */
     public static class NotVisibleToIndexerException extends Exception {
 
         private static final long serialVersionUID = 1L;
@@ -144,35 +148,60 @@ public final class JahiaRenderClient {
         }
 
         final String errors = describeErrors(envelope);
-        if (isAccessDenied(envelope)) {
+        if (isNodeNotVisible(envelope)) {
             throw new NotVisibleToIndexerException(nodePath + " is not readable by the indexing account: " + errors);
+        }
+        if (isApiAccessDenied(envelope)) {
+            throw new IOException("The indexing account may not use the Jahia GraphQL API at all, so NO node can"
+                    + " be rendered - a configuration fault rather than anything about " + nodePath
+                    + ". Grant it a role carrying the api-access permission, in both the default and live"
+                    + " workspaces: " + errors);
         }
         throw new IOException("Jahia GraphQL returned no rendered output for " + nodePath
                 + (errors.isEmpty() ? "" : ": " + errors));
     }
 
     /**
-     * Whether the envelope says the caller lacks access.
+     * Whether this node is simply not there for the indexing account to render.
      *
-     * <p>Matched on the classification rather than the message, which is human-facing and may be localised or
-     * reworded. An access decision has to be told apart from a transport failure reliably: treated as a failure
-     * it would mark every site FAILED on every run, and treated as content it would upload an authorization
-     * notice into the corpus.
+     * <p>Jahia HIDES content the caller may not read rather than reporting a denial, so a restricted node comes
+     * back as {@code PathNotFoundException} - measured on 8.2.3.2 against a page with ACL inheritance broken and
+     * no grant. A node deleted between collection (which runs as root) and render answers identically. Both mean
+     * there is nothing to fetch, so both are skipped rather than failing the whole site.
+     *
+     * <p>Matched on the exception class name carried in the message. That is a Java type, not prose, and it has
+     * to be the discriminator because the classification for this case is the generic
+     * {@code DataFetchingException} - which a template failure also carries and which must stay a failure.
      */
-    private static boolean isAccessDenied(JSONObject envelope) {
+    private static boolean isNodeNotVisible(JSONObject envelope) {
+        return anyError(envelope, error -> error.optString("message", "").contains(PATH_NOT_FOUND));
+    }
+
+    /**
+     * Whether the envelope says the account may not use the API at all.
+     *
+     * <p>Not a per-node decision, which is the trap: {@code GqlAccessDeniedException} is raised at the ROOT
+     * {@code jcr} field when the account lacks the {@code api-access} permission, so it applies to every node
+     * equally. Skipping on it would empty the index while reporting success. Matched on the classification
+     * rather than the message, which is human-facing and may be localised or reworded.
+     */
+    private static boolean isApiAccessDenied(JSONObject envelope) {
+        return anyError(envelope, error -> {
+            final String type = error.optString("errorType", "");
+            final JSONObject extensions = error.optJSONObject("extensions");
+            final String classification = extensions == null ? "" : extensions.optString("classification", "");
+            return type.contains("AccessDenied") || classification.contains("AccessDenied");
+        });
+    }
+
+    private static boolean anyError(JSONObject envelope, Predicate<JSONObject> predicate) {
         final JSONArray errors = envelope.optJSONArray("errors");
         if (errors == null) {
             return false;
         }
         for (int i = 0; i < errors.length(); i++) {
             final JSONObject error = errors.optJSONObject(i);
-            if (error == null) {
-                continue;
-            }
-            final String type = error.optString("errorType", "");
-            final JSONObject extensions = error.optJSONObject("extensions");
-            final String classification = extensions == null ? "" : extensions.optString("classification", "");
-            if (type.contains("AccessDenied") || classification.contains("AccessDenied")) {
+            if (error != null && predicate.test(error)) {
                 return true;
             }
         }
