@@ -148,7 +148,7 @@ final class CustomGptIndexerNodeHandler {
     }
 
     @SuppressWarnings("java:S107")
-    private static void indexInSession(JCRSessionWrapper session, OkHttpClient customGptClient, OkHttpClient jahiaClient,
+    static void indexInSession(JCRSessionWrapper session, OkHttpClient customGptClient, OkHttpClient jahiaClient,
             JCRNodeWrapper nodeToIndex, JCRSiteNode siteNode, String language, String apiBaseUrl,
             Indexer customGptIndexer, JahiaUser rootUser) throws RepositoryException {
         if (!session.nodeExists(nodeToIndex.getPath())) {

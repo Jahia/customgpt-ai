@@ -66,12 +66,53 @@ public class UtilsServerNameTest {
         assertThat(Utils.getHostName(siteNode("academy"), null)).isEqualTo("https://academy.jahia.com");
     }
 
+    // ---- a private sitemap host is a citation problem, not an indexing one ----
+
+    @Test
+    public void getHostName_indexesASiteWhoseSitemapHostIsPrivateInsteadOfSkippingIt() {
+        // This used to return "" and skip the entire site. Nothing is fetched from this host - rendering goes to
+        // the local GraphQL endpoint - so the only consequence of a private host is a citation URL that may not
+        // resolve from outside the network. Withholding the content as well costs more than it saves.
+        final JCRSiteNode siteNode = siteNode("acme", "http://localhost:8080/sitemap.xml");
+
+        assertThat(Utils.getHostName(siteNode, null)).isEqualTo("http://localhost:8080");
+    }
+
+    @Test
+    public void getHostName_indexesASiteWhoseSitemapHostIsAnRfc1918Address() {
+        assertThat(Utils.getHostName(siteNode("acme", "https://10.0.0.5/sitemap.xml"), null))
+                .isEqualTo("https://10.0.0.5");
+    }
+
+    @Test
+    public void getHostName_stillReturnsNothingForASitemapUrlThatIsNotAUrlAtAll() {
+        // The malformed case is unchanged: there is no host to build a citation from, so there is nothing to do.
+        assertThat(Utils.getHostName(siteNode("acme", "not a url"), null)).isEmpty();
+    }
+
+    /**
+     * The asymmetry is deliberate. A CONFIGURED server name naming an internal host is operator input and a typo
+     * there is worth catching, so {@code normalizeServerName} still rejects it and the sitemap host is used
+     * instead - which is what this asserts. A sitemap host is a property of the site as authored or imported, and
+     * is now taken as given.
+     */
+    @Test
+    public void getHostName_stillRejectsAConfiguredOverrideThatNamesAnInternalHost() {
+        final Config config = configWith(NS + ".site.acme.serverName", "https://192.168.1.10");
+
+        assertThat(Utils.getHostName(siteNode("acme", SITEMAP_URL), config)).isEqualTo("https://academy.jahia.com");
+    }
+
     // ---- helpers ----
 
     private static JCRSiteNode siteNode(String siteKey) {
+        return siteNode(siteKey, SITEMAP_URL);
+    }
+
+    private static JCRSiteNode siteNode(String siteKey, String sitemapUrl) {
         final JCRSiteNode siteNode = mock(JCRSiteNode.class);
         when(siteNode.getSiteKey()).thenReturn(siteKey);
-        when(siteNode.getPropertyAsString("sitemapIndexURL")).thenReturn(SITEMAP_URL);
+        when(siteNode.getPropertyAsString("sitemapIndexURL")).thenReturn(sitemapUrl);
         return siteNode;
     }
 
