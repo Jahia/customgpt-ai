@@ -125,10 +125,12 @@ public final class Utils {
         try {
             final String sitemapIndexURL = siteNode.getPropertyAsString("sitemapIndexURL");
             final URL serverUrl = URI.create(sitemapIndexURL).toURL();
-            // The rendering request built from this host carries Jahia Basic-auth credentials; reject a host that is a
-            // literal private/loopback/link-local IP so credentials cannot be sent to an internal SSRF target.
+            // Nothing is fetched from this host - rendering goes to the local GraphQL endpoint - so it is only ever
+            // the citation URL stored in CustomGPT. A literal private/loopback/link-local address is refused
+            // because a citation nobody outside the network can open is worse than no citation.
             if (SecurityUtils.isInternalHost(serverUrl.getHost())) {
-                LOGGER.error("Refusing to render site {}: sitemapIndexURL host resolves to an internal/private address", siteNode.getPath());
+                LOGGER.error("Refusing to index site {}: sitemapIndexURL host resolves to an internal/private address,"
+                        + " which would be stored as an unreachable citation URL", siteNode.getPath());
                 return "";
             }
             hostName = StringUtils.substringBeforeLast(sitemapIndexURL, serverUrl.getPath());
