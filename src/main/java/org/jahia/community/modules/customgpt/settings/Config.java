@@ -42,9 +42,6 @@ public class Config implements ManagedService {
     /** Where the module calls Jahia's GraphQL endpoint; local by design, see {@link #getJahiaGraphqlEndpoint()}. */
     private static final String PROP_JAHIA_GRAPHQL_ENDPOINT = CONFIG_NAMESPACE_PREFIX + ".jahia.graphqlEndpoint";
     private static final String DEFAULT_JAHIA_GRAPHQL_ENDPOINT = "http://localhost:8080/modules/graphql";
-    private static final String PROP_JAHIA_SERVER_COOKIE_NAME = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.name";
-    private static final String PROP_JAHIA_SERVER_COOKIE_VALUE = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.value";
-    private static final String PROP_JAHIA_SERVER_COOKIE_DOMAIN = CONFIG_NAMESPACE_PREFIX + ".jahia.serverCookie.domain";
     private static final String CONTENT_INDEXED_FILE_EXTENSIONS = CONFIG_NAMESPACE_PREFIX + ".content.indexedFileExtensions";
     private static final String BULK_OPERATIONS_BATCH_SIZE = CONFIG_NAMESPACE_PREFIX + ".operations.batch.size";
     private static final String SCHEDULE_JOB_ASAP = CONFIG_NAMESPACE_PREFIX + ".scheduleJobASAP";
@@ -74,9 +71,6 @@ public class Config implements ManagedService {
     private String customGptToken;
     private String jahiaApiToken;
     private String jahiaGraphqlEndpoint;
-    private String jahiaServerCookieName;
-    private String jahiaServerCookieValue;
-    private String jahiaServerCookieDomain;
     private String customGptApiBaseUrl;
     private int rateLimitRequestsPerSecond;
     private String userAgent;
@@ -181,9 +175,6 @@ public class Config implements ManagedService {
         customGptToken = getString(properties, PROP_CUSTOM_GPT_TOKEN, "");
         jahiaApiToken = getString(properties, PROP_JAHIA_API_TOKEN, "");
         jahiaGraphqlEndpoint = getString(properties, PROP_JAHIA_GRAPHQL_ENDPOINT, DEFAULT_JAHIA_GRAPHQL_ENDPOINT);
-        jahiaServerCookieName = getString(properties, PROP_JAHIA_SERVER_COOKIE_NAME, "");
-        jahiaServerCookieValue = getString(properties, PROP_JAHIA_SERVER_COOKIE_VALUE, "");
-        jahiaServerCookieDomain = getString(properties, PROP_JAHIA_SERVER_COOKIE_DOMAIN, "");
         userAgent = normalizeConfiguredUserAgent(getString(properties, PROP_USER_AGENT, ""));
 
         // Replaced wholesale on every update rather than merged, so an override removed from the .cfg is forgotten.
@@ -431,17 +422,6 @@ public class Config implements ManagedService {
      */
     public String getJahiaGraphqlEndpoint() {
         return jahiaGraphqlEndpoint;
-    }
-
-    public String getJahiaServerCookieName() {
-        return jahiaServerCookieName;
-    }
-
-    public String getJahiaServerCookieValue() {
-        return jahiaServerCookieValue;
-    }
-    public String getJahiaServerCookieDomain() {
-        return jahiaServerCookieDomain;
     }
 
     public String getCustomGptApiBaseUrl() {

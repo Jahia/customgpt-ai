@@ -38,9 +38,6 @@ export const CustomGptSettingsAdmin = () => {
         token: '',
         jahiaApiToken: '',
         jahiaGraphqlEndpoint: '',
-        jahiaServerCookieName: '',
-        jahiaServerCookieValue: '',
-        jahiaServerCookieDomain: '',
         userAgent: '',
         serverName: '',
         siteServerNames: '',
@@ -427,45 +424,6 @@ export const CustomGptSettingsAdmin = () => {
                         <span id="cgpt-jahia-graphql-endpoint-hint" className={styles.cgpt_hint}>
                             {t('label.jahiaGraphqlEndpointHint')}
                         </span>
-                    </div>
-
-                    <div className={styles.cgpt_fieldGroup}>
-                        <label className={styles.cgpt_label} htmlFor="cgpt-cookie-name">
-                            {t('label.jahiaServerCookieName')}
-                        </label>
-                        <input
-                            type="text"
-                            id="cgpt-cookie-name"
-                            className={styles.cgpt_input}
-                            value={formState.jahiaServerCookieName}
-                            onChange={handleChange('jahiaServerCookieName')}
-                        />
-                    </div>
-
-                    <div className={styles.cgpt_fieldGroup}>
-                        <label className={styles.cgpt_label} htmlFor="cgpt-cookie-value">
-                            {t('label.jahiaServerCookieValue')}
-                        </label>
-                        <input
-                            type="text"
-                            id="cgpt-cookie-value"
-                            className={styles.cgpt_input}
-                            value={formState.jahiaServerCookieValue}
-                            onChange={handleChange('jahiaServerCookieValue')}
-                        />
-                    </div>
-
-                    <div className={styles.cgpt_fieldGroup}>
-                        <label className={styles.cgpt_label} htmlFor="cgpt-cookie-domain">
-                            {t('label.jahiaServerCookieDomain')}
-                        </label>
-                        <input
-                            type="text"
-                            id="cgpt-cookie-domain"
-                            className={styles.cgpt_input}
-                            value={formState.jahiaServerCookieDomain}
-                            onChange={handleChange('jahiaServerCookieDomain')}
-                        />
                     </div>
 
                     <div className={styles.cgpt_fieldGroup}>

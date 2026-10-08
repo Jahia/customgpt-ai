@@ -19,9 +19,6 @@ import java.util.regex.Pattern;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
 import javax.jcr.query.Query;
-import okhttp3.Cookie;
-import okhttp3.CookieJar;
-import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -770,32 +767,9 @@ public class Service implements EventHandler {
         if (!initialized) {
             LOGGER.info("Starting service...");
             if (settingsBean.isProcessingServer()) {
-                final CookieJar cookieJar = new CookieJar() {
-                    @Override
-                    public void saveFromResponse(HttpUrl url, List<Cookie> cookies) {
-                        // cookies are not persisted; session auth is handled by the Bearer authenticator
-                    }
-                    
-                    @Override
-                    public List<Cookie> loadForRequest(HttpUrl arg0) {
-                        if (customGptConfig.getJahiaServerCookieName() != null && !customGptConfig.getJahiaServerCookieName().isEmpty()
-                                && customGptConfig.getJahiaServerCookieValue() != null && !customGptConfig.getJahiaServerCookieValue().isEmpty()) {
-                            final Cookie cookie = new Cookie.Builder()
-                                    .httpOnly()
-                                    .secure()
-                                    .name(customGptConfig.getJahiaServerCookieName())
-                                    .value(customGptConfig.getJahiaServerCookieValue())
-                                    .domain(customGptConfig.getJahiaServerCookieDomain())
-                                    .build();
-                            return Arrays.asList(cookie);
-                        } else {
-                            return Collections.emptyList();
-                        }
-                    }
-                };
                 jahiaClient = new OkHttpClient.Builder()
-                        .cookieJar(cookieJar)
-                        // Do not follow redirects: the session cookie must not be forwarded to redirect destinations.
+                        // Do not follow redirects: the render request carries the Jahia API token, and a redirect to
+                        // another host could forward the Authorization header to an attacker-controlled endpoint.
                         .followRedirects(false)
                         .followSslRedirects(false)
                         .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)

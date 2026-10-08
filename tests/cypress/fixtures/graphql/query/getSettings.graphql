@@ -11,9 +11,6 @@ query {
                 token
                 jahiaApiToken
                 jahiaGraphqlEndpoint
-                jahiaServerCookieName
-                jahiaServerCookieValue
-                jahiaServerCookieDomain
                 userAgent
                 serverName
                 siteServerNames

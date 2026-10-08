@@ -7,9 +7,6 @@ mutation saveSettings(
     $token: String,
     $jahiaApiToken: String,
     $jahiaGraphqlEndpoint: String,
-    $jahiaServerCookieName: String,
-    $jahiaServerCookieValue: String,
-    $jahiaServerCookieDomain: String,
     $dryRun: Boolean,
     $scheduleJobASAP: Boolean,
     $apiBaseUrl: String,
@@ -28,9 +25,6 @@ mutation saveSettings(
                 token: $token
                 jahiaApiToken: $jahiaApiToken
                 jahiaGraphqlEndpoint: $jahiaGraphqlEndpoint
-                jahiaServerCookieName: $jahiaServerCookieName
-                jahiaServerCookieValue: $jahiaServerCookieValue
-                jahiaServerCookieDomain: $jahiaServerCookieDomain
                 dryRun: $dryRun
                 scheduleJobASAP: $scheduleJobASAP
                 apiBaseUrl: $apiBaseUrl

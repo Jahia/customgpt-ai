@@ -279,9 +279,6 @@ public class GqlCustomGptAdminMutationResult {
             @GraphQLName("token") @GraphQLDescription("CustomGPT API token") String token,
             @GraphQLName("jahiaApiToken") @GraphQLDescription("Personal API token used to render pages through GraphQL") String jahiaApiToken,
             @GraphQLName("jahiaGraphqlEndpoint") @GraphQLDescription("Jahia GraphQL endpoint the module renders through") String jahiaGraphqlEndpoint,
-            @GraphQLName("jahiaServerCookieName") @GraphQLDescription("Jahia server cookie name") String jahiaServerCookieName,
-            @GraphQLName("jahiaServerCookieValue") @GraphQLDescription("Jahia server cookie value") String jahiaServerCookieValue,
-            @GraphQLName("jahiaServerCookieDomain") @GraphQLDescription("Jahia server cookie domain") String jahiaServerCookieDomain,
             @GraphQLName("dryRun") @GraphQLDescription("Dry run mode") Boolean dryRun,
             @GraphQLName("scheduleJobASAP") @GraphQLDescription("Schedule indexing jobs immediately") Boolean scheduleJobASAP,
             @GraphQLName("apiBaseUrl") @GraphQLDescription("CustomGPT API base URL") String apiBaseUrl,
@@ -327,9 +324,6 @@ public class GqlCustomGptAdminMutationResult {
             // and echoing that placeback back must leave the stored value untouched.
             putSecretIfChanged(props, "org.jahia.community.modules.customgpt.jahia.apiToken", jahiaApiToken);
             putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.graphqlEndpoint", jahiaGraphqlEndpoint);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.name", jahiaServerCookieName);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.value", jahiaServerCookieValue);
-            putIfNotNull(props, "org.jahia.community.modules.customgpt.jahia.serverCookie.domain", jahiaServerCookieDomain);
             if (dryRun != null) {
                 props.put("org.jahia.community.modules.customgpt.dryRun", dryRun);
             }

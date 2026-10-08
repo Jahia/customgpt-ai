@@ -14,9 +14,6 @@ export const GET_SETTINGS = gql`
                     token
                     jahiaApiToken
                     jahiaGraphqlEndpoint
-                    jahiaServerCookieName
-                    jahiaServerCookieValue
-                    jahiaServerCookieDomain
                     userAgent
                     serverName
                     siteServerNames
@@ -50,9 +47,6 @@ export const SAVE_SETTINGS = gql`
         $token: String,
         $jahiaApiToken: String,
         $jahiaGraphqlEndpoint: String,
-        $jahiaServerCookieName: String,
-        $jahiaServerCookieValue: String,
-        $jahiaServerCookieDomain: String,
         $dryRun: Boolean,
         $scheduleJobASAP: Boolean,
         $apiBaseUrl: String,
@@ -72,9 +66,6 @@ export const SAVE_SETTINGS = gql`
                     token: $token,
                     jahiaApiToken: $jahiaApiToken,
                     jahiaGraphqlEndpoint: $jahiaGraphqlEndpoint,
-                    jahiaServerCookieName: $jahiaServerCookieName,
-                    jahiaServerCookieValue: $jahiaServerCookieValue,
-                    jahiaServerCookieDomain: $jahiaServerCookieDomain,
                     dryRun: $dryRun,
                     scheduleJobASAP: $scheduleJobASAP,
                     apiBaseUrl: $apiBaseUrl,

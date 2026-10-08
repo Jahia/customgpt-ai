@@ -198,20 +198,15 @@ public final class JahiaRenderClient {
     }
 
     /**
-     * Applies the server cookie and user agent when configured.
+     * Applies the user agent when one is configured.
      *
-     * <p>Both still earn their place even though the call is local: in a cluster the cookie pins the request to
-     * a chosen node, and the agent remains useful if the endpoint is ever put behind something that inspects it.
+     * <p>It still earns its place even though the call is local: the endpoint may be put behind something that
+     * inspects the agent, and a named agent makes the indexer identifiable in an access log.
      */
     private static void applyOptionalHeaders(Request.Builder builder, Config config) {
         final String userAgent = config.getUserAgent();
         if (StringUtils.isNotEmpty(userAgent)) {
             builder.header("User-Agent", userAgent);
-        }
-        final String cookieName = config.getJahiaServerCookieName();
-        final String cookieValue = config.getJahiaServerCookieValue();
-        if (StringUtils.isNotEmpty(cookieName) && StringUtils.isNotEmpty(cookieValue)) {
-            builder.header("Cookie", cookieName + "=" + cookieValue);
         }
     }
 

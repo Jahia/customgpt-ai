@@ -35,9 +35,6 @@ public class ConfigParseTest {
     private static final String KEY_RATE_LIMIT    = NS + ".rateLimit.requestsPerSecond";
     private static final String KEY_PROJECT_ID    = NS + ".projectId";
     private static final String KEY_TOKEN         = NS + ".token";
-    private static final String KEY_COOKIE_NAME   = NS + ".jahia.serverCookie.name";
-    private static final String KEY_COOKIE_VALUE  = NS + ".jahia.serverCookie.value";
-    private static final String KEY_COOKIE_DOMAIN = NS + ".jahia.serverCookie.domain";
 
     // Main-resource and sub-node keys must be absent so splitNodeTypeByComma is never called
     // (it would hit NodeTypeRegistry which is not available outside OSGi).
@@ -313,9 +310,6 @@ public class ConfigParseTest {
         d.put(KEY_RATE_LIMIT, 10);
         d.put(KEY_PROJECT_ID, "");
         d.put(KEY_TOKEN, "");
-        d.put(KEY_COOKIE_NAME, "");
-        d.put(KEY_COOKIE_VALUE, "");
-        d.put(KEY_COOKIE_DOMAIN, "");
         return d;
     }
 
