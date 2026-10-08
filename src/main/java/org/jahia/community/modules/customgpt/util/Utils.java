@@ -119,20 +119,23 @@ public final class Utils {
         return getHostName(siteNode);
     }
 
-    /** The host derived from the site's {@code sitemapIndexURL}, ignoring any configured override. */
+    /**
+     * The host derived from the site's {@code sitemapIndexURL}, ignoring any configured override.
+     *
+     * <p>A private, loopback or link-local host is accepted. Nothing is fetched from it - rendering goes to the
+     * local GraphQL endpoint - so it is only ever the citation URL stored alongside the page, and whether that URL
+     * is reachable from outside the network is a deployment question rather than something this module decides.
+     * Refusing it used to skip the whole site, which withheld content that was itself perfectly indexable.
+     *
+     * <p>Note the asymmetry with a CONFIGURED server name, which {@link SecurityUtils#normalizeServerName(String)} still
+     * rejects when it names an internal host: that one is operator input and a typo there is worth catching,
+     * whereas this one is a property of the site as it was authored or imported.
+     */
     public static String getHostName(JCRSiteNode siteNode) {
         final String hostName;
         try {
             final String sitemapIndexURL = siteNode.getPropertyAsString("sitemapIndexURL");
             final URL serverUrl = URI.create(sitemapIndexURL).toURL();
-            // Nothing is fetched from this host - rendering goes to the local GraphQL endpoint - so it is only ever
-            // the citation URL stored in CustomGPT. A literal private/loopback/link-local address is refused
-            // because a citation nobody outside the network can open is worse than no citation.
-            if (SecurityUtils.isInternalHost(serverUrl.getHost())) {
-                LOGGER.error("Refusing to index site {}: sitemapIndexURL host resolves to an internal/private address,"
-                        + " which would be stored as an unreachable citation URL", siteNode.getPath());
-                return "";
-            }
             hostName = StringUtils.substringBeforeLast(sitemapIndexURL, serverUrl.getPath());
             return hostName;
         } catch (MalformedURLException | IllegalArgumentException e) {
