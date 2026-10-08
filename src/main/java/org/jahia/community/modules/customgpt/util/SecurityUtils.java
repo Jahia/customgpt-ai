@@ -12,13 +12,13 @@ import org.apache.commons.lang.StringUtils;
  *
  * <p>Two concerns are handled here:
  * <ul>
- *   <li><b>Write-only secrets.</b> Stored secrets (the CustomGPT token, the Jahia rendering password and the
- *       server-cookie value) must never be echoed back to a client. {@link #maskSecretForDisplay(String)} replaces
- *       a stored value with {@link #SECRET_PLACEHOLDER}, and {@link #isUnchangedSecret(String)} lets the save path
- *       recognise that sentinel (or a blank) and leave the stored value untouched.</li>
- *   <li><b>Transport safety.</b> {@link #isHttpsUrl(String)} gates anything that carries a credential (the
- *       configurable CustomGPT {@code apiBaseUrl} that travels with the Bearer token, and the Jahia page URL that
- *       travels with Basic auth) so secrets never leave over cleartext or a non-URL scheme.</li>
+ *   <li><b>Write-only secrets.</b> Stored secrets (the CustomGPT token and the Jahia API token) must never be
+ *       echoed back to a client. {@link #maskSecretForDisplay(String)} replaces a stored value with
+ *       {@link #SECRET_PLACEHOLDER}, and {@link #isUnchangedSecret(String)} lets the save path recognise that
+ *       sentinel (or a blank) and leave the stored value untouched.</li>
+ *   <li><b>Transport safety.</b> {@link #isHttpsUrl(String)} gates the one configurable URL that carries a
+ *       credential - the CustomGPT {@code apiBaseUrl}, which travels with the Bearer token - so the token never
+ *       leaves over cleartext or a non-URL scheme.</li>
  * </ul>
  */
 public final class SecurityUtils {
@@ -57,9 +57,9 @@ public final class SecurityUtils {
 
     /**
      * Validates that {@code url} is an absolute {@code https://} URL with a host, and that the host is not a literal
-     * private/loopback/link-local/unique-local IP address. Used to gate the configurable CustomGPT API base URL
-     * (which is sent together with the Bearer token) and the Jahia rendering URL (which carries Basic auth) so the
-     * credential cannot be exfiltrated over cleartext, to a non-HTTP scheme, or to an internal SSRF target.
+     * private/loopback/link-local/unique-local IP address. Used to gate the configurable CustomGPT API base URL,
+     * which is sent together with the Bearer token, so the token cannot be exfiltrated over cleartext, to a
+     * non-HTTP scheme, or to an internal SSRF target.
      *
      * <p>Hostnames are accepted as-is — no DNS resolution is performed (resolving an arbitrary attacker-supplied
      * hostname would itself be an SSRF/DoS vector). Only literal IP-address hosts are checked against the
@@ -183,15 +183,16 @@ public final class SecurityUtils {
      * to a node's rewritten path, or returns an empty string when the value cannot be used.
      *
      * <p>This is the override for the host that {@link Utils#getHostName(org.jahia.services.content.decorator.JCRSiteNode)}
-     * otherwise derives from a site's {@code sitemapIndexURL}. The resulting base is load-bearing twice: the module
-     * fetches the rendered page from it (carrying the Jahia Basic-auth credentials) and stores it as the citation
-     * URL in CustomGPT. An unusable value is therefore rejected outright and the caller falls back to
-     * {@code sitemapIndexURL}, rather than a half-applied host being concatenated into every indexed URL.
+     * otherwise derives from a site's {@code sitemapIndexURL}. Nothing is fetched from this base - rendering goes
+     * to the local GraphQL endpoint - so its single job is to be the citation URL stored in CustomGPT, the link a
+     * reader follows out of a chatbot answer. An unusable value is therefore rejected outright and the caller falls
+     * back to {@code sitemapIndexURL}, rather than a half-applied host being concatenated into every indexed URL.
      *
      * <p>Accepted: an absolute {@code http://} or {@code https://} URL with a host that is not a literal
-     * private/loopback/link-local address — the same SSRF guard {@code getHostName} applies to {@code sitemapIndexURL},
-     * for the same reason (the render request carries credentials). {@code http} is allowed because a sitemap host may
-     * legitimately be {@code http} on a local deployment; Basic auth is then skipped by the render request builder.
+     * private/loopback/link-local address - the same guard {@code getHostName} applies to {@code sitemapIndexURL}.
+     * A private address is refused because a citation nobody outside the network can open is worse than no
+     * citation. {@code http} is allowed because a sitemap host may legitimately be {@code http} on a local
+     * deployment.
      *
      * <p>Any path, query or fragment is dropped, so a sitemap URL can be pasted verbatim, and a trailing slash cannot
      * double up against the rewritten path. Scheme and host are lower-cased so the stored citation URL is stable
@@ -237,8 +238,8 @@ public final class SecurityUtils {
         // A bare host is the form Jahia itself uses for j:serverName, so accept it and assume https. Testing for
         // "://" rather than for a parsed scheme is deliberate: new URI("host:8443") parses "host" as the scheme and
         // "8443" as an opaque scheme-specific part, so a bare host carrying a port would otherwise be read as a
-        // non-http scheme and silently rejected. https rather than http because the render request this URL is
-        // fetched with carries the Jahia credentials.
+        // non-http scheme and silently rejected. https rather than http because a public citation URL should
+        // point at the secure origin by default.
         final String trimmed = rawServerName.trim();
         final String absolute = trimmed.contains(SCHEME_SEPARATOR) ? trimmed : SCHEME_HTTPS + SCHEME_SEPARATOR + trimmed;
         final URI uri;

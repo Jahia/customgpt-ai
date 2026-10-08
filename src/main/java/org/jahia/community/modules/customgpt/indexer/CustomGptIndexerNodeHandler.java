@@ -18,7 +18,6 @@ import javax.jcr.RepositoryException;
 import org.apache.commons.io.IOUtils;
 import org.jahia.services.content.decorator.JCRFileContent;
 import javax.servlet.ServletException;
-import okhttp3.Credentials;
 import okhttp3.FormBody;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
