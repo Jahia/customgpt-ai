@@ -161,14 +161,14 @@ public class GqlSettings {
     @GraphQLField
     @GraphQLName("jahiaApiToken")
     @GraphQLDescription("Personal API token used to render pages through GraphQL (write-only)")
-    public String getJahiaUsername() {
+    public String getJahiaApiToken() {
         return jahiaApiToken;
     }
 
     @GraphQLField
     @GraphQLName("jahiaGraphqlEndpoint")
     @GraphQLDescription("Jahia GraphQL endpoint the module renders through; local by default")
-    public String getJahiaPassword() {
+    public String getJahiaGraphqlEndpoint() {
         return jahiaGraphqlEndpoint;
     }
 
