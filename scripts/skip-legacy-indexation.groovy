@@ -27,27 +27,56 @@
  * customgptIndex child node. Stripping it destroys the sidecar, so the next republish finds no page id,
  * skips the DELETE entirely and POSTs a fresh copy: duplicates instead of prevention.
  *
- * WORKSPACES
- * ----------
- * Both, deliberately. IndexerJCRListener binds to LIVE (setWorkspace(Constants.LIVE_WORKSPACE)) and the
- * index builder reads LIVE, so a mixin present only in EDIT does nothing until the page is published --
- * and publishing 912 archived pages would also push whatever unrelated drafts sit beside them in EDIT.
- * Writing LIVE directly keeps the blast radius to this one mixin. EDIT is written too so a later publish
- * cannot silently undo it.
+ * WORKSPACES -- EDIT ONLY. DO NOT WRITE LIVE DIRECTLY.
+ * ----------------------------------------------------
+ * Adding a mixin straight into LIVE triggers a bug in the product. The supported route is to add the
+ * mixin in EDIT and then PUBLISH the nodes; publication is what carries it to LIVE.
  *
- * Consequence to expect: touching EDIT marks those nodes as modified, so they will appear as awaiting
- * publication. On archived trees that is noise rather than harm, and publishing them later is a no-op for
- * this mixin because LIVE already has it. Set WORKSPACES to LIVE only if you would rather avoid that --
- * but then a future publish from EDIT may drop the mixin from LIVE unless it is also registered in the
- * EDIT node's j:liveProperties (the mechanism the sibling cleanup script scrubs). That path is NOT
- * exercised here because it could not be verified against a running instance.
+ * Worth stating plainly, because the reasoning that argues for writing LIVE is persuasive and wrong:
+ * IndexerJCRListener binds to LIVE and the index builder reads LIVE, so a mixin present only in EDIT
+ * does nothing until publication. That is true about the indexer and wrong about the repository.
+ *
+ * The script therefore marks EDIT only. Publishing is a separate, deliberate step you perform afterwards
+ * -- not automated here, because publishing a tree also pushes whatever unrelated drafts sit beside those
+ * nodes in EDIT, and that decision is not this script's to make.
+ *
+ * NEITHER HALF CASCADES
+ * ---------------------
+ * Service.skipIndexationForNode() is a bare isNodeType() on the node it is handed, with no ancestor walk,
+ * and handleSkipIndexMixinEvent resolves only the single node whose jcr:mixinTypes changed. So marking a
+ * root does nothing for the tree beneath it -- neither removal nor future prevention.
+ *
+ * This script works because ROOTS is a QUERY SCOPE, not a marker: it queries every matching descendant
+ * and marks each one individually.
+ *
+ * WHAT PUBLISHING DOES TO THE CORPUS -- measured; read this before publishing
+ * --------------------------------------------------------------------------
+ * Publishing the mixin addition does NOT simply remove the page. Measured over a batch: each page was
+ * DELETEd and then immediately re-POSTed under a NEW page id, roughly one every 3.5 seconds, after which
+ * the corpus sat completely static with every re-upload still present.
+ *
+ * Both halves follow from the ordering. The LIVE mixin change fires handleSkipIndexMixinEvent ->
+ * tryQueueMappingRemoval -> DELETE. The publication ALSO fires an ordinary indexation event for the same
+ * node, which re-uploads it. The re-upload lands last, so the net effect is a fresh document.
+ *
+ * It does not loop: the node now carries the mixin in LIVE, so skipIndexationForNode() returns true and
+ * nothing indexes it again. But nothing removes the orphan either -- no further event fires for a node
+ * that is already marked.
+ *
+ * CONSEQUENCE: publishing leaves the pages in the project, marked. Delete them from the project
+ * afterwards. That deletion is permanent precisely BECAUSE the mixin is now in LIVE -- which is NOT true
+ * of a deletion made before marking, where the next indexation run simply restores the page. Verify by
+ * re-reading the corpus a few minutes later: an immediate read cannot tell the two apart.
  *
  * SIDE EFFECT
  * -----------
- * The LIVE mixin change fires IndexerJCRListener.handleSkipIndexMixinEvent, which queues a mapping removal
- * -- one CustomGPT DELETE per node. Those pages are already deleted, so each returns 403 and is discarded.
- * Harmless, but real traffic against an API that degrades under sustained volume (it starts answering
- * `status: success` with an empty payload instead of 429), which is why saves are batched.
+ * Marking EDIT writes nothing externally: the listener binds to LIVE, so no event fires until you publish.
+ * It does mark every node as modified, so the tree shows as awaiting publication -- which is the handle
+ * you then use to publish exactly these nodes.
+ *
+ * On publication each node generates one DELETE and one POST (above). That is real traffic against an API
+ * which degrades badly under sustained volume -- it starts answering `status: success` with an empty
+ * payload instead of 429 -- so publish in batches and re-measure between them.
  *
  * USAGE
  * -----
@@ -105,7 +134,11 @@ final List<String> ROOTS = [
 /** The node types the indexer treats as main resources. Keep in step with the module settings. */
 final List<String> TYPES = ['jnt:page', 'jnt:file']
 
-final List<String> WORKSPACES = [Constants.EDIT_WORKSPACE, Constants.LIVE_WORKSPACE]
+/**
+ * EDIT only. Adding the mixin directly in LIVE triggers a product bug -- publish the marked nodes
+ * instead, which is what carries the mixin to LIVE. See the WORKSPACES note in the header.
+ */
+final List<String> WORKSPACES = [Constants.EDIT_WORKSPACE]
 
 final int BATCH_SIZE = 100
 
