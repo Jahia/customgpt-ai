@@ -109,13 +109,13 @@ production `sitemapIndexURL`, and a site may carry no `sitemapIndexURL` at all.
 
 ```properties
 # every site on this instance
-org.jahia.community.modules.customgpt.serverName=academypp.jahia.com
+org.jahia.community.modules.customgpt.serverName=preprod.example.com
 # one site only, wins over the above
-org.jahia.community.modules.customgpt.site.academy.serverName=academy.jahia.com
+org.jahia.community.modules.customgpt.site.mysite.serverName=www.mysite.example.com
 ```
 
 A bare host name is what Jahia's own `j:serverName` holds, so that is the form to reach for. A scheme and a port
-are both accepted (`https://academypp.jahia.com`, `academypp.jahia.com:8443`); a value with no scheme is read as
+are both accepted (`https://preprod.example.com`, `preprod.example.com:8443`); a value with no scheme is read as
 `https://`, because the indexer's API token travels with the request and must not be downgraded to
 cleartext. Set `http://` explicitly if the host really is served over cleartext.
 

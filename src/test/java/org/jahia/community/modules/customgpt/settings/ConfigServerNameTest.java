@@ -53,24 +53,24 @@ public class ConfigServerNameTest {
     public void getServerName_appliesTheGlobalOverrideToAnySite() {
         // Arrange: one override for the whole instance, the usual preproduction case
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "https://academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "https://preprod.example.com");
 
         // Act
         callUpdated(props);
 
         // Assert
-        assertThat(config.getServerName("academy")).isEqualTo("https://academypp.jahia.com");
-        assertThat(config.getServerName("digitall")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("academy")).isEqualTo("https://preprod.example.com");
+        assertThat(config.getServerName("digitall")).isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void getServerName_normalisesTheConfiguredValue() {
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "https://academypp.jahia.com/sitemap.xml");
+        props.put(KEY_SERVER_NAME, "https://preprod.example.com/sitemap.xml");
 
         callUpdated(props);
 
-        assertThat(config.getServerName("academy")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("academy")).isEqualTo("https://preprod.example.com");
     }
 
     // ---- per-site override ----
@@ -79,13 +79,13 @@ public class ConfigServerNameTest {
     public void getServerName_prefersThePerSiteOverrideOverTheGlobalOne() {
         // Arrange: "in some cases" — one site keeps its own host while the rest follow the global default
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "https://academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "https://preprod.example.com");
         props.put(KEY_SERVER_NAME_ACADEMY, "https://academy.jahia.com");
 
         callUpdated(props);
 
         assertThat(config.getServerName("academy")).isEqualTo("https://academy.jahia.com");
-        assertThat(config.getServerName("digitall")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("digitall")).isEqualTo("https://preprod.example.com");
     }
 
     @Test
@@ -114,12 +114,12 @@ public class ConfigServerNameTest {
     @Test
     public void getServerName_fallsBackToTheGlobalOverrideWhenTheSiteKeyIsUnknown() {
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "https://academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "https://preprod.example.com");
 
         callUpdated(props);
 
-        assertThat(config.getServerName(null)).isEqualTo("https://academypp.jahia.com");
-        assertThat(config.getServerName("")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName(null)).isEqualTo("https://preprod.example.com");
+        assertThat(config.getServerName("")).isEqualTo("https://preprod.example.com");
     }
 
     // ---- rejected values fall back rather than break indexation ----
@@ -129,7 +129,7 @@ public class ConfigServerNameTest {
         // A bad value must not become a host: it would be concatenated into every indexed URL. Falling back to
         // sitemapIndexURL keeps indexation working, and Config logs the rejection.
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "ftp://academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "ftp://preprod.example.com");
 
         callUpdated(props);
 
@@ -141,12 +141,12 @@ public class ConfigServerNameTest {
         // The form an admin will actually type, matching Jahia's own j:serverName. Callers concatenate the result
         // with a path, so what comes back must be an origin even though what went in was not.
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "preprod.example.com");
         props.put(KEY_SERVER_NAME_ACADEMY, "academy.jahia.com:8443");
 
         callUpdated(props);
 
-        assertThat(config.getServerName("digitall")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("digitall")).isEqualTo("https://preprod.example.com");
         assertThat(config.getServerName("academy")).isEqualTo("https://academy.jahia.com:8443");
     }
 
@@ -163,24 +163,24 @@ public class ConfigServerNameTest {
     @Test
     public void getServerName_fallsBackToTheGlobalOverrideWhenThePerSiteOneIsRejected() {
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "https://academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "https://preprod.example.com");
         props.put(KEY_SERVER_NAME_ACADEMY, "ftp://academy.jahia.com");
 
         callUpdated(props);
 
-        assertThat(config.getServerName("academy")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("academy")).isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void getServerName_ignoresAnEmptyPerSiteOverride() {
         // The shipped .cfg can carry the key with no value; that means "not configured", not "no host".
         final Dictionary<String, Object> props = minimalValidProps();
-        props.put(KEY_SERVER_NAME, "https://academypp.jahia.com");
+        props.put(KEY_SERVER_NAME, "https://preprod.example.com");
         props.put(KEY_SERVER_NAME_ACADEMY, "");
 
         callUpdated(props);
 
-        assertThat(config.getServerName("academy")).isEqualTo("https://academypp.jahia.com");
+        assertThat(config.getServerName("academy")).isEqualTo("https://preprod.example.com");
     }
 
     @Test

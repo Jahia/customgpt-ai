@@ -22,32 +22,32 @@ public class SecurityUtilsServerNameTest {
 
     @Test
     public void normalizeServerName_keepsAWellFormedHttpsBase() {
-        assertThat(SecurityUtils.normalizeServerName("https://academypp.jahia.com"))
-                .isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("https://preprod.example.com"))
+                .isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void normalizeServerName_stripsATrailingSlash() {
         // Arrange: the shape an admin most often pastes out of a browser address bar
-        final String configured = "https://academypp.jahia.com/";
+        final String configured = "https://preprod.example.com/";
 
         // Act
         final String normalized = SecurityUtils.normalizeServerName(configured);
 
         // Assert: a trailing slash would double up against the rewritten path ("//home.html")
-        assertThat(normalized).isEqualTo("https://academypp.jahia.com");
+        assertThat(normalized).isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void normalizeServerName_dropsAnyPathSoASitemapUrlCanBePastedVerbatim() {
-        assertThat(SecurityUtils.normalizeServerName("https://academypp.jahia.com/sitemap.xml"))
-                .isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("https://preprod.example.com/sitemap.xml"))
+                .isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void normalizeServerName_keepsAnExplicitPort() {
-        assertThat(SecurityUtils.normalizeServerName("https://academypp.jahia.com:8443/"))
-                .isEqualTo("https://academypp.jahia.com:8443");
+        assertThat(SecurityUtils.normalizeServerName("https://preprod.example.com:8443/"))
+                .isEqualTo("https://preprod.example.com:8443");
     }
 
     @Test
@@ -66,8 +66,8 @@ public class SecurityUtilsServerNameTest {
 
     @Test
     public void normalizeServerName_trimsSurroundingWhitespace() {
-        assertThat(SecurityUtils.normalizeServerName("  https://academypp.jahia.com  "))
-                .isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("  https://preprod.example.com  "))
+                .isEqualTo("https://preprod.example.com");
     }
 
     // ---- rejected: nothing configured ----
@@ -89,27 +89,27 @@ public class SecurityUtilsServerNameTest {
         // Jahia's own j:serverName is a bare host, so that is what an admin will reach for. Rejecting it would
         // leave the module silently falling back to sitemapIndexURL; https is assumed because the render request
         // carries the Jahia credentials and must not be downgraded to cleartext.
-        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com")).isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("preprod.example.com")).isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void normalizeServerName_keepsThePortOnABareHostName() {
         // The case that makes a "does it contain a scheme" test necessary: new URI("host:8443") parses "host"
         // as the SCHEME, so a naive parse would read the port as an opaque scheme-specific part and drop the host.
-        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com:8443"))
-                .isEqualTo("https://academypp.jahia.com:8443");
+        assertThat(SecurityUtils.normalizeServerName("preprod.example.com:8443"))
+                .isEqualTo("https://preprod.example.com:8443");
     }
 
     @Test
     public void normalizeServerName_dropsThePathFromABareHostName() {
-        assertThat(SecurityUtils.normalizeServerName("academypp.jahia.com/sitemap.xml"))
-                .isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("preprod.example.com/sitemap.xml"))
+                .isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void normalizeServerName_lowerCasesABareHostName() {
-        assertThat(SecurityUtils.normalizeServerName("  ACADEMYPP.Jahia.COM  "))
-                .isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("  PREPROD.Example.COM  "))
+                .isEqualTo("https://preprod.example.com");
     }
 
     @Test
@@ -124,12 +124,12 @@ public class SecurityUtilsServerNameTest {
 
     @Test
     public void normalizeServerName_rejectsASchemeRelativeUrl() {
-        assertThat(SecurityUtils.normalizeServerName("//academypp.jahia.com")).isEmpty();
+        assertThat(SecurityUtils.normalizeServerName("//preprod.example.com")).isEmpty();
     }
 
     @Test
     public void normalizeServerName_rejectsANonHttpScheme() {
-        assertThat(SecurityUtils.normalizeServerName("ftp://academypp.jahia.com")).isEmpty();
+        assertThat(SecurityUtils.normalizeServerName("ftp://preprod.example.com")).isEmpty();
     }
 
     @Test
@@ -175,12 +175,12 @@ public class SecurityUtilsServerNameTest {
     public void normalizeServerName_dropsUserinfoSoACredentialCannotBeSmuggledIntoTheIndexedUrl() {
         // The host is what both the validator and OkHttp act on; the userinfo is discarded rather than carried
         // into the citation URL stored in CustomGPT.
-        assertThat(SecurityUtils.normalizeServerName("https://user:pass@academypp.jahia.com"))
-                .isEqualTo("https://academypp.jahia.com");
+        assertThat(SecurityUtils.normalizeServerName("https://user:pass@preprod.example.com"))
+                .isEqualTo("https://preprod.example.com");
     }
 
     @Test
     public void normalizeServerName_rejectsUserinfoPointingAtAnInternalHost() {
-        assertThat(SecurityUtils.normalizeServerName("https://academypp.jahia.com@127.0.0.1")).isEmpty();
+        assertThat(SecurityUtils.normalizeServerName("https://preprod.example.com@127.0.0.1")).isEmpty();
     }
 }
