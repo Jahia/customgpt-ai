@@ -7,17 +7,15 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * On 2026-09-30 a prune deleted 912 obsolete pages from the CustomGPT project (127 /archives/,
- * 156 legacy-1/digital-experience-manager, 381 other legacy-1/, 207 jahia-cms/jahia-7.x, 41 non-public
- * Archives files). That prune was CustomGPT-side only -- nothing was changed in Jahia -- so every one of
- * those pages still carries its jmix:customGptIndexable sidecar holding a customGptPageId that now points
- * at a deleted CustomGPT page.
+ * Deleting obsolete pages from the CustomGPT project does not keep them out. A project-side prune changes
+ * nothing in Jahia, so every pruned page still carries its jmix:customGptIndexable sidecar holding a
+ * customGptPageId that now points at a deleted CustomGPT page.
  *
  * A single republish of any of them brings the legacy content straight back:
  *
  *   republish -> module reads the stale sidecar id -> DELETE returns HTTP 403 (measured semantics for an
  *   already-deleted id, not 404) -> removeExistingPage() discards deleteCustomGptPage()'s boolean, so the
- *   failure is silent -> POST proceeds -> the Jahia 7.x page is back in the corpus.
+ *   failure is silent -> POST proceeds -> the retired page is back in the corpus.
  *
  * jmix:skipCustomGptIndexation is the module's real opt-out: Service.skipIndexationForNode() tests it and
  * AbstractIndexBuilder consults that before building an index entry.
@@ -103,32 +101,32 @@ import javax.jcr.query.Query
 final boolean DRY_RUN = true
 
 /**
- * The trees the 2026-09-30 prune emptied, resolved against the 2026-09-11 site export.
+ * The roots to retire. EMPTY BY DESIGN -- fill it in for your instance before running.
  *
- * The prune recorded its targets as site URLs and its manifest is gone, so these were recovered by
- * resolving the legacy URL prefixes through the site's jnt:vanityUrl nodes. None of the URL segments is a
- * JCR path segment: /archives is a vanity URL on the legacy-1 page, and jahia-cms exists nowhere in the
- * repository -- it appears only inside vanity URLs.
+ * ROOTS IS A QUERY SCOPE, NOT A MARKER. Nothing cascades: the script queries every matching descendant of
+ * each root and marks each node individually. Listing a root does not mark the tree beneath it.
  *
- * READING PATHS OUT OF AN EXPORT: the export XML escapes any node name that is not a legal XML element
- * name, so the 7.3 docs appear there as <_x0037__3>. That escaping belongs to the file, not to the
- * repository -- the JCR name is 7_3 (siblings 8_1, 8_2), and the home 404 page exports as <_x0034_04>.
- * Decode _xHHHH_ back to its character before putting a path in this list or in PROTECTED.
+ * TWO PATH TRAPS, both of which have produced roots that silently resolve to nothing:
+ *
+ * 1. A URL segment is not a JCR segment. Vanity URLs (jnt:vanityUrl) invent prefixes that exist nowhere in
+ *    the repository, so a path copied out of a browser address bar or out of a prune log may have no node
+ *    behind it at all. Resolve legacy URL prefixes through the site's jnt:vanityUrl nodes, not by hand.
+ *
+ * 2. Export XML escapes any node name that is not a legal XML element name -- which includes every name
+ *    starting with a digit. A directory named 1_2 appears in an export as <_x0031__2>, and a page named
+ *    404 as <_x0034_04>. That escaping belongs to the file, not to the repository. Decode _xHHHH_ back to
+ *    its character before putting a path in this list or in PROTECTED_PREFIXES.
+ *
+ * Note also that version directories normally separate with an underscore, not a dot.
+ *
+ * BEFORE ADDING A ROOT, establish which of two kinds it is -- they differ in consequence, not in mechanism:
+ *   - already removed from the CustomGPT project: the DELETE each node queues here is a no-op against an id
+ *     that is already gone, and marking is pure prevention.
+ *   - still in the live corpus: marking ACTIVELY REMOVES it, and the chatbot stops being able to answer
+ *     about that content at all. That is a product decision about who the chatbot serves, not cleanup.
+ * Run the first kind on its own first.
  */
 final List<String> ROOTS = [
-        // "Archives" in the UI; its /archives vanity URL is why the prune logged 127 pages under that
-        // prefix and 537 more under legacy-1/. One tree, two URL forms. 781 jnt:page descendants.
-        '/sites/academy/home/documentation/legacy-1',
-        // Jahia 7.3 docs. The node is named 7_3, not 7.3: the version separator is an underscore, and its
-        // siblings are 8_1 and 8_2. 217 jnt:page descendants, against the prune's 207 jahia-cms/jahia-7.x.
-        '/sites/academy/home/documentation/jahia/7_3',
-        // Jahia 8.1 docs, 199 jnt:page. DIFFERENT IN KIND FROM THE ROOTS ABOVE -- read this before running.
-        // Those were deleted from CustomGPT in September, so the DELETE each one queues here is a no-op
-        // against an id that is already gone. These 199 are still in the live corpus, so marking them
-        // actively removes them: the chatbot stops being able to answer about 8.1 at all. 8.1 is the
-        // version immediately before current, not an archive, so that is a product decision about who the
-        // chatbot serves, not cleanup. Comment this line out to run the archive roots on their own first.
-        '/sites/academy/home/documentation/jahia/8_1'
 ]
 
 /** The node types the indexer treats as main resources. Keep in step with the module settings. */
@@ -148,33 +146,29 @@ final String MANIFEST_FILE = null
 final String SKIP_MIXIN = 'jmix:skipCustomGptIndexation'
 
 /**
- * Content that must never be marked: the current product documentation trees, reasserting on every run
- * what the prune verified it had not touched. One match aborts the whole run before any write -- a wrong
+ * Content that must never be marked: the trees that are still current. The point is to reassert on every
+ * run what you believe you are not touching. One match aborts the whole run before any write -- a wrong
  * root is far likelier than a wrong individual node, so failing the batch beats skipping the node.
  *
- * These are whole-path prefixes, not substrings. A substring test is wrong here: legacy-1 holds pages like
- * .../legacy-1/1/sysadmin/release-notes/jexperience-1.11.0 -- jExperience 1.11 release notes, archived
- * content that must be marked -- and a bare "jexperience" test flags all 18 of them. What makes a page
- * current is where its tree starts, not a product name appearing somewhere along the way.
+ * These are whole-path prefixes, not substrings. A substring test is wrong here: a retired tree routinely
+ * holds pages whose names contain a current product's name -- archived release notes for a product that is
+ * still shipping, say -- and a bare product-name test flags every one of them. What makes a page current is
+ * where its tree starts, not a product name appearing somewhere along the way.
  */
 final List<String> PROTECTED_PREFIXES = [
-        '/sites/academy/home/documentation/forms',
-        '/sites/academy/home/documentation/jexperience',
-        '/sites/academy/home/documentation/jahia-cloud',
-        '/sites/academy/home/documentation/augmented-search',
-        '/sites/academy/home/documentation/knowledge-base',
-        '/sites/academy/home/documentation/glossary',
-        '/sites/academy/home/customer-center'
 ]
 
 /**
- * Everything under documentation/jahia except the version trees being retired: 8_2 today, and any version
- * directory added later without anyone remembering to update this script. Keep this list in step with the
- * jahia/* entries in ROOTS -- they are deliberately two separate lists, so that a typo in one cannot
- * quietly disarm the other.
+ * Optional second guard, for the common shape where sibling version directories live under one parent and
+ * only some are being retired. Written as a negative lookahead so that a version directory added LATER is
+ * protected by default, rather than silently becoming eligible because nobody remembered to update a list.
+ *
+ * Keep it in step with the corresponding ROOTS entries -- deliberately two separate expressions, so that a
+ * typo in one cannot quietly disarm the other. Leave null to disable.
+ *
+ * e.g. ~/^\/sites\/<site>\/<parent>\/(?!(<retired>|<retired>)(\/|$))/
  */
-final java.util.regex.Pattern PROTECTED_CURRENT_JAHIA =
-        ~/^\/sites\/academy\/home\/documentation\/jahia\/(?!(7_3|8_1)(\/|$))/
+final java.util.regex.Pattern PROTECTED_CURRENT_PARENT = null
 
 // ---------------------------------------------------------------------------
 
@@ -189,6 +183,17 @@ def emit = { String line ->
 
 /** SQL2 string literals escape a single quote by doubling it. */
 def sql2Literal = { String value -> value.replace("'", "''") }
+
+// --- pass 0: refuse to run unconfigured ------------------------------------
+// An empty ROOTS would pass every guard below and report "0 node(s) to mark" as a success. Marking
+// nothing must never look like having marked something.
+
+if (!ROOTS) {
+    def message = "${TAG} ABORT - ROOTS is empty. Fill it in for this instance; a run with no roots " +
+            'would report success having written nothing.'
+    log.error(message)
+    return message
+}
 
 // --- pass 1: verify the roots resolve -------------------------------------
 // Done in EDIT, which holds every node including those never published.
@@ -239,10 +244,19 @@ WORKSPACES.each { workspace ->
 }
 
 // --- guard: nothing current may be in the selection ------------------------
+// With neither PROTECTED_PREFIXES nor PROTECTED_CURRENT_PARENT set, isProtected() is constantly false and
+// the abort below can never fire. That is a legitimate configuration -- there may be nothing adjacent worth
+// protecting -- but it must be stated rather than discovered, because the failure it guards against (a root
+// one level too high) writes the mixin across current content and is only visible afterwards.
+
+if (!PROTECTED_PREFIXES && PROTECTED_CURRENT_PARENT == null) {
+    log.warn("${TAG} NO PROTECTION CONFIGURED - every selected node will be marked. Set PROTECTED_PREFIXES " +
+            'to the current trees that must never be touched, or confirm deliberately that none exist.')
+}
 
 def isProtected = { String path ->
     PROTECTED_PREFIXES.any { path == it || path.startsWith(it + '/') } ||
-            PROTECTED_CURRENT_JAHIA.matcher(path).find()
+            (PROTECTED_CURRENT_PARENT != null && PROTECTED_CURRENT_PARENT.matcher(path).find())
 }
 
 def violations = selected.values().flatten().unique().findAll { path -> isProtected(path) }
@@ -262,8 +276,8 @@ emit("types: ${TYPES.join(', ')}")
 
 WORKSPACES.each { workspace ->
     emit("${workspace}: ${selected[workspace].size()} node(s) to mark")
-    // Per root as well as in total. The roots differ in consequence -- the archives are already gone from
-    // CustomGPT, 8_1 is not -- so a single number is the one thing that must not be the only number.
+    // Per root as well as in total. The roots differ in consequence -- some are already gone from the
+    // CustomGPT project, others are still live -- so one number is the thing that must not be the only one.
     ROOTS.each { root ->
         def n = selected[workspace].count { it == root || it.startsWith(root + '/') }
         emit("  ${String.format('%5d', n)}  ${root}")
@@ -272,8 +286,8 @@ WORKSPACES.each { workspace ->
 }
 
 if (MANIFEST_FILE) {
-    // Durable on purpose: the 2026-09-30 prune kept its manifest in a session scratchpad and lost it,
-    // which is why the roots above had to be reconstructed rather than read back.
+    // Durable on purpose. A manifest kept only in a session scratchpad is lost when the session ends, and
+    // the roots then have to be reconstructed from URL prefixes rather than read back.
     def manifest = new File(MANIFEST_FILE)
     manifest.withWriter('UTF-8') { writer ->
         writer.writeLine("# ${new Date().format('yyyy-MM-dd HH:mm:ss')} mixin=${SKIP_MIXIN} dryRun=${DRY_RUN}")
