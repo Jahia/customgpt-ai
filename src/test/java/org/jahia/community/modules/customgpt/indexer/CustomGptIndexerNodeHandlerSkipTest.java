@@ -99,6 +99,48 @@ public class CustomGptIndexerNodeHandlerSkipTest {
     private final AtomicReference<String> renderedWithContext = new AtomicReference<>();
     private final AtomicReference<String> renderedNodePath = new AtomicReference<>();
 
+    // ---- a node that is live-only ----
+
+    @Test
+    public void aNodeWithNoCounterpartInTheEditWorkspaceIsSkippedBeforeAnythingIsUploaded() throws Exception {
+        // Deleting a page in edit mode without publishing the deletion leaves it live and public, but absent
+        // from `default`. Such a node renders perfectly, so it used to be uploaded - and only THEN did the
+        // mapping write fail, in `default`, where the node no longer is.
+        //
+        // The order is what made it compound: the document was already in the project, the run was marked
+        // FAILED, the metadata write that follows the mapping never ran (leaving a document with no URL, which
+        // cannot be cited), and because no mapping was stored the next run found nothing to replace and
+        // uploaded it again. One unpublished deletion added an uncitable duplicate on every indexation.
+        final JCRNodeWrapper node = mock(JCRNodeWrapper.class);
+        when(node.getPath()).thenReturn(NODE);
+
+        final JCRSessionWrapper session = mock(JCRSessionWrapper.class);
+        when(session.nodeExists(NODE)).thenReturn(true);
+        when(session.getNode(NODE)).thenReturn(node);
+
+        final Config config = mock(Config.class);
+        when(config.isDryRun()).thenReturn(false);
+        when(indexer.getCustomGptConfig()).thenReturn(config);
+
+        final JCRTemplate template = mock(JCRTemplate.class);
+        // The edit-workspace lookup answers "not there".
+        when(template.doExecuteWithSystemSessionAsUser(any(), any(), any(), any())).thenReturn(false);
+
+        try (MockedStatic<JCRTemplate> templates = mockStatic(JCRTemplate.class);
+                MockedStatic<JahiaRenderClient> render = mockStatic(JahiaRenderClient.class)) {
+            templates.when(JCRTemplate::getInstance).thenReturn(template);
+
+            CustomGptIndexerNodeHandler.indexInSession(session, customGptClient, mock(OkHttpClient.class),
+                    node, mock(JCRSiteNode.class), LANGUAGE, "https://api.example", indexer, null);
+
+            // Nothing rendered means nothing uploaded: the skip happens before the page can reach the project.
+            render.verify(() -> JahiaRenderClient.render(any(), any(), any(), any(), any()), never());
+        }
+
+        // And it is not a failure. The state is transient and resolves when the deletion is published.
+        verify(indexer, never()).recordFailure(any(), any(), any());
+    }
+
     // ---- the asymmetry ----
 
     @Test

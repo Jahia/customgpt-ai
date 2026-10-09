@@ -155,6 +155,24 @@ final class CustomGptIndexerNodeHandler {
             LOGGER.warn("Skipping indexation of {}: it does not exist in the live workspace", nodeToIndex.getPath());
             return;
         }
+        if (isMissingFromEditWorkspace(rootUser, nodeToIndex.getPath())) {
+            // Deleted in edit mode without the deletion being published: still live and public, but gone from
+            // `default`, where the mapping node that records the CustomGPT page id has to live.
+            //
+            // This has to be caught HERE, before the upload, not where it used to surface. The page renders
+            // perfectly, so it was uploaded and only then did the mapping write fail - leaving the document in
+            // the project, the run marked FAILED, and the metadata write that follows the mapping unrun, so the
+            // document carried no URL and could not be cited. Worse, with no mapping stored the next run found
+            // nothing to replace and uploaded it again: one unpublished deletion added an uncitable duplicate
+            // on every single indexation.
+            //
+            // Not a failure: the state is transient and resolves itself when the deletion is published, which
+            // also removes the page from the project through the ordinary delete path.
+            LOGGER.warn("Skipping indexation of {}: it is published but no longer exists in the edit workspace,"
+                    + " so there is nowhere to record its CustomGPT page id. Publish the deletion to remove it"
+                    + " from the project, or restore the node.", nodeToIndex.getPath());
+            return;
+        }
         if (customGptIndexer.getCustomGptConfig().isDryRun()) {
             // Say so. This used to return silently, which is indistinguishable from indexing that simply never
             // happened - and dryRun defaults to true in the shipped configuration, so it is the likeliest reason
@@ -476,6 +494,19 @@ final class CustomGptIndexerNodeHandler {
         PageGoneException(String pageId, int status) {
             super("CustomGPT no longer holds page " + pageId + " (HTTP " + status + ")");
         }
+    }
+
+    /**
+     * Whether the node is published but no longer present in the edit workspace.
+     *
+     * <p>Only a positive "not there" counts. Any other answer falls through to the normal path, so an
+     * unexpected one surfaces as a failure rather than as content silently dropped from the corpus - the
+     * failure mode this module has repeatedly been bitten by.
+     */
+    private static boolean isMissingFromEditWorkspace(JahiaUser rootUser, String nodePath) throws RepositoryException {
+        final Boolean exists = JCRTemplate.getInstance().doExecuteWithSystemSessionAsUser(rootUser,
+                Constants.EDIT_WORKSPACE, null, session -> session.nodeExists(nodePath));
+        return Boolean.FALSE.equals(exists);
     }
 
     private static String getExistingPageId(JahiaUser rootUser, String nodePath) throws RepositoryException {

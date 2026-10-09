@@ -1,7 +1,0 @@
-mutation CreateToken($name: String!, $expireAt: String, $scopes: [String]) {
-    admin {
-        personalApiTokens {
-            createToken(name: $name, expireAt: $expireAt, scopes: $scopes)
-        }
-    }
-}

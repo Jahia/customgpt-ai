@@ -16,8 +16,6 @@ describe('CustomGPT.ai indexation server name', function () {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const saveSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/saveSettings.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const createToken: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/createToken.graphql');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const getSettings: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/query/getSettings.graphql');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const setNodeProperty: DocumentNode = require('graphql-tag/loader!../fixtures/graphql/mutation/setNodeProperty.graphql');
@@ -164,7 +162,7 @@ describe('CustomGPT.ai indexation server name', function () {
             variables: {pathOrId: overridePath(), languages: ['en'], publishSubNodes: true, includeSubTree: true}
         });
 
-        configureIndexer(siteKey(), saveSettings, createToken, {scheduleJobASAP: false});
+        configureIndexer(siteKey(), saveSettings, {scheduleJobASAP: false});
     });
 
     after(() => {
