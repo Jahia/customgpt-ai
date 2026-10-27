@@ -3,13 +3,17 @@ package org.jahia.community.modules.customgpt.graphql.extensions.query;
 import graphql.annotations.annotationTypes.GraphQLDescription;
 import graphql.annotations.annotationTypes.GraphQLField;
 import graphql.annotations.annotationTypes.GraphQLName;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Collection;
 import javax.jcr.AccessDeniedException;
 import javax.jcr.RepositoryException;
 import org.jahia.community.modules.customgpt.CustomGptConstants;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSettings;
+import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSgeDeployment;
 import org.jahia.community.modules.customgpt.graphql.extensions.models.GqlSiteListModel;
 import org.jahia.community.modules.customgpt.service.Service;
+import org.jahia.community.modules.customgpt.service.SgeDeployment;
 import org.jahia.community.modules.customgpt.service.models.Site;
 import org.jahia.community.modules.customgpt.settings.Config;
 import org.jahia.community.modules.customgpt.util.SecurityUtils;
@@ -48,6 +52,51 @@ public class AdminQueries {
         }
         final Collection<Site> indexedSites = BundleUtils.getOsgiService(Service.class, null).getIndexedSites().values();
         return new GqlSiteListModel(indexedSites);
+    }
+
+    @GraphQLField
+    @GraphQLName("sgeDeployment")
+    @GraphQLDescription("Resolve the assistant deployment on the node answering this query, and say why")
+    public GqlSgeDeployment getSgeDeployment(
+            @GraphQLName("refresh")
+            @GraphQLDescription("Drop this node's cached answer first, forcing a live resolution")
+            Boolean refresh) {
+        try {
+            checkAdminPermission(CustomGptConstants.PATH_DELIMITER, CUSTOM_GPT_ADMIN);
+        } catch (RepositoryException e) {
+            LOGGER.warn("Permission check failed for sgeDeployment", e);
+            throw new DataFetchingException(ERR_PERMISSION);
+        }
+        final Service service = BundleUtils.getOsgiService(Service.class, null);
+        if (service == null) {
+            // Worth reporting rather than throwing: a node where this module's service is absent is exactly
+            // one of the states being investigated, and it is indistinguishable from the others on a page.
+            return new GqlSgeDeployment(hostName(), false, "", false, false, false, "SERVICE_NOT_AVAILABLE", 0L);
+        }
+        if (Boolean.TRUE.equals(refresh)) {
+            service.invalidateSgeDeployment();
+        }
+        final long startedAt = System.currentTimeMillis();
+        final SgeDeployment deployment = service.getSgeDeployment();
+        final long elapsedMs = System.currentTimeMillis() - startedAt;
+        return new GqlSgeDeployment(
+                hostName(),
+                service.isProcessingServer(),
+                deployment.getProjectId() == null ? "" : deployment.getProjectId(),
+                deployment.getShareableKey() != null,
+                deployment.isAvailable(),
+                deployment.isUsable(),
+                deployment.getReason(),
+                elapsedMs);
+    }
+
+    /** Identifies the node that answered, so a reply cannot be attributed to the wrong one. */
+    private static String hostName() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException e) {
+            return "unknown";
+        }
     }
 
     @GraphQLField

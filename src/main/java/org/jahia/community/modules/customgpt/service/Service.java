@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import javax.jcr.PathNotFoundException;
@@ -97,6 +98,23 @@ public class Service implements EventHandler {
     private static final int READ_TIMEOUT_SECONDS = 30;
     private static final int WRITE_TIMEOUT_SECONDS = 30;
     private static final int CALL_TIMEOUT_SECONDS = 60;
+    /**
+     * Timeouts for the two SGE lookups, deliberately a fraction of the indexing ones above.
+     *
+     * <p>Indexing runs in the background on one node, so a 60-second ceiling there only ever delays a job.
+     * The SGE lookups run inside <em>page rendering</em>, on every node, including the browsing nodes that
+     * serve the public. The same ceiling there would let a slow CustomGPT hold a search page for a minute
+     * per call, so the whole lookup is capped at a few seconds and the feature is simply treated as
+     * unavailable if it cannot answer in that time. A missing button is a far smaller failure than a
+     * search page that does not load.
+     */
+    /**
+     * Prefix on every log line from the assistant-deployment path, so that one grep over all nodes
+     * ("why is the button on one node only?") returns the whole decision and nothing else.
+     */
+    private static final String SGE_LOG_TAG = "[customgpt-sge]";
+    private static final int SGE_CONNECT_TIMEOUT_SECONDS = 2;
+    private static final int SGE_CALL_TIMEOUT_SECONDS = 3;
     // Executor shutdown budget. Deliberately >= CALL_TIMEOUT_SECONDS: indexing a node is a DELETE of the previous
     // CustomGPT page followed by a re-add (see CustomGptIndexerNodeHandler), so a worker interrupted mid-sequence
     // leaves a page removed from the customer's project and never recreated. A budget shorter than one call
@@ -120,7 +138,26 @@ public class Service implements EventHandler {
      */
     private static final long SGE_CACHE_TTL_MS = 5L * 60L * 1000L;
 
+    /**
+     * How long an answer may go on standing in for failed refreshes.
+     *
+     * <p>Bounds the "keep the previous answer" rule so it cannot become permanent. Minutes of failure are
+     * a blip and must not disturb the page; an hour of them is an outage or a project that no longer
+     * exists, and then "the assistant is off" is the truthful answer rather than a key that no longer
+     * works.
+     */
+    private static final long SGE_MAX_STALE_MS = 60L * 60L * 1000L;
+
     private final AtomicReference<CachedSgeDeployment> sgeCache = new AtomicReference<>();
+
+    /**
+     * Held by the one thread allowed to refresh {@link #sgeCache}. Every caller is a page render, and on a
+     * browsing node there can be many at once: without this, each concurrent render arriving after the TTL
+     * expires would fire its own pair of calls to CustomGPT. Threads that cannot take it are served the
+     * previous answer instead of queueing, so an expiry costs one lookup rather than a burst, and only the
+     * thread doing it waits.
+     */
+    private final ReentrantLock sgeRefreshLock = new ReentrantLock();
     private static final String UNSET = "unset";
     private BundleContext bundleContext;
     private Config customGptConfig;
@@ -151,6 +188,17 @@ public class Service implements EventHandler {
     private boolean journalEventReaderEnabled;
     private OkHttpClient customGptClient;
     private OkHttpClient jahiaClient;
+    /**
+     * Read-only client for the two SGE lookups, built on <em>every</em> node.
+     *
+     * <p>Separate from {@link #customGptClient} on purpose. That one exists to index, which must run on a
+     * single node, so it is created only on the processing server -- correctly. The SGE lookups are reads
+     * performed while rendering a page, and rendering is exactly what the browsing nodes do, so they need
+     * a client of their own. Reusing the indexing client meant {@code customGptClient == null} on every
+     * browsing node, which {@link #resolveSgeDeployment()} could only read as "not configured": the
+     * assistant appeared on the processing node and nowhere else.
+     */
+    private OkHttpClient sgeClient;
     // Executors are restarted on demand by the synchronized restartExecutor* guards; volatile so a fresh pool
     // published by one thread is visible to the producers reading the field. The volatile reference is only ever
     // swapped inside synchronized restartExecutor* methods, so volatile (not AtomicReference) is the intended
@@ -808,8 +856,25 @@ public class Service implements EventHandler {
                 // door none of the shutdown hardening can close.
                 registerJcrListeners();
             }
+
+            // Outside the processing-server branch, deliberately. Everything above serves indexing, which
+            // belongs on one node; this client serves the assistant lookup, which every rendering node has
+            // to be able to do for itself. No rate-limit interceptor and no authenticator: both requests
+            // set Authorization themselves, and a back-off retry is the wrong behaviour inside a render.
+            sgeClient = new OkHttpClient.Builder()
+                    // Same reasoning as the clients above: a redirect to another host would forward the
+                    // Bearer token to whatever answered.
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .connectTimeout(SGE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .readTimeout(SGE_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .callTimeout(SGE_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .build();
+
             initialized = true;
             LOGGER.info("...service started");
+            // Last, and off this thread: resolve the assistant once so no visitor pays for the cold call.
+            warmUpSgeDeployment();
         }
     }
     
@@ -882,6 +947,7 @@ public class Service implements EventHandler {
         httpClientsClosed = true;
         closeHttpClient(customGptClient);
         closeHttpClient(jahiaClient);
+        closeHttpClient(sgeClient);
     }
 
     /**
@@ -1356,11 +1422,121 @@ public class Service implements EventHandler {
             return cached.deployment;
         }
 
-        final SgeDeployment resolved = resolveSgeDeployment();
-        // Cached whatever the outcome, including "not configured": a site that has not set this up must not
-        // pay for a lookup on every page view either.
-        sgeCache.set(new CachedSgeDeployment(resolved, System.currentTimeMillis() + SGE_CACHE_TTL_MS));
-        return resolved;
+        /*
+         * Expired. Exactly one thread refreshes; the rest are answered immediately rather than queued.
+         *
+         * This matters now in a way it did not when only the processing node resolved: on a browsing node
+         * the callers are concurrent page renders, so without the lock every render arriving after the TTL
+         * expires would fire its own pair of calls to CustomGPT, and with the lock but no early return they
+         * would all wait for the first one. Neither is acceptable in front of public traffic.
+         *
+         * A deployment five minutes past its TTL is a fine answer to give while the refresh runs: the quota
+         * it reports moves slowly, and the alternative is making a visitor wait on a third party. With
+         * nothing cached at all -- the first renders after a restart -- there is nothing to serve, so those
+         * callers get "not configured" for that one render and the refreshing thread populates the cache
+         * for the next.
+         */
+        if (!sgeRefreshLock.tryLock()) {
+            return cached != null ? cached.deployment : SgeDeployment.notConfigured();
+        }
+        try {
+            // Re-read under the lock: the previous holder may have just refreshed it.
+            final CachedSgeDeployment refreshed = sgeCache.get();
+            if (refreshed != null && !refreshed.isExpired()) {
+                return refreshed.deployment;
+            }
+            final SgeDeployment resolved = resolveSgeDeployment();
+            final long now = System.currentTimeMillis();
+
+            /*
+             * A failed refresh must not switch a working assistant off.
+             *
+             * Replacing a good answer with the failure is what turned one slow call into hours of missing
+             * button: the render that failed was cached as "not configured", Jahia cached the resulting
+             * page, and the page outlived the fault by far longer than the fault itself lasted. Keeping the
+             * previous answer costs nothing -- the deployment key does not change, and the quota it reports
+             * moves slowly -- and the next refresh in SGE_CACHE_TTL_MS tries again.
+             *
+             * Only NO_DEPLOYMENT_KEY qualifies, because only it is the API being unreachable or unhappy.
+             * The others are deliberate states that MUST take effect: NO_PROJECT_ID is someone removing the
+             * configuration, BAD_API_BASE_URL is a bad setting, NO_HTTP_CLIENT is structural. And the reuse
+             * is bounded by SGE_MAX_STALE_MS, so a project genuinely deleted at CustomGPT stops being
+             * served rather than lingering for the life of the JVM.
+             */
+            if (keepsPreviousAnswer(cached, resolved)) {
+                LOGGER.warn("{} Refresh failed ({}); keeping the answer resolved {} ms ago rather than"
+                        + " switching the assistant off on this node. Retrying in {} ms.",
+                        SGE_LOG_TAG, resolved.getReason(), now - cached.resolvedAt, SGE_CACHE_TTL_MS);
+                sgeCache.set(new CachedSgeDeployment(cached.deployment, cached.resolvedAt, now + SGE_CACHE_TTL_MS));
+                return cached.deployment;
+            }
+
+            // Cached whatever the outcome, including "not configured": a site that has not set this up must
+            // not pay for a lookup on every page view either.
+            sgeCache.set(new CachedSgeDeployment(resolved, now, now + SGE_CACHE_TTL_MS));
+            return resolved;
+        } finally {
+            sgeRefreshLock.unlock();
+        }
+    }
+
+    /**
+     * Whether a failed refresh should be papered over with the answer already held.
+     *
+     * @param cached   the entry the refresh started from; null on the first resolution
+     * @param resolved what the refresh produced
+     */
+    private static boolean keepsPreviousAnswer(CachedSgeDeployment cached, SgeDeployment resolved) {
+        return cached != null
+                && cached.isRealAnswer()
+                && !cached.isTooStaleToKeep()
+                && SgeDeployment.REASON_NO_DEPLOYMENT_KEY.equals(resolved.getReason());
+    }
+
+    /**
+     * Resolves the deployment once, in the background, as the service starts.
+     *
+     * <p>Without this the first visitor to reach a search page after a restart pays for the whole cold
+     * path: on a node that makes no other outbound HTTPS call, that first request also initialises the
+     * JSSE stack, which measured ~3s against ~1s once warm. It exceeded the budget, was cached as a
+     * failure, and Jahia then cached the resulting button-less page for hours -- a few seconds of
+     * start-up cost turned into an outage of the feature.
+     *
+     * <p>Deliberately off the activation thread: OSGi activation must not block on a third party. A plain
+     * daemon thread rather than a pool because it runs exactly once and must not outlive its work.
+     */
+    private void warmUpSgeDeployment() {
+        final String projectId = customGptConfig == null ? null : customGptConfig.getCustomGptProjectId();
+        if (projectId == null || projectId.isEmpty()) {
+            // Nothing configured here: no call to make, and nothing worth saying about it at start-up.
+            return;
+        }
+        final Thread warmUp = new Thread(() -> {
+            if (disposed) {
+                return;
+            }
+            try {
+                getSgeDeployment();
+            } catch (RuntimeException | LinkageError e) {
+                // Never fatal: the first page render will simply resolve it instead, which is the old
+                // behaviour. Shutdown cancelling the call in flight lands here too.
+                LOGGER.warn("{} Start-up resolution failed, so the first page render will do it instead: {}",
+                        SGE_LOG_TAG, e.toString());
+            }
+        }, "customgpt-sge-warmup");
+        warmUp.setDaemon(true);
+        warmUp.start();
+    }
+
+    /**
+     * Whether this node is the processing server.
+     *
+     * <p>Exposed for the admin GraphQL field, which has to be able to say which kind of node answered: the
+     * whole class of fault being diagnosed is one that appears on browsing nodes and not on the processing
+     * one, and a reply that does not identify its node cannot settle that.
+     */
+    public boolean isProcessingServer() {
+        return settingsBean != null && settingsBean.isProcessingServer();
     }
 
     /** Drops the cached deployment, so the next read re-resolves. Called when the configuration changes. */
@@ -1368,28 +1544,55 @@ public class Service implements EventHandler {
         sgeCache.set(null);
     }
 
+    /**
+     * Resolves the deployment, saying out loud which way it went.
+     *
+     * <p>Every branch here used to return the same {@link SgeDeployment#notConfigured()} and three of the
+     * four did so without a word, so "the assistant is missing on this node" was indistinguishable from
+     * "the assistant is switched off on this node", with nothing in any log to separate them. That cost two
+     * wrong diagnoses on a live cluster. Each cause now names itself, and all of them share
+     * {@value #SGE_LOG_TAG} so one grep across the nodes answers the question.
+     *
+     * <p>They are warnings rather than debug because every one of them is a feature silently not appearing
+     * on a page, and they cost at most one line per node per {@value #SGE_CACHE_TTL_MS} ms.
+     */
     private SgeDeployment resolveSgeDeployment() {
         final String projectId = customGptConfig.getCustomGptProjectId();
-        if (projectId == null || projectId.isEmpty() || customGptClient == null) {
-            return SgeDeployment.notConfigured();
+        if (projectId == null || projectId.isEmpty()) {
+            LOGGER.warn("{} No projectId is configured on THIS node, so the assistant is not offered here."
+                    + " The configuration is per node: check karaf/etc/org.jahia.community.modules.customgpt.cfg"
+                    + " on this node, not only on the processing one.", SGE_LOG_TAG);
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_NO_PROJECT_ID);
+        }
+        if (sgeClient == null) {
+            LOGGER.warn("{} No HTTP client on THIS node, so the assistant cannot be resolved here. The client is"
+                    + " built in init(); this means init() did not run or did not complete on this node.",
+                    SGE_LOG_TAG);
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_NO_HTTP_CLIENT);
         }
 
         final String baseUrl;
         try {
             baseUrl = resolveValidatedApiBaseUrl();
         } catch (IllegalStateException e) {
-            LOGGER.warn("Cannot resolve the CustomGPT SGE deployment: {}", e.getMessage());
-            return SgeDeployment.notConfigured();
+            LOGGER.warn("{} Cannot resolve the CustomGPT API base URL: {}", SGE_LOG_TAG, e.getMessage());
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_BAD_API_BASE_URL);
         }
 
         final String shareableKey = fetchShareableKey(baseUrl, projectId);
         if (shareableKey == null) {
             // Without the public key there is nothing to embed, so this is "not configured" rather than
             // "unavailable" -- the caller renders nothing either way, but the distinction is in the logs.
-            return SgeDeployment.notConfigured();
+            LOGGER.warn("{} Could not read the deployment key from {} for project {}, so the assistant is not"
+                    + " offered on this node until the next refresh. The preceding log line says why: an I/O"
+                    + " error there means THIS node cannot reach the CustomGPT API, which is a different fault"
+                    + " from the feature being switched off.", SGE_LOG_TAG, baseUrl, projectId);
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_NO_DEPLOYMENT_KEY);
         }
 
-        return SgeDeployment.of(projectId, shareableKey, hasQueryQuotaLeft(baseUrl));
+        final SgeDeployment resolved = SgeDeployment.of(projectId, shareableKey, hasQueryQuotaLeft(baseUrl));
+        LOGGER.info("{} Resolved on this node: {}", SGE_LOG_TAG, resolved);
+        return resolved;
     }
 
     /** The {@code shareable_slug} of the project: CustomGPT's public deployment key. */
@@ -1400,9 +1603,9 @@ public class Service implements EventHandler {
                 .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
                 .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
                 .build();
-        try (Response response = customGptClient.newCall(request).execute()) {
+        try (Response response = sgeClient.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                LOGGER.warn("Cannot read the CustomGPT deployment key for project {}: HTTP {}", projectId,
+                LOGGER.warn("{} Cannot read the deployment key for project {}: HTTP {}", SGE_LOG_TAG, projectId,
                         response.code());
                 return null;
             }
@@ -1413,7 +1616,8 @@ public class Service implements EventHandler {
             final String slug = data.optString("shareable_slug", null);
             return slug == null || slug.isEmpty() ? null : slug;
         } catch (IOException e) {
-            LOGGER.warn("Error reading the CustomGPT deployment key: {}", e.getMessage());
+            LOGGER.warn("{} I/O error reading the deployment key, so THIS node could not reach the CustomGPT API: {}",
+                    SGE_LOG_TAG, e.toString());
             return null;
         }
     }
@@ -1426,15 +1630,15 @@ public class Service implements EventHandler {
                 .addHeader(HEADER_ACCEPT, MEDIA_TYPE_JSON)
                 .addHeader(HEADER_AUTHORIZATION, BEARER_PREFIX + customGptConfig.getCustomGptToken())
                 .build();
-        try (Response response = customGptClient.newCall(request).execute()) {
+        try (Response response = sgeClient.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                LOGGER.warn("Could not read the CustomGPT query quota (HTTP {}); assuming it is available",
+                LOGGER.warn("{} Could not read the query quota (HTTP {}); assuming it is available", SGE_LOG_TAG,
                         response.code());
                 return true;
             }
             return hasQueryQuotaLeft(new JSONObject(response.body().string()).optJSONObject("data"));
         } catch (IOException e) {
-            LOGGER.warn("Error reading the CustomGPT query quota ({}); assuming it is available", e.getMessage());
+            LOGGER.warn("{} Error reading the query quota ({}); assuming it is available", SGE_LOG_TAG, e.toString());
             return true;
         }
     }
@@ -1462,15 +1666,32 @@ public class Service implements EventHandler {
     private static final class CachedSgeDeployment {
 
         private final SgeDeployment deployment;
+        /**
+         * When this deployment was genuinely obtained from CustomGPT -- NOT when it was last cached. A
+         * deployment kept across a failed refresh is re-cached with a fresh {@link #expiresAt} but keeps
+         * its original {@code resolvedAt}, so its true age still bounds how long it may be reused.
+         */
+        private final long resolvedAt;
         private final long expiresAt;
 
-        private CachedSgeDeployment(SgeDeployment deployment, long expiresAt) {
+        private CachedSgeDeployment(SgeDeployment deployment, long resolvedAt, long expiresAt) {
             this.deployment = deployment;
+            this.resolvedAt = resolvedAt;
             this.expiresAt = expiresAt;
         }
 
         private boolean isExpired() {
             return System.currentTimeMillis() >= expiresAt;
+        }
+
+        /** True once this answer is too old to keep standing in for a failed refresh. */
+        private boolean isTooStaleToKeep() {
+            return System.currentTimeMillis() - resolvedAt >= SGE_MAX_STALE_MS;
+        }
+
+        /** A real answer from the API, as opposed to a record of a failure. */
+        private boolean isRealAnswer() {
+            return deployment != null && deployment.getProjectId() != null;
         }
     }
 
