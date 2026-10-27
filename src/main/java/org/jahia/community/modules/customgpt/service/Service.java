@@ -108,6 +108,11 @@ public class Service implements EventHandler {
      * unavailable if it cannot answer in that time. A missing button is a far smaller failure than a
      * search page that does not load.
      */
+    /**
+     * Prefix on every log line from the assistant-deployment path, so that one grep over all nodes
+     * ("why is the button on one node only?") returns the whole decision and nothing else.
+     */
+    private static final String SGE_LOG_TAG = "[customgpt-sge]";
     private static final int SGE_CONNECT_TIMEOUT_SECONDS = 2;
     private static final int SGE_CALL_TIMEOUT_SECONDS = 3;
     // Executor shutdown budget. Deliberately >= CALL_TIMEOUT_SECONDS: indexing a node is a DELETE of the previous
@@ -1443,9 +1448,30 @@ public class Service implements EventHandler {
         sgeCache.set(null);
     }
 
+    /**
+     * Resolves the deployment, saying out loud which way it went.
+     *
+     * <p>Every branch here used to return the same {@link SgeDeployment#notConfigured()} and three of the
+     * four did so without a word, so "the assistant is missing on this node" was indistinguishable from
+     * "the assistant is switched off on this node", with nothing in any log to separate them. That cost two
+     * wrong diagnoses on a live cluster. Each cause now names itself, and all of them share
+     * {@value #SGE_LOG_TAG} so one grep across the nodes answers the question.
+     *
+     * <p>They are warnings rather than debug because every one of them is a feature silently not appearing
+     * on a page, and they cost at most one line per node per {@value #SGE_CACHE_TTL_MS} ms.
+     */
     private SgeDeployment resolveSgeDeployment() {
         final String projectId = customGptConfig.getCustomGptProjectId();
-        if (projectId == null || projectId.isEmpty() || sgeClient == null) {
+        if (projectId == null || projectId.isEmpty()) {
+            LOGGER.warn("{} No projectId is configured on THIS node, so the assistant is not offered here."
+                    + " The configuration is per node: check karaf/etc/org.jahia.community.modules.customgpt.cfg"
+                    + " on this node, not only on the processing one.", SGE_LOG_TAG);
+            return SgeDeployment.notConfigured();
+        }
+        if (sgeClient == null) {
+            LOGGER.warn("{} No HTTP client on THIS node, so the assistant cannot be resolved here. The client is"
+                    + " built in init(); this means init() did not run or did not complete on this node.",
+                    SGE_LOG_TAG);
             return SgeDeployment.notConfigured();
         }
 
@@ -1453,7 +1479,7 @@ public class Service implements EventHandler {
         try {
             baseUrl = resolveValidatedApiBaseUrl();
         } catch (IllegalStateException e) {
-            LOGGER.warn("Cannot resolve the CustomGPT SGE deployment: {}", e.getMessage());
+            LOGGER.warn("{} Cannot resolve the CustomGPT API base URL: {}", SGE_LOG_TAG, e.getMessage());
             return SgeDeployment.notConfigured();
         }
 
@@ -1461,10 +1487,16 @@ public class Service implements EventHandler {
         if (shareableKey == null) {
             // Without the public key there is nothing to embed, so this is "not configured" rather than
             // "unavailable" -- the caller renders nothing either way, but the distinction is in the logs.
+            LOGGER.warn("{} Could not read the deployment key from {} for project {}, so the assistant is not"
+                    + " offered on this node until the next refresh. The preceding log line says why: an I/O"
+                    + " error there means THIS node cannot reach the CustomGPT API, which is a different fault"
+                    + " from the feature being switched off.", SGE_LOG_TAG, baseUrl, projectId);
             return SgeDeployment.notConfigured();
         }
 
-        return SgeDeployment.of(projectId, shareableKey, hasQueryQuotaLeft(baseUrl));
+        final SgeDeployment resolved = SgeDeployment.of(projectId, shareableKey, hasQueryQuotaLeft(baseUrl));
+        LOGGER.info("{} Resolved on this node: {}", SGE_LOG_TAG, resolved);
+        return resolved;
     }
 
     /** The {@code shareable_slug} of the project: CustomGPT's public deployment key. */
@@ -1477,7 +1509,7 @@ public class Service implements EventHandler {
                 .build();
         try (Response response = sgeClient.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                LOGGER.warn("Cannot read the CustomGPT deployment key for project {}: HTTP {}", projectId,
+                LOGGER.warn("{} Cannot read the deployment key for project {}: HTTP {}", SGE_LOG_TAG, projectId,
                         response.code());
                 return null;
             }
@@ -1488,7 +1520,8 @@ public class Service implements EventHandler {
             final String slug = data.optString("shareable_slug", null);
             return slug == null || slug.isEmpty() ? null : slug;
         } catch (IOException e) {
-            LOGGER.warn("Error reading the CustomGPT deployment key: {}", e.getMessage());
+            LOGGER.warn("{} I/O error reading the deployment key, so THIS node could not reach the CustomGPT API: {}",
+                    SGE_LOG_TAG, e.toString());
             return null;
         }
     }
@@ -1503,13 +1536,13 @@ public class Service implements EventHandler {
                 .build();
         try (Response response = sgeClient.newCall(request).execute()) {
             if (!response.isSuccessful() || response.body() == null) {
-                LOGGER.warn("Could not read the CustomGPT query quota (HTTP {}); assuming it is available",
+                LOGGER.warn("{} Could not read the query quota (HTTP {}); assuming it is available", SGE_LOG_TAG,
                         response.code());
                 return true;
             }
             return hasQueryQuotaLeft(new JSONObject(response.body().string()).optJSONObject("data"));
         } catch (IOException e) {
-            LOGGER.warn("Error reading the CustomGPT query quota ({}); assuming it is available", e.getMessage());
+            LOGGER.warn("{} Error reading the query quota ({}); assuming it is available", SGE_LOG_TAG, e.toString());
             return true;
         }
     }
