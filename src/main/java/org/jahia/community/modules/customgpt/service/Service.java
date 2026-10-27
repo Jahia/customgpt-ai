@@ -138,6 +138,16 @@ public class Service implements EventHandler {
      */
     private static final long SGE_CACHE_TTL_MS = 5L * 60L * 1000L;
 
+    /**
+     * How long an answer may go on standing in for failed refreshes.
+     *
+     * <p>Bounds the "keep the previous answer" rule so it cannot become permanent. Minutes of failure are
+     * a blip and must not disturb the page; an hour of them is an outage or a project that no longer
+     * exists, and then "the assistant is off" is the truthful answer rather than a key that no longer
+     * works.
+     */
+    private static final long SGE_MAX_STALE_MS = 60L * 60L * 1000L;
+
     private final AtomicReference<CachedSgeDeployment> sgeCache = new AtomicReference<>();
 
     /**
@@ -863,6 +873,8 @@ public class Service implements EventHandler {
 
             initialized = true;
             LOGGER.info("...service started");
+            // Last, and off this thread: resolve the assistant once so no visitor pays for the cold call.
+            warmUpSgeDeployment();
         }
     }
     
@@ -1434,13 +1446,86 @@ public class Service implements EventHandler {
                 return refreshed.deployment;
             }
             final SgeDeployment resolved = resolveSgeDeployment();
+            final long now = System.currentTimeMillis();
+
+            /*
+             * A failed refresh must not switch a working assistant off.
+             *
+             * Replacing a good answer with the failure is what turned one slow call into hours of missing
+             * button: the render that failed was cached as "not configured", Jahia cached the resulting
+             * page, and the page outlived the fault by far longer than the fault itself lasted. Keeping the
+             * previous answer costs nothing -- the deployment key does not change, and the quota it reports
+             * moves slowly -- and the next refresh in SGE_CACHE_TTL_MS tries again.
+             *
+             * Only NO_DEPLOYMENT_KEY qualifies, because only it is the API being unreachable or unhappy.
+             * The others are deliberate states that MUST take effect: NO_PROJECT_ID is someone removing the
+             * configuration, BAD_API_BASE_URL is a bad setting, NO_HTTP_CLIENT is structural. And the reuse
+             * is bounded by SGE_MAX_STALE_MS, so a project genuinely deleted at CustomGPT stops being
+             * served rather than lingering for the life of the JVM.
+             */
+            if (keepsPreviousAnswer(cached, resolved)) {
+                LOGGER.warn("{} Refresh failed ({}); keeping the answer resolved {} ms ago rather than"
+                        + " switching the assistant off on this node. Retrying in {} ms.",
+                        SGE_LOG_TAG, resolved.getReason(), now - cached.resolvedAt, SGE_CACHE_TTL_MS);
+                sgeCache.set(new CachedSgeDeployment(cached.deployment, cached.resolvedAt, now + SGE_CACHE_TTL_MS));
+                return cached.deployment;
+            }
+
             // Cached whatever the outcome, including "not configured": a site that has not set this up must
             // not pay for a lookup on every page view either.
-            sgeCache.set(new CachedSgeDeployment(resolved, System.currentTimeMillis() + SGE_CACHE_TTL_MS));
+            sgeCache.set(new CachedSgeDeployment(resolved, now, now + SGE_CACHE_TTL_MS));
             return resolved;
         } finally {
             sgeRefreshLock.unlock();
         }
+    }
+
+    /**
+     * Whether a failed refresh should be papered over with the answer already held.
+     *
+     * @param cached   the entry the refresh started from; null on the first resolution
+     * @param resolved what the refresh produced
+     */
+    private static boolean keepsPreviousAnswer(CachedSgeDeployment cached, SgeDeployment resolved) {
+        return cached != null
+                && cached.isRealAnswer()
+                && !cached.isTooStaleToKeep()
+                && SgeDeployment.REASON_NO_DEPLOYMENT_KEY.equals(resolved.getReason());
+    }
+
+    /**
+     * Resolves the deployment once, in the background, as the service starts.
+     *
+     * <p>Without this the first visitor to reach a search page after a restart pays for the whole cold
+     * path: on a node that makes no other outbound HTTPS call, that first request also initialises the
+     * JSSE stack, which measured ~3s against ~1s once warm. It exceeded the budget, was cached as a
+     * failure, and Jahia then cached the resulting button-less page for hours -- a few seconds of
+     * start-up cost turned into an outage of the feature.
+     *
+     * <p>Deliberately off the activation thread: OSGi activation must not block on a third party. A plain
+     * daemon thread rather than a pool because it runs exactly once and must not outlive its work.
+     */
+    private void warmUpSgeDeployment() {
+        final String projectId = customGptConfig == null ? null : customGptConfig.getCustomGptProjectId();
+        if (projectId == null || projectId.isEmpty()) {
+            // Nothing configured here: no call to make, and nothing worth saying about it at start-up.
+            return;
+        }
+        final Thread warmUp = new Thread(() -> {
+            if (disposed) {
+                return;
+            }
+            try {
+                getSgeDeployment();
+            } catch (RuntimeException | LinkageError e) {
+                // Never fatal: the first page render will simply resolve it instead, which is the old
+                // behaviour. Shutdown cancelling the call in flight lands here too.
+                LOGGER.warn("{} Start-up resolution failed, so the first page render will do it instead: {}",
+                        SGE_LOG_TAG, e.toString());
+            }
+        }, "customgpt-sge-warmup");
+        warmUp.setDaemon(true);
+        warmUp.start();
     }
 
     /**
@@ -1581,15 +1666,32 @@ public class Service implements EventHandler {
     private static final class CachedSgeDeployment {
 
         private final SgeDeployment deployment;
+        /**
+         * When this deployment was genuinely obtained from CustomGPT -- NOT when it was last cached. A
+         * deployment kept across a failed refresh is re-cached with a fresh {@link #expiresAt} but keeps
+         * its original {@code resolvedAt}, so its true age still bounds how long it may be reused.
+         */
+        private final long resolvedAt;
         private final long expiresAt;
 
-        private CachedSgeDeployment(SgeDeployment deployment, long expiresAt) {
+        private CachedSgeDeployment(SgeDeployment deployment, long resolvedAt, long expiresAt) {
             this.deployment = deployment;
+            this.resolvedAt = resolvedAt;
             this.expiresAt = expiresAt;
         }
 
         private boolean isExpired() {
             return System.currentTimeMillis() >= expiresAt;
+        }
+
+        /** True once this answer is too old to keep standing in for a failed refresh. */
+        private boolean isTooStaleToKeep() {
+            return System.currentTimeMillis() - resolvedAt >= SGE_MAX_STALE_MS;
+        }
+
+        /** A real answer from the API, as opposed to a record of a failure. */
+        private boolean isRealAnswer() {
+            return deployment != null && deployment.getProjectId() != null;
         }
     }
 
