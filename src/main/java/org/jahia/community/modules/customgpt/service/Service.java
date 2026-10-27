@@ -1443,6 +1443,17 @@ public class Service implements EventHandler {
         }
     }
 
+    /**
+     * Whether this node is the processing server.
+     *
+     * <p>Exposed for the admin GraphQL field, which has to be able to say which kind of node answered: the
+     * whole class of fault being diagnosed is one that appears on browsing nodes and not on the processing
+     * one, and a reply that does not identify its node cannot settle that.
+     */
+    public boolean isProcessingServer() {
+        return settingsBean != null && settingsBean.isProcessingServer();
+    }
+
     /** Drops the cached deployment, so the next read re-resolves. Called when the configuration changes. */
     public void invalidateSgeDeployment() {
         sgeCache.set(null);
@@ -1466,13 +1477,13 @@ public class Service implements EventHandler {
             LOGGER.warn("{} No projectId is configured on THIS node, so the assistant is not offered here."
                     + " The configuration is per node: check karaf/etc/org.jahia.community.modules.customgpt.cfg"
                     + " on this node, not only on the processing one.", SGE_LOG_TAG);
-            return SgeDeployment.notConfigured();
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_NO_PROJECT_ID);
         }
         if (sgeClient == null) {
             LOGGER.warn("{} No HTTP client on THIS node, so the assistant cannot be resolved here. The client is"
                     + " built in init(); this means init() did not run or did not complete on this node.",
                     SGE_LOG_TAG);
-            return SgeDeployment.notConfigured();
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_NO_HTTP_CLIENT);
         }
 
         final String baseUrl;
@@ -1480,7 +1491,7 @@ public class Service implements EventHandler {
             baseUrl = resolveValidatedApiBaseUrl();
         } catch (IllegalStateException e) {
             LOGGER.warn("{} Cannot resolve the CustomGPT API base URL: {}", SGE_LOG_TAG, e.getMessage());
-            return SgeDeployment.notConfigured();
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_BAD_API_BASE_URL);
         }
 
         final String shareableKey = fetchShareableKey(baseUrl, projectId);
@@ -1491,7 +1502,7 @@ public class Service implements EventHandler {
                     + " offered on this node until the next refresh. The preceding log line says why: an I/O"
                     + " error there means THIS node cannot reach the CustomGPT API, which is a different fault"
                     + " from the feature being switched off.", SGE_LOG_TAG, baseUrl, projectId);
-            return SgeDeployment.notConfigured();
+            return SgeDeployment.notConfigured(SgeDeployment.REASON_NO_DEPLOYMENT_KEY);
         }
 
         final SgeDeployment resolved = SgeDeployment.of(projectId, shareableKey, hasQueryQuotaLeft(baseUrl));
