@@ -193,11 +193,11 @@ describe('CustomGPT.ai indexation server name', function () {
     it('normalises a bare host name to an https origin', () => {
         // The form an admin reaches for, matching Jahia's own j:serverName. It must come back as an origin,
         // because callers concatenate it with a path.
-        cy.apollo({mutation: saveSettings, variables: {serverName: 'academypp.jahia.com', siteServerNames: ''}});
+        cy.apollo({mutation: saveSettings, variables: {serverName: 'preprod.example.com', siteServerNames: ''}});
 
         cy.apollo({query: getSettings})
             .its('data.admin.customGpt.settings.serverName')
-            .should('eq', 'https://academypp.jahia.com');
+            .should('eq', 'https://preprod.example.com');
     });
 
     it('ignores an override pointing at a private address', () => {

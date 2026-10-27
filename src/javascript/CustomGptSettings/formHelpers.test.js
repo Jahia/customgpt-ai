@@ -122,11 +122,11 @@ describe('server name fields', () => {
 
     it('carries the server name through from the server settings', () => {
         const formState = settingsToFormState({
-            serverName: 'https://academypp.jahia.com',
+            serverName: 'https://preprod.example.com',
             siteServerNames: 'academy=https://academy.jahia.com'
         });
 
-        expect(formState.serverName).toBe('https://academypp.jahia.com');
+        expect(formState.serverName).toBe('https://preprod.example.com');
         expect(formState.siteServerNames).toBe('academy=https://academy.jahia.com');
     });
 

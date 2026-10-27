@@ -29,21 +29,21 @@ public class UtilsServerNameTest {
     public void getHostName_usesThePerSiteOverrideInsteadOfTheSitemapHost() {
         // Arrange
         final JCRSiteNode siteNode = siteNode("academy");
-        final Config config = configWith(NS + ".site.academy.serverName", "https://academypp.jahia.com");
+        final Config config = configWith(NS + ".site.academy.serverName", "https://preprod.example.com");
 
         // Act
         final String hostName = Utils.getHostName(siteNode, config);
 
         // Assert: the sitemapIndexURL property is not even read when an override applies
-        assertThat(hostName).isEqualTo("https://academypp.jahia.com");
+        assertThat(hostName).isEqualTo("https://preprod.example.com");
         verify(siteNode, never()).getPropertyAsString("sitemapIndexURL");
     }
 
     @Test
     public void getHostName_usesTheGlobalOverrideForASiteThatHasNoneOfItsOwn() {
-        final Config config = configWith(NS + ".serverName", "https://academypp.jahia.com");
+        final Config config = configWith(NS + ".serverName", "https://preprod.example.com");
 
-        assertThat(Utils.getHostName(siteNode("digitall"), config)).isEqualTo("https://academypp.jahia.com");
+        assertThat(Utils.getHostName(siteNode("digitall"), config)).isEqualTo("https://preprod.example.com");
     }
 
     @Test
