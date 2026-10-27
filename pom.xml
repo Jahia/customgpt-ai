@@ -82,7 +82,7 @@
         <dependency>
             <groupId>org.apache.felix</groupId>
             <artifactId>org.apache.felix.utils</artifactId>
-            <version>1.11.8</version>
+            <version>1.11.10</version>
         </dependency>
         <dependency>
             <!-- JUnit 4: the jahia-modules parent pins the surefire-junit4 provider, so JUnit 5 (jupiter)
