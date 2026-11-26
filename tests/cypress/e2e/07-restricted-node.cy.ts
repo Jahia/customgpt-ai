@@ -42,6 +42,11 @@ describe('CustomGPT.ai restricted content', function () {
         });
 
     before(function () {
+        // A real run indexes the whole site in CustomGPT, as specs 02, 03 and 05 do, and needs the same project.
+        if (!Cypress.env('CUSTOMGPT_PROJECT_ID') || !Cypress.env('CUSTOMGPT_TOKEN')) {
+            this.skip();
+        }
+
         cy.login();
         configureIndexer(siteKey(), saveSettings, {scheduleJobASAP: false});
         cy.apollo({mutation: addSite, variables: {siteKey: siteKey()}});
