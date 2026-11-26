@@ -85,6 +85,16 @@ public class UtilsServerNameTest {
     }
 
     @Test
+    public void getHostName_returnsNothingForASiteWithNoSitemapIndexURL() {
+        // A site without the sitemap mixin has no sitemapIndexURL at all. URI.create(null) throws a
+        // NullPointerException, which the catch for a malformed URL did not cover: it escaped the indexation of
+        // every page of the site as an unexplained failure instead of the clear "no server name" error.
+        final JCRSiteNode siteNode = siteNode("acme", null);
+
+        assertThat(Utils.getHostName(siteNode, null)).isEmpty();
+    }
+
+    @Test
     public void getHostName_stillReturnsNothingForASitemapUrlThatIsNotAUrlAtAll() {
         // The malformed case is unchanged: there is no host to build a citation from, so there is nothing to do.
         assertThat(Utils.getHostName(siteNode("acme", "not a url"), null)).isEmpty();

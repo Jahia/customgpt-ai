@@ -135,6 +135,13 @@ public final class Utils {
         final String hostName;
         try {
             final String sitemapIndexURL = siteNode.getPropertyAsString("sitemapIndexURL");
+            if (StringUtils.isEmpty(sitemapIndexURL)) {
+                // No sitemap mixin on the site: no host to derive. URI.create(null) would throw a
+                // NullPointerException, which the catch below does not cover.
+                LOGGER.warn("Site {} has no sitemapIndexURL and no configured serverName: its pages cannot be indexed",
+                        siteNode.getPath());
+                return "";
+            }
             final URL serverUrl = URI.create(sitemapIndexURL).toURL();
             hostName = StringUtils.substringBeforeLast(sitemapIndexURL, serverUrl.getPath());
             return hostName;
